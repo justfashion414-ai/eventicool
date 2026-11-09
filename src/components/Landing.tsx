@@ -2,7 +2,7 @@ export default function Landing() {
   return (
     <main className="min-h-screen bg-white text-slate-900">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <span className="text-xl font-bold tracking-tight">Eventicool</span>
+        <span className="text-xl font-bold tracking-tight">Eventicor</span>
         <a href="/login" className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
           Sign in
         </a>
@@ -24,7 +24,7 @@ export default function Landing() {
         </div>
       </section>
       <footer className="border-t border-slate-200 py-8 text-center text-sm text-slate-500">
-        &copy; 2026 Eventicool
+        &copy; 2026 Eventicor
       </footer>
     </main>
   )

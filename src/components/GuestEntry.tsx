@@ -51,7 +51,7 @@ export default function GuestEntry({ onDone }: { onDone: (code: string) => void 
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
       <div className="w-full max-w-sm">
         <a href="/" className="mb-10 block text-center text-2xl font-bold tracking-tight text-slate-900">
-          Eventicool
+          Eventicor
         </a>
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <h1 className="text-xl font-bold text-slate-900">Enter your event code</h1>

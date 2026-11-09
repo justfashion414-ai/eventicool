@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 
-// Eventicool web app — Firebase project eventicool-3887d.
+// Eventicor web app — Firebase project eventicool-3887d.
 // Values come from Netlify environment variables (FIREBASE_*), with the
 // web-app config as fallback so local dev works without a .env file.
 const env = import.meta.env

@@ -86,7 +86,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="px-5 py-5 text-lg font-bold tracking-tight">Eventicool</div>
+        <div className="px-5 py-5 text-lg font-bold tracking-tight">Eventicor</div>
         {nav}
         <div className="border-t border-slate-200 p-3">
           <a href="/" className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200">
@@ -103,7 +103,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
         }`}
       >
         <div className="flex items-center justify-between px-5 py-5">
-          <span className="text-lg font-bold tracking-tight">Eventicool</span>
+          <span className="text-lg font-bold tracking-tight">Eventicor</span>
           <button onClick={() => setDrawerOpen(false)} aria-label="Close menu">
             <X className="h-5 w-5 text-slate-500" />
           </button>
