@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import Landing from './components/Landing'
+import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
 import AdminConsole from './components/AdminConsole'
@@ -71,5 +71,5 @@ export default function App() {
     )
   }
 
-  return <Landing />
+  return <LandingMarketing />
 }
