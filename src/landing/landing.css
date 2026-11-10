@@ -23,3 +23,11 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .mb button{display:flex;flex-direction:column;align-items:center;gap:3px}
 #ev-l .mb .ni{display:block;line-height:0;opacity:.95}
 #ev-l .mb .ni svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Steps: centered numbers, gentle pulse */
+.step{text-align:center}
+.step b{display:block;width:56px;height:56px;margin:0 auto 12px;border-radius:50%;line-height:56px;text-align:center;animation:steppulse 2.8s ease-in-out infinite}
+.steps .step:nth-child(2) b{animation-delay:.4s}
+.steps .step:nth-child(3) b{animation-delay:.8s}
+@keyframes steppulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@media (prefers-reduced-motion:reduce){.step b{animation:none}}
