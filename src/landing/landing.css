@@ -16,3 +16,10 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #upm .ubb{display:block;text-align:center;background:#17162e;color:#fff;border-radius:12px;padding:12px;cursor:pointer;font-weight:700;font-size:14px}
 #upm .ubb input{display:none}
 #upm .ubd{width:100%;margin-top:8px;background:#f1eef8;color:#17162e;border:0;border-radius:12px;padding:12px;font-weight:700;cursor:pointer;font-family:inherit;font-size:14px}
+
+#ev-l .fm{height:auto;aspect-ratio:4/5;overflow:hidden;position:relative;display:block}
+#ev-l .fm img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#ev-l .fpst{border-top:1px solid color-mix(in srgb,var(--f) 28%,transparent);padding:12px 12px 10px}
+#ev-l .mb button{display:flex;flex-direction:column;align-items:center;gap:3px}
+#ev-l .mb .ni{display:block;line-height:0;opacity:.95}
+#ev-l .mb .ni svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
