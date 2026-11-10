@@ -31,3 +31,24 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 .steps .step:nth-child(3) b{animation-delay:.8s}
 @keyframes steppulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
 @media (prefers-reduced-motion:reduce){.step b{animation:none}}
+
+/* Install: pinned step screens */
+#app{--apw:min(64vw,270px)}
+#app .appwrap{height:340vh;position:relative}
+#app .appin{position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+#app .aphones{display:flex;gap:18px;will-change:transform;margin:26px 0 6px;padding-left:calc(50vw - var(--apw)/2)}
+.aph{flex:0 0 var(--apw);transition:opacity .35s}
+.aph:not(.on){opacity:.4}
+.aphc{display:flex;gap:10px;align-items:baseline;justify-content:center;margin-top:12px;color:#cfcdea;font-size:13px}
+.aphc b{color:#fff;font-size:17px}
+/* Security: scroll arc */
+#security .secwrap{height:300vh;position:relative}
+#security .secin{position:sticky;top:64px;height:calc(100vh - 64px);display:flex;align-items:center;overflow:hidden;padding-top:10px}
+.sgarc{position:relative;height:min(58vh,430px);flex:1;color:#17162e;margin-top:10px;overflow:visible}
+.sgn{position:absolute;font-weight:800;line-height:1;color:#17162e;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sgl{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.sgdot{position:absolute;width:9px;height:9px;border-radius:50%;background:#17162e;transform:translate(-50%,-50%)}
+.sgd{position:absolute;left:50%;top:50%;transform:translateY(-50%);max-width:290px}
+.sgd b{display:block;font-size:18px;margin-bottom:6px}
+.sgd p{margin:0;color:#55546e;font-size:14px;line-height:1.5}
+@media(max-width:760px){#app{--apw:min(74vw,240px)}.sgd{max-width:220px}.sgd b{font-size:15px}.sgd p{font-size:12.5px}}
