@@ -34,10 +34,10 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 
 /* Install: pinned step screens */
 #app{--apw:min(64vw,270px)}
-#app .appwrap{height:auto}
-#app .appin{display:flex;flex-direction:column;justify-content:center;padding:16px 0 8px}
-#app .aphones{display:flex;flex-direction:column;align-items:center;gap:56px;margin:32px 0 10px}
-.aph{display:flex;flex-direction:column;align-items:center;width:100%}
+#app .appwrap{height:340vh;position:relative}
+#app .appin{position:sticky;top:64px;height:calc(100vh - 64px);display:flex;flex-direction:column;justify-content:center;overflow:hidden;padding:16px 0 8px}
+#app .aphones{display:flex;gap:18px;will-change:transform;margin:26px 0 6px;padding-left:calc(50vw - var(--apw)/2)}
+.aph{display:flex;flex-direction:column;align-items:center;flex:0 0 var(--apw);transition:opacity .35s}.aph:not(.on){opacity:.4}
 .aphc{display:flex;gap:10px;align-items:baseline;justify-content:center;color:#cfcdea;font-size:13px}
 .aphc.top{margin:0 0 14px}
 .aphc b{color:#fff;font-size:17px}
