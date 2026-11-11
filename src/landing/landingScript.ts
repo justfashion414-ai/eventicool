@@ -143,9 +143,7 @@ function apscr(s){var sl=slug(),ip=P.os==='iphone',ini=esc((P.b||'A').charAt(0)+
  if(s===3){var ic='';for(var i=0;i<12;i++)ic+=i===9?'<div style="position:relative">'+ico.replace('</div>','<em>1</em></div>')+'<small>'+esc(P.b)+'</small></div>':'<i></i>';scr='<div class="hs"><div class="ih">'+ic+'</div><div class="bn">'+esc(P.g)+' posted a video in Engagement</div></div>'}
  return scr}
 function apdraw(){document.querySelectorAll('[data-a=os]').forEach(function(x){x.classList.toggle('on',x.dataset.v===P.os)});
- $('#aphones').innerHTML=[0,1,2,3].map(function(i){return '<div class="aph"><div class="ph2">'+apscr(i)+'</div><div class="aphc"><b>0'+(i+1)+'</b><span>'+AS[P.os][i]+'</span></div></div>'}).join('');
- apscroll()}
-function apscroll(){var w=$('#appwrap');if(!w)return;var r=w.getBoundingClientRect(),vh=innerHeight||800;var total=r.height-vh;if(total<=0)return;var p=Math.max(0,Math.min(1,-r.top/total));var t=p*3;var el=$('#aphones');var st=el.querySelector('.aph');var sw=st?st.offsetWidth+18:300;el.style.transform='translateX('+(-t*sw).toFixed(1)+'px)';var idx=Math.max(0,Math.min(3,Math.round(t)));document.querySelectorAll('.aph').forEach(function(x,i){x.classList.toggle('on',i===idx)})}
+ $('#aphones').innerHTML=[0,1,2,3].map(function(i){var cap='<div class="aphc'+(i?' top':'')+'"><b>0'+(i+1)+'</b><span>'+AS[P.os][i]+'</span></div>',ph='<div class="ph2">'+apscr(i)+'</div>';return '<div class="aph">'+(i?cap+ph:ph+cap)+'</div>'}).join('')}
 var SC2=[['Your admin space','Only you and your partner can approve, remove, download or delete anything.'],['The access code','Only people you invite can post. Change the code any time and the old one stops working.'],['Guests and vendors','Guests post and react. Vendors upload. Neither can see or change settings.']];
 var SQ=0;function sqdraw(){$('#sqc').innerHTML=SC2.map(function(x,i){return '<button class="chip'+(SQ===i?' on':'')+'" data-a="sq" data-v="'+i+'">'+x[0]+'</button>'}).join('');$('#rgc').textContent=SC2[SQ][1]}
 var CH=[['Our wedding','rings'],['Honeymoon','sun'],['First anniversary','candle'],['A baby on the way','bump'],['Naming ceremony','bowl'],['First birthday','balloon'],['Family holiday','hills']],LC={n:3,v:'Close family'};
@@ -154,15 +152,15 @@ function lcdraw(fresh){$('#lv').innerHTML=['Just us','Close family','Everyone'].
  $('#chs').innerHTML=CH.slice(0,LC.n).map(function(c,i){return '<div class="chp2'+(fresh&&i===LC.n-1?' pop':'')+'">'+chart(c[1],i)+'<div class="to"><h3>'+c[0]+'</h3><small>Seen by: '+(i===0?'Everyone':LC.v)+'</small></div></div>'}).join('');var b=$('#lcb');b.disabled=LC.n>=CH.length;b.textContent=LC.n>=CH.length?'Your family story, so far':'+ Add the next chapter'}
 var SGL=[['Private by default','Invite-only with your access code.'],['You are the only admin','Your accounts alone control approval, removal and deletion.'],['Every wedding is separate','One couple can never see another couple’s data.'],['Encrypted','Data and media are encrypted in transit and at rest.'],['Only invited eyes','Photos and videos are served only to people with access.'],['Your data, your call','Download everything or delete everything, any time.']];
 var SG5=SGL.filter(function(x,i){return i!==2});
-var SGT=0;
-function sgdraw(){var el=$('#sgarc');if(!el)return;var W=el.offsetWidth||400,H=el.offsetHeight||420,cy=H*0.5;var R=W*1.05,cx=-R*0.66,d=0.42;
- var html='<svg class="sgl" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-hidden="true"><circle cx="'+cx.toFixed(0)+'" cy="'+cy.toFixed(0)+'" r="'+R.toFixed(0)+'" fill="none" stroke="currentColor" stroke-opacity=".16" stroke-width="2"/></svg>';
- for(var i=0;i<SG5.length;i++){var u=(i-SGT)*d;if(Math.abs(u)>1.3)continue;var x=cx+R*Math.cos(u),y=cy+R*Math.sin(u);var act=Math.max(0,1-Math.abs(u)/d*0.6);var fs=26+44*act,op=0.26+0.74*act,rot=u*38;
-  html+='<span class="sgn" style="left:'+x.toFixed(0)+'px;top:'+y.toFixed(0)+'px;font-size:'+fs.toFixed(0)+'px;opacity:'+op.toFixed(2)+';transform:translate(-50%,-50%) rotate('+rot.toFixed(1)+'deg)">0'+(i+1)+'</span>'}
- html+='<i class="sgdot" style="left:'+(cx+R-14).toFixed(0)+'px;top:'+cy.toFixed(0)+'px"></i>';
- var ai=Math.max(0,Math.min(SG5.length-1,Math.round(SGT)));var it=SG5[ai];
- html+='<div class="sgd"><b>'+it[0]+'</b><p>'+it[1]+'</p></div>';
- el.innerHTML=html}
+function sgdraw(){var el=$('#sgarc');if(!el)return;var W=el.offsetWidth||420,H=el.offsetHeight||520;if(!W||!H)return;
+ var n=SG5.length,cy=H*0.5,bx=W*0.34,A=W*0.30,B=H*0.42,pts=[];
+ for(var i=0;i<n;i++){var u=(i-(n-1)/2)*0.55;pts.push([bx-A*(1-Math.cos(u)),cy+B*Math.sin(u)])}
+ var html='<svg class="sgl" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-hidden="true"><path d="M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1)+' A'+A.toFixed(1)+' '+B.toFixed(1)+' 0 0 1 '+pts[n-1][0].toFixed(1)+' '+pts[n-1][1].toFixed(1)+'" fill="none" stroke="currentColor" stroke-opacity=".18" stroke-width="2"/></svg>';
+ for(var i=0;i<n;i++){html+='<div class="sgrow" style="left:'+(pts[i][0]/W*100).toFixed(1)+'%;top:'+(pts[i][1]/H*100).toFixed(1)+'%"><i class="sgdot"></i><b class="sgn">0'+(i+1)+'</b><div class="sgd"><b>'+SG5[i][0]+'</b><p>'+SG5[i][1]+'</p></div></div>'}
+ el.innerHTML=html;sgpick()}
+function sgpick(){var el=$('#sgarc');if(!el)return;var rows=el.querySelectorAll('.sgrow');if(!rows.length)return;var mid=(window.innerHeight||800)/2,best=0,bd=1e9;
+ for(var i=0;i<rows.length;i++){var r=rows[i].getBoundingClientRect(),c=(r.top+r.bottom)/2,d=Math.abs(c-mid);if(d<bd){bd=d;best=i}}
+ for(var i=0;i<rows.length;i++)rows[i].classList.toggle('on',i===best)}
 function secscroll(){var w=$('#secwrap');if(!w)return;var r=w.getBoundingClientRect(),vh=innerHeight||800;var total=r.height-vh;if(total<=0)return;var p=Math.max(0,Math.min(1,-r.top/total));SGT=p*(SG5.length-1);sgdraw()}
 document.addEventListener('input',function(e){if(/^[bgcd]$/.test(e.target.id)){gidraw();fxrefresh()}});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;var a=b.dataset.a,v=b.dataset.v;
@@ -184,12 +182,12 @@ P.os='android';P.step=0;
 var apt=null,apon=false;
 var IO2=new IntersectionObserver(function(es){es.forEach(function(e){var id=e.target.id;
  if(id==='features'){}
- else if(id==='app'){apon=e.isIntersecting;if(e.isIntersecting&&!apt){apdraw();apt=setInterval(function(){if(apon){P.step=(P.step+1)%4;apdraw()}},3400)}}
+ else if(id==='app'){}
  else if(e.isIntersecting&&!e.target.dataset.d){e.target.dataset.d=1;if(id==='gifts')gidraw(true);if(id==='security')document.getElementById('shd').classList.add('go')}})},{threshold:.25});
 ['features','app','gifts','security','pricing'].forEach(function(i){IO2.observe(document.getElementById(i))});
-fxbuild();fanbuild();gidraw(false);apdraw();sqdraw();lcdraw(false);
+fxbuild();fanbuild();gidraw(false);apdraw();sqdraw();lcdraw(false);sgdraw();
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='plsel'&&!e.target.closest('.btn'))plsel(+b.dataset.v)});
-addEventListener('resize',pkmove);
+addEventListener('resize',pkmove);addEventListener('resize',sgdraw);
 draw();aud();pricing();
 
 function upGrid(){var g='';if(!UPS.length){g='<div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div>'}else{g=UPS.map(function(u,i){return '<div class="ui"><img src="'+u+'" alt=""><button data-u="rm" data-i="'+i+'" aria-label="Remove">&#215;</button></div>'}).join('')+(UPS.length<10?'<div class="ui uph">Add more</div>':'')}return g}
@@ -201,4 +199,4 @@ var rsg=false;function rsgo(){if(rsg)return;rsg=true;document.querySelectorAll('
 document.addEventListener('pointerdown',rsgo,true);document.addEventListener('touchstart',rsgo,true);document.addEventListener('scroll',rsgo,{capture:true,passive:true});
 function rvsetup(){var vs=document.querySelectorAll('#pv .frl video');if(rvsetup.io)rvsetup.io.disconnect();if(!vs.length)return;vs.forEach(function(v){rsunm(v)});var io=rvsetup.io=new IntersectionObserver(function(es){es.forEach(function(en){var v=en.target;if(en.isIntersecting){var p=v.play();if(p&&p.catch)p.catch(function(){})}else{v.pause()}})},{threshold:.55});for(var i=0;i<vs.length;i++)io.observe(vs[i])}
 }
-var _fonsc=function(){try{apscroll();secscroll()}catch(e){}};addEventListener('scroll',_fonsc,{passive:true});addEventListener('resize',_fonsc);_fonsc();
+var _fonsc=function(){try{sgpick()}catch(e){}};addEventListener('scroll',_fonsc,{passive:true});addEventListener('resize',_fonsc);_fonsc();
