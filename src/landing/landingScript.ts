@@ -138,7 +138,7 @@ function apscr(s){var sl=slug(),ip=P.os==='iphone',ini=esc((P.b||'A').charAt(0)+
  var scr='<div class="url"><i></i><span>'+sl+'.eventicor.com</span></div><div class="bsc">'+mini(P.tp,0)+'</div>';
  if(s===1)scr+=ip?'<div class="dim"></div><div class="sh1"><div class="sr">Copy</div><div class="sr">Add to Reading List</div><div class="sr hl">Add to Home Screen</div></div>':'<div class="ban"><span>Install “'+nm+'”?</span><em>Install</em></div>';
  if(s===2)scr+='<div class="dim"></div><div class="dg">'+ico+'<h5>'+(ip?'Add to Home Screen':'Install app?')+'</h5><div class="in2">'+nm+'</div><div class="go">'+(ip?'Add':'Install')+'</div></div>';
- if(s===3){var ic='';for(var i=0;i<12;i++)ic+=i===9?'<div style="position:relative">'+ico.replace('</div>','<em>1</em></div>')+'<small>'+esc(P.b)+'</small></div>':'<i></i>';scr='<div class="hs"><div class="ih">'+ic+'</div><div class="bn">'+esc(P.g)+' posted a video in Engagement</div></div>'}
+ if(s===3){var ic='';for(var i=0;i<12;i++)ic+=i===9?'<div style="position:relative">'+ico.replace('</div>','<em>1</em></div>')+'<small>'+esc(P.b)+'</small></div>':'<i></i>';scr='<div class="hs"><div class="ih">'+ic+'</div></div>'}
  return scr}
 function apdraw(){document.querySelectorAll('[data-a=os]').forEach(function(x){x.classList.toggle('on',x.dataset.v===P.os)});
  $('#aphones').innerHTML=[0,1,2,3].map(function(i){var cap='<div class="aphc'+' top'+'"><b>0'+(i+1)+'</b><span>'+AS[P.os][i]+'</span></div>',ph='<div class="ph2">'+apscr(i)+'</div>';return '<div class="aph">'+cap+ph+'</div>'}).join('')}
