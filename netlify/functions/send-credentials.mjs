@@ -81,6 +81,7 @@ export const handler = async (event) => {
     install_url: String(p.install_url || previewUrl || ''),
     plan_name: String(p.plan || '').trim(),
     trial_label: trialLabel,
+    whatsapp_url: 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2',
   };
   if (src === 'signup') {
     if (!data.account_email) return json(400, { ok: false, error: 'email is required' });
@@ -105,6 +106,8 @@ export const handler = async (event) => {
       `You must change this password the first time you sign in, before the dashboard opens.\n\n` +
       `Your free trial runs for ${trialLabel}, until ${expiresOn}.\n` +
       `Install the app on your phone: ${data.install_url || previewUrl}\n\n` +
+      `Questions or enquiries? Everything is handled in the Eventicor community on WhatsApp: ${data.whatsapp_url}\n` +
+      `From the community you can also request a live webinar with our team that walks you through the dashboard.\n\n` +
       `With love,\nEventicor`;
     const auth = token.startsWith('Zoho-enczapikey') ? token : `Zoho-enczapikey ${token}`;
     let res;
