@@ -17,6 +17,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const VARIANTS = {
   landing: { file: 'preview-credentials-24h.html', subject: 'Your Eventicor wedding app is ready', hours: 24 },
   admin: { file: 'preview-credentials-30d.html', subject: 'A live wedding app preview, made just for you', hours: 24 * 30 },
+  // New-account welcome email. Landing-page signups get a 24-hour free trial;
+  // accounts an admin creates from the Eventicor dashboard get 3 days (trial_hours 72).
+  signup: { file: 'account-welcome.html', subject: 'Your Eventicor login: your wedding app is live' },
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,10 +40,13 @@ export const handler = async (event) => {
   const email = String(p.email || '').trim();
   const previewUrl = String(p.preview_url || '').trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(400, { ok: false, error: 'A valid recipient email is required' });
-  if (!/^https?:\/\//.test(previewUrl)) return json(400, { ok: false, error: 'preview_url is required' });
-
-  const src = p.source === 'admin' ? 'admin' : 'landing';
+  const src = p.source === 'admin' ? 'admin' : p.source === 'signup' ? 'signup' : 'landing';
+  if (src !== 'signup' && !/^https?:\/\//.test(previewUrl)) return json(400, { ok: false, error: 'preview_url is required' });
   const variant = VARIANTS[src];
+  const trialHours = Math.max(1, parseInt(p.trial_hours, 10) || (src === 'signup' ? 24 : variant.hours));
+  const trialLabel = trialHours % 24 === 0
+    ? (trialHours / 24 === 1 ? '24 hours' : (trialHours / 24) + ' days')
+    : trialHours + ' hours';
   const token = process.env.ZEPTOMAIL_SEND_MAIL_TOKEN || '';
   const fromAddress = process.env.ZEPTOMAIL_FROM_ADDRESS || '';
   const fromName = process.env.ZEPTOMAIL_FROM_NAME || 'Eventicor';
@@ -51,7 +57,7 @@ export const handler = async (event) => {
   const bride = String(p.bride || '').trim() || 'the couple';
   const groom = String(p.groom || '').trim() || '';
   const names = groom ? `${bride} & ${groom}` : bride;
-  const expiresOn = new Date(Date.now() + variant.hours * 3600 * 1000).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short' }) + ' WAT';
+  const expiresOn = new Date(Date.now() + trialHours * 3600 * 1000).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short' }) + ' WAT';
 
   const data0 = {
     wedding_date: String(p.wedding_date || '').trim(),
@@ -69,12 +75,60 @@ export const handler = async (event) => {
     city: String(p.city || '').trim(),
     preview_url: previewUrl,
     expires_on: expiresOn,
-    hours: String(variant.hours),
+    hours: String(trialHours),
+    account_email: String(p.email || ''),
+    temp_password: String(p.temp_password || ''),
+    install_url: String(p.install_url || previewUrl || ''),
+    plan_name: String(p.plan || '').trim(),
+    trial_label: trialLabel,
   };
+  if (src === 'signup') {
+    if (!data.account_email) return json(400, { ok: false, error: 'email is required' });
+    if (!data.temp_password) {
+      // Server-side temporary password: the couple must change it before the dashboard opens.
+      const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      let pw = '';
+      for (let i = 0; i < 10; i++) pw += abc[Math.floor(Math.random() * abc.length)];
+      data.temp_password = 'Ev-' + pw;
+    }
+  }
 
   let html;
   try { html = fill(readFileSync(path.join(HERE, 'templates', variant.file), 'utf8'), data); }
   catch { return json(500, { ok: false, error: `Template file missing: ${variant.file}` }); }
+
+  if (src === 'signup') {
+    const text =
+      `Hi ${names},\n\n` +
+      `Your wedding app is live${data.city ? ` in ${data.city}` : ''}. You own this account.\n\n` +
+      `Sign in to your dashboard:\nEmail: ${data.account_email}\nTemporary password: ${data.temp_password}\n\n` +
+      `You must change this password the first time you sign in, before the dashboard opens.\n\n` +
+      `Your free trial runs for ${trialLabel}, until ${expiresOn}.\n` +
+      `Install the app on your phone: ${data.install_url || previewUrl}\n\n` +
+      `With love,\nEventicor`;
+    const auth = token.startsWith('Zoho-enczapikey') ? token : `Zoho-enczapikey ${token}`;
+    let res;
+    try {
+      res = await fetch('https://api.zeptomail.com/v1.1/email', {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: { address: fromAddress, name: fromName },
+          to: [{ email_address: { address: email, name: String(p.name || names) } }],
+          subject: variant.subject,
+          htmlbody: html,
+          textbody: text,
+        }),
+      });
+    } catch (e) {
+      return json(502, { ok: false, error: 'Could not reach ZeptoMail: ' + String(e && e.message ? e.message : e) });
+    }
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return json(502, { ok: false, error: `ZeptoMail rejected the send (${res.status})`, detail: detail.slice(0, 500) });
+    }
+    return json(200, { ok: true, source: src, trial_hours: trialHours, expires_on: expiresOn });
+  }
 
   const text =
     `Hi ${names},\n\n` +

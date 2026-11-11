@@ -63,11 +63,16 @@ function pricing(){$('#pk2').innerHTML='<i class="pkp" id="pkp"></i>'+PL.map(fun
  setTimeout(pkmove,60);var pio=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&!e.target.dataset.d){e.target.dataset.d=1;plplay(e.target)}})},{threshold:.3});document.querySelectorAll('.pl').forEach(function(c){pio.observe(c)})}
 function slug(){return (P.b+'-'+P.g).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'our-wedding'}
 function modal(){var s=P.step,h='';if(!s){$('#m').innerHTML='';return}
- var dots='<div class="dots">'+[1,2,3].map(function(i){return '<i class="'+(i<=Math.min(s,3)?'on':'')+'"></i>'}).join('')+'</div>';
+ var dots='<div class="dots">'+[1,2,3,4].map(function(i){return '<i class="'+(i<=Math.min(s,4)?'on':'')+'"></i>'}).join('')+'</div>';
  if(s===1)h=dots+'<h3>Create your account</h3><p class="sub" style="margin:0 0 12px">Save your design and publish when you’re ready.</p><label for="em">Email</label><input id="em" type="email" placeholder="you@example.com"><button class="btn" data-a="next">Continue</button><button class="btn g" data-a="next">Continue with Google</button>';
  if(s===2)h=dots+'<h3>Choose your address</h3><p class="sub" style="margin:0 0 12px">This is the link your guests will open.</p><label for="sl">Your address</label><div class="row" style="flex-wrap:nowrap"><input id="sl" value="'+esc(P.slug||slug())+'" maxlength="30" style="text-align:right"><span style="white-space:nowrap">.eventicor.com</span></div><p class="note" style="color:#1f8a5b;font-weight:600">&#10003; Available</p><button class="btn" data-a="next">Continue</button>';
- if(s===3)h=dots+'<h3>Choose a plan</h3>'+PL.map(function(p,i){return '<button class="opt'+(P.pl===i?' on':'')+'" data-a="pl" data-v="'+i+'"><span><b>'+p[0]+'</b></span><b>'+money(p[1])+'</b></button>'}).join('')+'<p class="note">Pay with card or bank transfer. Naira payments by Paystack or Flutterwave, other currencies by Stripe.</p><button class="btn" data-a="next">Pay and publish</button>';
- if(s===4)h='<h3>Your app is live</h3><p class="sub" style="margin:8px 0 14px">Share this with your guests.</p><div class="opt on"><b>'+esc(P.slug||slug())+'.eventicor.com</b></div><p class="note">Next: open your dashboard to add events and photos, and print your QR card.</p><button class="btn" data-a="done">Open my dashboard</button><button class="btn g" data-a="inst">Install the app on my phone</button><button class="btn g" data-a="shq">Share with my guests</button>';
+ if(s===3)h=dots+'<h3>Select a plan</h3><p class="sub" style="margin:0 0 12px">Your app runs free for 24 hours from the moment you publish. Choose the plan you\u2019ll continue on. No card needed now.</p>'+PL.map(function(p,i){return '<button class="opt'+(P.pl===i?' on':'')+'" data-a="pl" data-v="'+i+'"><span><b>'+p[0]+'</b></span><b>'+money(p[1])+'</b></button>'}).join('')+'<button class="btn" data-a="next">Select plan</button>';
+ if(s===4)h='<h3>Your app is live</h3><p class="sub" style="margin:8px 0 14px">Your dashboard login is on its way to '+esc(P.em||'your email')+'.</p>'+
+ '<div class="opt on"><b>'+esc(P.slug||slug())+'.eventicor.com</b></div>'+
+ '<p class="note">The email carries a temporary password. You must change it the first time you sign in, before the dashboard opens, and your free-trial countdown lives in it too.</p>'+
+ '<p class="note" style="font-weight:700;color:#14122b">Before you start</p>'+
+ '<p class="note">Join our couples WhatsApp group to receive the webinar links that walk you through the dashboard: approving guest posts, controlling who can post and who can see, your access code and your QR code.</p>'+
+ '<div class="row" style="margin-top:14px"><button class="btn" data-a="inst">Install the app on my phone</button><button class="btn g" data-a="wa">Join the WhatsApp group</button></div>';
  $('#m').innerHTML='<div class="md" data-a="close"><div class="mc" role="dialog" aria-modal="true">'+h+'</div></div>'}
 document.addEventListener('input',function(e){var t=e.target;if(t.id==='b')P.b=t.value;else if(t.id==='g')P.g=t.value;else if(t.id==='c')P.c=t.value;else if(t.id==='d'&&t.value)P.d=t.value;else if(t.id==='pcap'){P.cap=t.value;return}else if(t.id==='sl'){P.slug=t.value.toLowerCase().replace(/[^a-z0-9-]/g,'');return}else return;$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0)+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')});
 document.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.dataset&&e.target.dataset.a==='pick'){e.preventDefault();e.target.click()}});
@@ -77,8 +82,10 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-a]')
  else if(a==='pick'){P.tp=v;draw();$('#builder').scrollIntoView({behavior:'smooth'});toast(TPL[v].n+' template applied')}
  else if(a==='copy'){toast('Preview link copied')}
  else if(a==='live'){if(v!==undefined)P.pl=+v;P.step=1;modal()}
- else if(a==='next'){P.step++;if(P.step===3&&P.pl===undefined)P.pl=1;modal();if(P.step===5)P.step=0}
- else if(a==='pl'){P.pl=+v;modal()}else if(a==='close'){P.step=0;modal()}else if(a==='done'){P.step=0;modal();toast('Opening your dashboard…')}
+ else if(a==='next'){if(P.step===1){var em=(document.getElementById('em')||{}).value||'';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){toast('Enter a valid email first');return}P.em=em}
+ if(P.step===3){sendSignup()}
+ P.step++;if(P.step===3&&P.pl===undefined)P.pl=1;modal();if(P.step>4)P.step=0}
+ else if(a==='pl'){P.pl=+v;modal()}else if(a==='close'){P.step=0;modal()}else if(a==='inst'){toast('On your phone, tap Install in the banner that appears')}else if(a==='wa'){window.open('https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2','_blank','noopener')}
  else if(a==='cur'){P.cur=+v;document.querySelectorAll('[data-a=cur]').forEach(function(x){x.classList.toggle('on',x===b)});pricing()}
  
  else if(a==='pv'){P.v=v;P.comp=false;pvdraw()}
@@ -89,6 +96,9 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-a]')
  else if(a==='psend'){var cp=(P.cap||'').trim();if(P.ct==='note'&&!cp){toast('Write your wish first');return}if(P.ct!=='note'&&!P.cm){toast('Choose a '+(P.ct==='photo'?'photo':'video')+' first');return}
   P.mine.unshift({by:'You',t:P.ct,cap:cp||'Shared a '+P.ct+'.',h:(P.mine.length*70+20)%360,ago:'Just now'});P.cap='';P.cm=false;P.comp=false;P.sub=P.ct==='reel'?'reels':'post';pvdraw();toast('Shared. The couple get a notification')}
 });
+
+function sendSignup(){var body={email:P.em||'',source:'signup',bride:P.b||'',groom:P.g||'',wedding_date:P.d||'',city:P.c||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',trial_hours:24,preview_url:location.origin+'/'};
+ fetch('/api/send-credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})}).then(function(r){if(r.ok)toast('Login details sent to '+(P.em||'your email'));else toast('Login email could not be sent right now')}).catch(function(){toast('Login email could not be sent right now')})}
 
 function setview(bn,gn){var C=['#7b2d8e','#0e6b57','#c8932a','#d23b5e','#2b5fb3'],g=function(k,o){return '<div class="sg2">'+o.map(function(x){return '<button class="'+(P[k]===x[0]?'on':'')+'" data-a="'+(k==='pth'?'pth':'pts')+'" data-v="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</div>'};
  return '<div class="bd"><div class="set"><h5>Guest profile</h5><div class="pa"><i style="background:'+C[P.cam]+'">T</i><button data-a="pcam" aria-label="Change photo">+</button></div><div class="in2">Tolu</div><button class="sv" data-a="psv">Save profile</button><h5>Appearance</h5><div class="rw"><span>Theme</span>'+g('pth',[['light','Light'],['dark','Dark'],['system','System']])+'</div><div class="rw"><span>Text size</span>'+g('ts',[[0,'A'],[1,'A+'],[2,'A++']])+'</div><h5>About</h5><div class="rw"><span>Report a problem</span><button class="sv" style="width:auto;padding:4px 12px" data-a="prp">Report</button></div><p class="ft2">Happy Wedding, '+esc(bn)+' &amp; '+esc(gn)+'</p></div></div>'}
