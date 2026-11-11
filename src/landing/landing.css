@@ -43,8 +43,8 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 .aphc b{color:#fff;font-size:17px}
 /* Security: scroll arc */
 #security .secwrap{height:300vh}
-#security .secin{position:sticky;top:0;min-height:100vh;display:flex;align-items:center;padding:26px 0}
-#security .sgarc{position:relative;min-height:560px;flex:1;color:#17162e;margin-top:10px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 76%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 76%,transparent 100%)}
+#security .secin{position:sticky;top:0;min-height:100vh;display:flex;align-items:center;padding:96px 0 26px}
+#security .sgarc{position:relative;min-height:min(520px,calc(100vh - 420px));flex:1;color:#17162e;margin-top:10px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 76%,transparent 100%);mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 76%,transparent 100%)}
 #security .sgtrack{position:absolute;left:0;right:0;top:50%;will-change:transform}
 #security .sgrow{position:relative;display:flex;align-items:center;gap:14px;padding:30px 6px;will-change:opacity,transform}
 #security .sgn{transition:opacity .25s}
@@ -54,7 +54,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 .sgd{min-width:0;max-width:300px}
 .sgd b{display:block;font-size:18px;margin-bottom:6px}
 .sgd p{margin:0;color:#55546e;font-size:14px;line-height:1.5}
-@media(max-width:760px){#app{--apw:min(74vw,240px)}.sgd{max-width:220px}.sgd b{font-size:15px}.sgd p{font-size:12.5px}#security .sgarc{min-height:440px}#security .sgrow{padding:20px 6px;gap:10px}}
+@media(max-width:760px){#app{--apw:min(74vw,240px)}.sgd{max-width:220px}.sgd b{font-size:15px}.sgd p{font-size:12.5px}#security .sgarc{min-height:min(400px,calc(100vh - 420px))}#security .sgrow{padding:20px 6px;gap:10px}}
 
 #ev-l .pl ul.pfl{max-height:0;overflow:hidden;opacity:.55;transition:max-height .55s ease,opacity .35s ease;margin:2px 0 2px}
 #ev-l .pl ul.pfl.open{max-height:640px;opacity:1;margin:8px 0 20px}
@@ -65,3 +65,5 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 .ev span{font-size:11px}
 #ev-l #lcb{width:170px;height:227px;flex:none;justify-content:flex-start;align-items:flex-end;text-align:left;padding:18px;background:url(life/next.jpg) center/cover no-repeat;color:#fff;border:0;border-radius:24px;text-shadow:0 1px 10px #000b;overflow:hidden;position:relative;font-size:19px}
 #ev-l #lcb:disabled{opacity:.9}
+
+@media (max-width:900px){#security .secwrap{height:auto}#security .secin{position:static;min-height:0;padding:26px 0}#security .sgarc{min-height:0;overflow:visible;-webkit-mask-image:none;mask-image:none}#security .sgtrack{position:static}#security .sgrow{opacity:1!important}#security .sgn{font-size:36px!important}}
