@@ -26,6 +26,32 @@ function fill(tpl, data) {
 
 const json = (code, body) => ({ statusCode: code, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+
+// Sends via ZeptoMail, trying each saved key in order: the Send Mail token first,
+// then the general API credential, so one dead key can't block delivery.
+const authOf = (t) => (t.startsWith('Zoho-enczapikey') ? t : 'Zoho-enczapikey ' + t);
+async function zeptoSend(payload) {
+  const candidates = [...new Set(
+    [process.env.ZEPTOMAIL_SEND_MAIL_TOKEN, process.env.ZEPTOMAIL_API]
+      .filter(Boolean).map(authOf)
+  )];
+  if (!candidates.length) throw new Error('ZeptoMail is not configured');
+  let res;
+  for (const tok of candidates) {
+    try {
+      res = await fetch('https://api.zeptomail.com/v1.1/email', {
+        method: 'POST',
+        headers: { Authorization: tok, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      throw new Error('Could not reach ZeptoMail: ' + String(e && e.message ? e.message : e));
+    }
+    if (res.status !== 401) return res;
+  }
+  return res;
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'GET') return json(200, { ok: true, service: 'send-credentials' });
   if (event.httpMethod !== 'POST') return json(405, { ok: false, error: 'Use POST' });
@@ -105,19 +131,14 @@ export const handler = async (event) => {
       `Questions or enquiries? Everything is handled in the Eventicor community on WhatsApp: ${data.whatsapp_url}\n` +
       `From the community you can also request a live webinar with our team that walks you through the dashboard.\n\n` +
       `With love,\nEventicor`;
-    const auth = token.startsWith('Zoho-enczapikey') ? token : `Zoho-enczapikey ${token}`;
     let res;
     try {
-      res = await fetch('https://api.zeptomail.com/v1.1/email', {
-        method: 'POST',
-        headers: { Authorization: auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: { address: fromAddress, name: fromName },
-          to: [{ email_address: { address: email, name: String(p.name || names) } }],
-          subject: variant.subject,
-          htmlbody: html,
-          textbody: text,
-        }),
+      res = await zeptoSend({
+        from: { address: fromAddress, name: fromName },
+        to: [{ email_address: { address: email, name: String(p.name || names) } }],
+        subject: variant.subject,
+        htmlbody: html,
+        textbody: text,
       });
     } catch (e) {
       return json(502, { ok: false, error: 'Could not reach ZeptoMail: ' + String(e && e.message ? e.message : e) });
@@ -139,19 +160,14 @@ export const handler = async (event) => {
     `To keep it forever, publish your app from the preview page.\n\n` +
     `With love,\nEventicor`;
 
-  const auth = token.startsWith('Zoho-enczapikey') ? token : `Zoho-enczapikey ${token}`;
   let res;
   try {
-    res = await fetch('https://api.zeptomail.com/v1.1/email', {
-      method: 'POST',
-      headers: { Authorization: auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: { address: fromAddress, name: fromName },
-        to: [{ email_address: { address: email, name: String(p.name || names) } }],
-        subject: variant.subject,
-        htmlbody: html,
-        textbody: text,
-      }),
+    res = await zeptoSend({
+      from: { address: fromAddress, name: fromName },
+      to: [{ email_address: { address: email, name: String(p.name || names) } }],
+      subject: variant.subject,
+      htmlbody: html,
+      textbody: text,
     });
   } catch (e) {
     return json(502, { ok: false, error: 'Could not reach ZeptoMail: ' + String(e && e.message ? e.message : e) });
