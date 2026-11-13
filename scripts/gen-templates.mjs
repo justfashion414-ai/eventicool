@@ -1,4 +1,4 @@
-// Generates netlify/functions/templates.gen.mjs from netlify/functions/templates/*.html.
+// Generates netlify/functions/_templates.mjs from netlify/functions/templates/*.html.
 // Netlify bundles each function into a single CJS file, so import.meta.url and sibling
 // file reads break at runtime; inlining the templates keeps the bundle self-contained.
 // Regenerated automatically by the prebuild step (npm run build).
@@ -16,5 +16,5 @@ for (const f of files) {
   out += `  ${JSON.stringify(f)}: ${JSON.stringify(readFileSync(new URL(`../netlify/functions/templates/${f}`, import.meta.url), 'utf8'))},\n`;
 }
 out += '};\n';
-writeFileSync(new URL('../netlify/functions/_templates.gen.mjs', import.meta.url), out);
-console.log('wrote netlify/functions/_templates.gen.mjs');
+writeFileSync(new URL('../netlify/functions/_templates.mjs', import.meta.url), out);
+console.log('wrote netlify/functions/_templates.mjs');
