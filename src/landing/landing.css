@@ -92,3 +92,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .casbar{position:absolute;left:12px;right:12px;bottom:10px;border-radius:12px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:11px}
 #ev-l .casbar b{font:italic 700 13px "Playfair Display",Georgia,serif}
 @media (prefers-reduced-motion:reduce){#ev-l .cfc,#ev-l .arfan,#ev-l .caswrap i{animation:none}}
+
+/* Template gallery: cards sit still like the first one, and each card wears its own four-accent mix strip. */
+#ev-l #tg .scr,#ev-l #tg .scr *{animation:none!important;transition:none!important}
+#ev-l .mixbar{position:absolute;top:0;left:0;right:0;height:7px;z-index:6}
