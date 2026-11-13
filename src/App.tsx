@@ -3,6 +3,7 @@ import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
 import AdminConsole from './components/AdminConsole'
+import MailTest from './components/MailTest'
 import { isAdmin, signOutEverywhere, watchAuth, type User } from './auth'
 
 type AdminState = 'loading' | 'admin' | 'not-admin' | 'signed-out'
@@ -54,6 +55,10 @@ export default function App() {
         <span className="text-sm text-slate-500">Checking your access…</span>
       </main>
     )
+  }
+
+  if (route === '/mail-test') {
+    return <MailTest />
   }
 
   if (route === '/login') {
