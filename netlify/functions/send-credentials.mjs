@@ -8,18 +8,14 @@
 // body: { email, name?, bride?, groom?, wedding_date?, city?, preview_url, source: "landing" | "admin" }
 // landing links expire in 24 hours; admin dashboard (outbound leads) links expire in 30 days.
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { TEMPLATES } from './templates.gen.mjs';
 
 const VARIANTS = {
-  landing: { file: 'preview-credentials-24h.html', subject: 'Your Eventicor wedding app is ready', hours: 24 },
-  admin: { file: 'preview-credentials-30d.html', subject: 'A live wedding app preview, made just for you', hours: 24 * 30 },
+  landing: { tpl: TEMPLATES['preview-credentials-24h.html'], subject: 'Your Eventicor wedding app is ready', hours: 24 },
+  admin: { tpl: TEMPLATES['preview-credentials-30d.html'], subject: 'A live wedding app preview, made just for you', hours: 24 * 30 },
   // New-account welcome email. Landing-page signups get a 24-hour free trial;
   // accounts an admin creates from the Eventicor dashboard get 3 days (trial_hours 72).
-  signup: { file: 'account-welcome.html', subject: 'Your Eventicor login: your wedding app is live' },
+  signup: { tpl: TEMPLATES['account-welcome.html'], subject: 'Your Eventicor login: your wedding app is live' },
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -95,8 +91,8 @@ export const handler = async (event) => {
   }
 
   let html;
-  try { html = fill(readFileSync(path.join(HERE, 'templates', variant.file), 'utf8'), data); }
-  catch { return json(500, { ok: false, error: `Template file missing: ${variant.file}` }); }
+  try { html = fill(variant.tpl, data); }
+  catch { return json(500, { ok: false, error: 'Template missing' }); }
 
   if (src === 'signup') {
     const text =
