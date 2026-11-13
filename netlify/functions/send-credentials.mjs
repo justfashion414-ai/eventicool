@@ -8,7 +8,7 @@
 // body: { email, name?, bride?, groom?, wedding_date?, city?, preview_url, source: "landing" | "admin" }
 // landing links expire in 24 hours; admin dashboard (outbound leads) links expire in 30 days.
 
-import { TEMPLATES } from './templates.gen.mjs';
+import { TEMPLATES } from './_templates.gen.mjs';
 
 const VARIANTS = {
   landing: { tpl: TEMPLATES['preview-credentials-24h.html'], subject: 'Your Eventicor wedding app is ready', hours: 24 },

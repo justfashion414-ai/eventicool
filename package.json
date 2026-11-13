@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "prebuild": "node netlify/functions/scripts/gen-templates.mjs"
+    "prebuild": "node scripts/gen-templates.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.544.0",
