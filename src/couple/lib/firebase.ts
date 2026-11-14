@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore } from 'firebase/firestore';
 
@@ -13,7 +13,11 @@ const firebaseConfig = {
   appId: '1:911650912020:web:4aaa35c9006eaa4f7b7401',
 };
 
-const app = initializeApp(firebaseConfig);
+// Use a named app so the couple app never collides with the Eventicor
+// platform app ([DEFAULT]) initialized by the admin console on page load.
+const app = getApps().some((a) => a.name === 'couple')
+  ? getApp('couple')
+  : initializeApp(firebaseConfig, 'couple');
 
 // Persistent IndexedDB local cache for offline support
 let firestoreDb;
