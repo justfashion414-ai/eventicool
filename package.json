@@ -10,11 +10,14 @@
     "prebuild": "node scripts/gen-templates.mjs"
   },
   "dependencies": {
-    "lucide-react": "^0.544.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
     "firebase": "^11.0.0",
-    "firebase-admin": "^12.0.0"
+    "firebase-admin": "^12.0.0",
+    "idb-keyval": "^6.3.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^0.544.0",
+    "motion": "^12.43.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",

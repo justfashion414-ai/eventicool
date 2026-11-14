@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
@@ -6,6 +6,7 @@ import AdminConsole from './components/AdminConsole'
 import MailTest from './components/MailTest'
 import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
 import SetPassword from './components/SetPassword'
+const CoupleApp = lazy(() => import('./couple/CoupleApp'))
 
 type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out'
 
@@ -47,6 +48,9 @@ export default function App() {
     }
   }, [route, adminState])
 
+  if (route === '/app') {
+    return <Suspense fallback={null}><CoupleApp /></Suspense>
+  }
   if (route === '/admin') {
     if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
     if (adminState === 'must-change') {

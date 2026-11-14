@@ -1,0 +1,6650 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { motion, AnimatePresence, useAnimationFrame, useMotionValue } from 'motion/react';
+import { 
+  Home, 
+  Globe, 
+  Plus, 
+  Settings, 
+  X, 
+  Image as ImageIcon, 
+  Video as VideoIcon, 
+  ThumbsUp,
+  Heart, 
+  Share2, 
+  Trash2, 
+  Flag, 
+  MapPin, 
+  Calendar, 
+  Clock, 
+  Phone,
+  Film,
+  PartyPopper,
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
+  ChevronLeft,
+  Menu,
+  ChevronRight,
+  ExternalLink,
+  MessageSquare,
+  Sparkles,
+  Send,
+  User,
+  Camera,
+  Check,
+  Trash,
+  Megaphone,
+  Edit3,
+  Download,
+  Maximize2,
+  Minimize2,
+  Mail,
+  Images
+} from 'lucide-react';
+import { db, auth } from './lib/firebase';
+import { get, set, del } from 'idb-keyval';
+import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from 'firebase/auth';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  deleteDoc,
+  serverTimestamp,
+  writeBatch,
+  increment,
+  updateDoc,
+  getDocs
+} from 'firebase/firestore';
+
+
+
+import { 
+  LogIn, 
+  LogOut, 
+  ShieldCheck, 
+  RefreshCw,
+  Save,
+  Eye,
+  EyeOff,
+  KeyRound,
+  MessageCircle,
+} from 'lucide-react';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // We don't necessarily want to crash the whole app for a user, 
+  // but we want this info in the logs for debugging.
+  return errInfo;
+}
+
+interface AnniversaryPortalProps {
+  onBackToMain: () => void;
+  previewMode?: boolean;
+}
+
+export interface AdItem {
+  id: string;
+  sponsorName: string;
+  headline: string;
+  description?: string;
+  mediaUrl: string;
+  mediaUrls?: string[];
+  mediaType: 'image' | 'video';
+  mediaTypes?: ('image' | 'video')[];
+  ctaText?: string;
+  ctaUrl?: string;
+  createdAt?: number;
+}
+
+interface WeddingEvent {
+  id: string;
+  name: string;
+  type: string;
+  date: string; // YYYY-MM-DD
+  time?: string; // 24h HH:MM
+  desc: string;
+  venue?: string;
+  status?: 'done' | 'next' | 'up';
+}
+
+const WEDDING_DATE = '2026-12-12';
+const WEDDING_TIME = '11:00';
+
+const EVENTS_DATA: WeddingEvent[] = [
+  { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
+  { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: '2026-07-18', desc: 'The ring, the yes and the first big celebration together.' },
+  { id: 'court', name: 'Court Wedding', type: 'Registry', date: '2026-08-28', desc: 'Signing the register with our closest people.' },
+  { id: 'shower', name: 'Bridal Shower', type: "Dara's party", date: '2026-11-21', desc: 'An afternoon of games, gifts and girls with the bride.' },
+  { id: 'stag', name: "Groom's Party", type: "Femi's party", date: '2026-11-28', desc: 'The groomsmen send Femi off in style.' },
+  { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: '2026-12-12', time: '11:00', desc: 'Vows before God, family and friends.' },
+  { id: 'reception', name: 'Reception', type: 'Hall celebration', date: '2026-12-12', time: '15:00', desc: 'Food, music, aso-ebi and the first dance.' },
+  { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: '2026-12-13', desc: 'We close the weekend giving thanks together.' },
+];
+
+// Journey status is SET BY THE COUPLE in the dashboard (Done / Next up / Upcoming).
+// This helper only seeds statuses the first time the config is written; it is
+// never used to compute what guests see at render time.
+const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
+  const now = Date.now();
+  let nextFound = false;
+  const out: Record<string, 'done' | 'next' | 'up'> = {};
+  EVENTS_DATA.forEach((e) => {
+    const t = new Date(`${e.date}T${e.time || '12:00'}:00`).getTime();
+    if (t < now) { out[e.id] = 'done'; return; }
+    if (!nextFound) { nextFound = true; out[e.id] = 'next'; return; }
+    out[e.id] = 'up';
+  });
+  return out;
+};
+
+const fmtEventDate = (e: { date: string; time?: string }) =>
+  new Date(`${e.date}T${e.time || '12:00'}:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+const DEFAULT_STORY = "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
+
+const DEFAULT_DETAILS = {
+  churchTime: '11:00 am',
+  churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
+  receptionTime: '3:00 pm',
+  receptionVenue: 'The Grand Hall, Victoria Island, Lagos',
+  asoEbi: 'emerald green and gold',
+  hashtag: '#DaraAndFemi2026',
+};
+
+// Local placeholder photos used until real ones are uploaded (hero + footer grid)
+const PLACEHOLDER_IMAGES = [
+  '/placeholder-1.svg',
+  '/placeholder-2.svg',
+  '/placeholder-3.svg',
+  '/placeholder-4.svg',
+  '/placeholder-5.svg',
+  '/placeholder-6.svg',
+];
+
+const normalizeCode = (v: string) => v.trim().toUpperCase();
+
+// Helper to convert small image files to compressed data URLs if cloud upload is unavailable
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to read file'));
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+    reader.readAsDataURL(blob);
+  });
+};
+
+// Helper for centralized file uploads (Direct signed Cloudinary upload + Server proxy + Fallback)
+// Same signed Cloudinary upload as uploadToCloudinary, but reports live
+// progress (0-100) through onProgress so the feed card can show a percentage.
+const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
+  const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
+  const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
+
+  const signatureEndpoints = [
+    `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
+  ];
+
+  for (const sigEndpoint of signatureEndpoints) {
+    try {
+      const sigRes = await fetch(sigEndpoint, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+        }
+      });
+
+      if (sigRes.ok) {
+        const sigData = await sigRes.json().catch(() => null);
+        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
+          const result = await new Promise<string>((resolve, reject) => {
+            const form = new FormData();
+            form.append('file', file, fileName);
+            form.append('api_key', sigData.apiKey);
+            form.append('timestamp', String(sigData.timestamp));
+            form.append('signature', sigData.signature);
+            form.append('folder', sigData.folder || folder);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${isVideo ? 'video' : 'auto'}/upload`);
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+            };
+            xhr.onload = () => {
+              try {
+                const j = JSON.parse(xhr.responseText);
+                if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) resolve(j.secure_url);
+                else reject(new Error('Cloudinary upload failed'));
+              } catch {
+                reject(new Error('Bad upload response'));
+              }
+            };
+            xhr.onerror = () => reject(new Error('Network error during upload'));
+            xhr.send(form);
+          });
+          onProgress(100);
+          return result;
+        }
+      }
+    } catch (directErr) {
+      console.warn(`Progress upload via ${sigEndpoint} failed:`, directErr);
+    }
+  }
+
+  // Fallback with no live progress.
+  onProgress(99);
+  return await uploadToCloudinary(file, folder);
+};
+
+const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
+  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
+  const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
+
+  // Attach the caller's Firebase ID token so the signature endpoint can verify them.
+  const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
+
+  console.log(`Starting upload to Cloudinary: ${file.size} bytes (${fileName}) to folder ${folder}`);
+
+  // Strategy 1: Direct signed upload to Cloudinary API (works on both Express /api/upload-signature and Netlify /.netlify/functions/upload-signature)
+  const signatureEndpoints = [
+    `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
+  ];
+
+  for (const sigEndpoint of signatureEndpoints) {
+    try {
+      const sigRes = await fetch(sigEndpoint, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+        }
+      });
+
+      if (sigRes.ok) {
+        const sigText = await sigRes.text();
+        let sigData: any = null;
+        try {
+          sigData = JSON.parse(sigText);
+        } catch {
+          sigData = null;
+        }
+
+        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
+          const directForm = new FormData();
+          directForm.append('file', file, fileName);
+          directForm.append('api_key', sigData.apiKey);
+          directForm.append('timestamp', String(sigData.timestamp));
+          directForm.append('signature', sigData.signature);
+          directForm.append('folder', sigData.folder || folder);
+
+          const resourceType = isVideo ? 'video' : 'auto';
+          const directRes = await fetch(
+            `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${resourceType}/upload`,
+            {
+              method: 'POST',
+              body: directForm
+            }
+          );
+
+          const directJson = await directRes.json().catch(() => null);
+          if (directRes.ok && directJson?.secure_url) {
+            return directJson.secure_url;
+          }
+          console.warn('Direct Cloudinary upload returned non-OK, falling back:', directJson);
+          break;
+        }
+      }
+    } catch (directErr) {
+      console.warn(`Signature check via ${sigEndpoint} failed:`, directErr);
+    }
+  }
+
+  // Strategy 2: Server-side / Netlify Function proxy upload (/api/upload or /.netlify/functions/upload)
+  const formData = new FormData();
+  formData.append('file', file, fileName);
+  formData.append('folder', folder);
+
+  let res = await fetch('/api/upload', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Accept': 'application/json',
+      ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+    },
+    body: formData
+  });
+
+  if (res.status === 404) {
+    res = await fetch('/.netlify/functions/upload', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+      },
+      body: formData
+    });
+  }
+
+  const responseText = await res.text();
+  let responseData: any = null;
+  try {
+    responseData = JSON.parse(responseText);
+  } catch {
+    // Not JSON (e.g., proxy cookie_check HTML or 413 HTML page)
+  }
+
+  if (res.ok && responseData?.url) {
+    return responseData.url;
+  }
+
+  // Strategy 3: If the proxy intercepted the request with an HTML page (like cookie_check.html)
+  // or if the file is an image that can be embedded as a compact Data URL (< 700KB), fallback gracefully
+  if (!isVideo && file.size <= 700 * 1024) {
+    try {
+      const dataUrl = await blobToDataUrl(file);
+      return dataUrl;
+    } catch {
+      // Ignore fallback error and throw descriptive error below
+    }
+  }
+
+  if (responseText.trim().toLowerCase().startsWith('<!doctype html') || responseText.trim().toLowerCase().startsWith('<html')) {
+    if (res.status === 413 || file.size > 30 * 1024 * 1024) {
+      throw new Error('File is too large (max 30MB). Please choose a smaller file.');
+    }
+    throw new Error('Session cookie check intercepted upload. Please refresh the page and try again.');
+  }
+
+  const errorInfo = responseData?.details || responseData?.error || responseData?.message || responseText.substring(0, 160) || `Status ${res.status}`;
+  throw new Error(`Upload failed: ${errorInfo}`);
+};
+
+export default function AnniversaryPortal({ onBackToMain, previewMode }: AnniversaryPortalProps) {
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
+  });
+  const [feedSubTab, setFeedSubTab] = useState<'post' | 'reels'>(() => {
+    try { return (localStorage.getItem('ann-last-feedtab') as 'post' | 'reels') || 'post'; } catch { return 'post'; }
+  });
+  const [videoOrientations, setVideoOrientations] = useState<Record<string, 'portrait' | 'landscape'>>({});
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const [fontSize, setFontSize] = useState<'m' | 'l' | 'xl'>('m');
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [footerImages, setFooterImages] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('ann-footer-images');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
+  const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
+  const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [newPostText, setNewPostText] = useState('');
+  const [newPostEvent, setNewPostEvent] = useState<string>('');
+  const [accessCode, setAccessCode] = useState('');
+  // The optimistic post shown in the feed while its media uploads, with the
+  // upload percentage rendered on the card itself.
+  const [uploadingPost, setUploadingPost] = useState<any | null>(null);
+  const [attachedMedia, setAttachedMedia] = useState<{url: string, id: string, type?: 'image' | 'video', orientation?: 'portrait' | 'landscape'}[]>([]);
+
+  // Email/password admin auth state
+  const [authScreen, setAuthScreen] = useState<null | 'signin' | 'forgot' | 'sent'>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [mustSetPassword, setMustSetPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [setPasswordBusy, setSetPasswordBusy] = useState(false);
+
+  
+  // Firebase & Profile State
+  const [user, setUser] = useState<any>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [displayName, setDisplayName] = useState(localStorage.getItem('ann-profile-name') || '');
+  const [avatar, setAvatar] = useState(localStorage.getItem('ann-profile-avatar') || '');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
+  const [route, setRoute] = useState<string>(() => window.location.pathname);
+  const goAdminPage = () => {
+    if (window.location.pathname !== '/admin') {
+      try { window.history.pushState({}, '', '/admin'); } catch {}
+    }
+    setRoute('/admin');
+    setIsAdminDashboardOpen(true);
+  };
+  const leaveAdminPage = () => {
+    setIsAdminDashboardOpen(false);
+    if (window.location.pathname !== '/') {
+      try { window.history.pushState({}, '', '/'); } catch {}
+    }
+    setRoute('/');
+  };
+  useEffect(() => {
+    const onPop = () => {
+      setRoute(window.location.pathname);
+      if (window.location.pathname !== '/admin') setIsAdminDashboardOpen(false);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  const [activeAccessCode, setActiveAccessCode] = useState<string | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isAdminSessionValid, setIsAdminSessionValid] = useState(false);
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const [cfgEvents, setCfgEvents] = useState<WeddingEvent[] | null>(null);
+  const [cfgStory, setCfgStory] = useState<string | null>(null);
+  const [cfgDetails, setCfgDetails] = useState<any>(null);
+  const [archiveMode, setArchiveMode] = useState<boolean>(false);
+  const [blockedUids, setBlockedUids] = useState<string[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [residents, setResidents] = useState<any[]>([]);
+  const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
+  const [pushEnabled, setPushEnabled] = useState<boolean>(true);
+  // Feed action button mode: 'share' opens the share sheet, 'download' saves the
+  // media straight to the guest's device. Chosen by the admin in the console
+  // Settings tab and stored on app_config/main as feedActionMode.
+  const [feedActionMode, setFeedActionMode] = useState<'share' | 'download'>('share');
+  const [adminPermissions, setAdminPermissions] = useState<any>(null);
+  const [deletedPosts, setDeletedPosts] = useState<any[]>([]);
+  const [allAdmins, setAllAdmins] = useState<any[]>([]);
+  // Label attached to each hero photo (url -> event name), set in the console's
+  // Hero photos tab and stored on app_config/main.
+  const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
+  const [heroImages, setHeroImages] = useState<string[]>(() => {
+    try {
+      const cached = localStorage.getItem('ann-hero-images');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // Ignore parse error
+    }
+    return [];
+  });
+  const [postAds, setPostAds] = useState<AdItem[]>([]);
+  const [reelAds, setReelAds] = useState<AdItem[]>([]);
+  const [shuffledPostAds, setShuffledPostAds] = useState<AdItem[]>([]);
+  const [shuffledReelAds, setShuffledReelAds] = useState<AdItem[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [isPostsLoading, setIsPostsLoading] = useState(true);
+  const [aboutClickCount, setAboutClickCount] = useState(0);
+  const [postToDelete, setPostToDelete] = useState<string | null>(null);
+
+  const [bookmarks, setBookmarks] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('ann-bookmarks') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
+  const sessionWarningRef = useRef(false);
+  const [userLikes, setUserLikes] = useState<Record<string, boolean>>({});
+  const [userLoves, setUserLoves] = useState<Record<string, boolean>>({});
+  const [reactionsLoading, setReactionsLoading] = useState(true);
+  const [sharingPost, setSharingPost] = useState<any>(null);
+  const [commentsPost, setCommentsPost] = useState<any>(null);
+  const [sampleLiked, setSampleLiked] = useState<Record<string, boolean>>({});
+  const [activeMediaIndex, setActiveMediaIndex] = useState<{postId: string, index: number} | null>(null);
+
+  // PWA Install, Launch Follow-up Splash & Offline State
+  const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => {
+    if (previewMode) return false;
+    try { return !localStorage.getItem('ann-last-tab'); } catch { return true; }
+  });
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt || null : null));
+  const [isPWAInstalled, setIsPWAInstalled] = useState(false);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [pendingAndroidInstall, setPendingAndroidInstall] = useState(false);
+  const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const splashTimer = setTimeout(() => {
+      setShowLaunchSplash(false);
+    }, 5000);
+    return () => clearTimeout(splashTimer);
+  }, []);
+
+  // Keep the visitor where they were across refreshes
+  useEffect(() => {
+    try { localStorage.setItem('ann-last-tab', activeTab); } catch {}
+  }, [activeTab]);
+  useEffect(() => {
+    try { localStorage.setItem('ann-last-feedtab', feedSubTab); } catch {}
+  }, [feedSubTab]);
+
+  // Reopen the admin dashboard where it was left after a refresh
+  const adminUiFirstRunRef = useRef(true);
+  const adminAutoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (adminUiFirstRunRef.current) {
+      adminUiFirstRunRef.current = false;
+      return;
+    }
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
+      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, open: isAdminModalOpen }));
+    } catch {}
+  }, [isAdminModalOpen]);
+  useEffect(() => {
+    if (route === '/admin' && user && !user.isAnonymous && isAdmin) setIsAdminDashboardOpen(true);
+  }, [route, user, isAdmin]);
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
+      if (storedAdminUi && storedAdminUi.open) {
+        setIsAdminDashboardOpen(true);
+        if (window.location.pathname !== '/admin') {
+          try { window.history.replaceState({}, '', '/admin'); } catch {}
+          setRoute('/admin');
+        }
+      }
+    } catch {}
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+    setIsPWAInstalled(isStandalone);
+
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    setIsIOSDevice(isIOS);
+
+    if ((window as any).__deferredPwaPrompt) {
+      setDeferredInstallPrompt((window as any).__deferredPwaPrompt);
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      (window as any).__deferredPwaPrompt = e;
+      setDeferredInstallPrompt(e);
+    };
+
+    const handlePwaPromptReady = (e: Event) => {
+      const promptEvent = (e as CustomEvent).detail || (window as any).__deferredPwaPrompt;
+      if (promptEvent) {
+        setDeferredInstallPrompt(promptEvent);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setIsPWAInstalled(true);
+      setDeferredInstallPrompt(null);
+      setPendingAndroidInstall(false);
+      (window as any).__deferredPwaPrompt = null;
+      showToast('App downloaded and installed successfully!');
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autoinstall') === '1' && !isIOS) {
+      setPendingAndroidInstall(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('pwa-prompt-ready', handlePwaPromptReady);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-prompt-ready', handlePwaPromptReady);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Automatically trigger native Android install if user tapped Install while service worker was still registering
+  useEffect(() => {
+    if (pendingAndroidInstall && deferredInstallPrompt) {
+      setPendingAndroidInstall(false);
+      (async () => {
+        try {
+          await deferredInstallPrompt.prompt();
+          const { outcome } = await deferredInstallPrompt.userChoice;
+          if (outcome === 'accepted') {
+            setIsPWAInstalled(true);
+            setDeferredInstallPrompt(null);
+            (window as any).__deferredPwaPrompt = null;
+          }
+        } catch (err) {
+          console.error('Deferred install prompt error:', err);
+        }
+      })();
+    }
+  }, [pendingAndroidInstall, deferredInstallPrompt]);
+
+  const handleInstallClick = async () => {
+    // Only iOS devices should ever see the 2-step Add to Home Screen modal
+    if (isIOSDevice) {
+      setShowIOSInstallModal(true);
+      return;
+    }
+
+    const promptEvent = deferredInstallPrompt || (window as any).__deferredPwaPrompt;
+    if (promptEvent) {
+      try {
+        await promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          setIsPWAInstalled(true);
+          setDeferredInstallPrompt(null);
+          (window as any).__deferredPwaPrompt = null;
+        }
+      } catch (err) {
+        console.error('Install prompt error:', err);
+      }
+      return;
+    }
+
+    // If Android/Chromium user is inside an iframe where top-level window is required for native WebAPK download:
+    if (window.self !== window.top) {
+      const targetUrl = new URL(window.location.href);
+      targetUrl.searchParams.set('autoinstall', '1');
+      const a = document.createElement('a');
+      a.href = targetUrl.toString();
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+
+    setPendingAndroidInstall(true);
+    showToast('Downloading app...', 'info');
+  };
+
+  // 1. Handle Auth & Session
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (currUser) => {
+      if (currUser) {
+        setUser(currUser);
+        
+        // Admin Session Management
+        if (!currUser.isAnonymous) {
+          const idToken = await currUser.getIdTokenResult();
+          const authTime = (idToken.claims.auth_time as any) || Math.floor(new Date(currUser.metadata.lastSignInTime || Date.now()).getTime() / 1000);
+          const expiresAt = (Number(authTime) + 1800) * 1000; // 30 minutes
+          const now = Date.now();
+          
+          if (now >= expiresAt) {
+            signOut(auth);
+            setIsAdminSessionValid(false);
+            showToast("Your admin session expired. Please sign in again.", "info");
+          } else {
+            setSessionExpiry(expiresAt);
+            setIsAdminSessionValid(true);
+            sessionWarningRef.current = false;
+          }
+        } else {
+          setSessionExpiry(null);
+          setIsAdminSessionValid(false);
+        }
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+        setAdminPermissions(null);
+        setSessionExpiry(null);
+        signInAnonymously(auth).catch(err => console.error("Anonymous auth error:", err));
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 1b. Session Expiry Timers & Visibility Checks
+  useEffect(() => {
+    if (!sessionExpiry || !user) return;
+
+    const checkExpiry = () => {
+      const now = Date.now();
+      const timeLeft = sessionExpiry - now;
+
+      if (timeLeft <= 0) {
+        signOut(auth);
+        setIsAdminDashboardOpen(false);
+        if (window.location.pathname !== '/') {
+          try { window.history.pushState({}, '', '/'); } catch {}
+          setRoute('/');
+        }
+        setIsAdminSessionValid(false);
+        showToast("Your admin session expired. Please sign in again.", "error");
+      } else if (timeLeft < 120000 && !sessionWarningRef.current) {
+        showToast("Admin session expiring in 2 minutes.", "error");
+        sessionWarningRef.current = true;
+      }
+    };
+
+    const timer = setInterval(checkExpiry, 10000);
+    window.addEventListener('visibilitychange', checkExpiry);
+    window.addEventListener('focus', checkExpiry);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('visibilitychange', checkExpiry);
+      window.removeEventListener('focus', checkExpiry);
+    };
+  }, [sessionExpiry, user]);
+
+  // 1c. Live Profile, Admin & Reactions Sync
+  useEffect(() => {
+    if (!user) return;
+
+    const isSuper = user.email === "justfashion414@gmail.com";
+
+    // Sync profile
+    const profileUnsub = onSnapshot(doc(db, 'residents', user.uid), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.displayName) setDisplayName(data.displayName);
+        if (data.photoUrl) setAvatar(data.photoUrl);
+      } else {
+      }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, `residents/${user.uid}`);
+    });
+
+    // Sync admin status
+    const adminUnsub = onSnapshot(doc(db, 'admins', user.email || 'anonymous'), (snap) => {
+      if (snap.exists()) {
+        setIsAdmin(true);
+        setAdminPermissions(snap.data().permissions);
+        setMustSetPassword(!!snap.data().mustSetPassword);
+        if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
+      } else if (isSuper) {
+        setMustSetPassword(false);
+        setIsAdmin(true);
+        setAdminPermissions({ 
+          canDeletePosts: true, 
+          canUploadImages: true, 
+          canSetAccessCode: true 
+        });
+        if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
+      } else {
+        setIsAdmin(false);
+        setAdminPermissions(null);
+        adminAutoOpenedRef.current = false;
+      }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, `admins/${user.email}`);
+    });
+
+    return () => {
+      profileUnsub();
+      adminUnsub();
+    };
+  }, [user]);
+
+  // Handle Reactions Logic
+  const handleToggleReaction = async (postId: string, type: 'like' | 'love') => {
+    if (!user) {
+      showToast("Please wait while we connect you...", "error");
+      return;
+    }
+    
+    const isActive = type === 'like' ? !!userLikes[postId] : !!userLoves[postId];
+    const otherTypeActive = type === 'like' ? !!userLoves[postId] : !!userLikes[postId];
+    
+    const batch = writeBatch(db);
+    const reactionRef = doc(db, 'posts', postId, 'reactions', user.uid);
+    const postRef = doc(db, 'posts', postId);
+
+    try {
+      // 1. Update the reaction document (merge)
+      batch.set(reactionRef, { 
+        [type]: !isActive,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+
+      // 2. Update the post counter
+      batch.update(postRef, { 
+        [`${type}Count`]: increment(isActive ? -1 : 1) 
+      });
+      
+      // Optimistic UI Update
+      if (type === 'like') {
+        setUserLikes(prev => ({ ...prev, [postId]: !isActive }));
+      } else {
+        setUserLoves(prev => ({ ...prev, [postId]: !isActive }));
+      }
+      
+      await batch.commit();
+      showToast(isActive ? 'Reaction removed' : 'Reaction added');
+    } catch (err) {
+      console.error("Reaction error:", err);
+      showToast("Reaction failed. Please try again.", "error");
+      // Revert optimistic
+      if (type === 'like') setUserLikes(prev => ({ ...prev, [postId]: isActive }));
+      else setUserLoves(prev => ({ ...prev, [postId]: isActive }));
+    }
+  };
+
+  // 1d. Deep Linking for Sharing
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const postId = params.get('post');
+    if (postId && activeTab === 'feed') {
+      setTimeout(() => {
+        const el = document.getElementById(`post-${postId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-[var(--ann-accent)]', 'ring-offset-4', 'rounded-2xl');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-[var(--ann-accent)]', 'ring-offset-4'), 3000);
+        }
+      }, 1000);
+    }
+  }, [activeTab, posts]);
+
+  // 2. Sync Global Config (Access Code)
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'app_config', 'main'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.activeAccessCode) {
+          setActiveAccessCode(normalizeCode(data.activeAccessCode));
+        }
+        if (Array.isArray(data.heroImages)) {
+          setHeroImages(data.heroImages);
+          try {
+            localStorage.setItem('ann-hero-images', JSON.stringify(data.heroImages));
+          } catch {
+            // Ignore storage quota error
+          }
+        }
+        if (Array.isArray(data.footerImages)) {
+          setFooterImages(data.footerImages);
+          try {
+            localStorage.setItem('ann-footer-images', JSON.stringify(data.footerImages));
+          } catch {
+            // Ignore storage quota error
+          }
+        }
+        if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
+        if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
+        if (typeof data.story === 'string' && data.story.trim()) setCfgStory(data.story);
+        if (data.weddingDetails && typeof data.weddingDetails === 'object') setCfgDetails(data.weddingDetails);
+        if (typeof data.archiveMode === 'boolean') setArchiveMode(data.archiveMode);
+        if (Array.isArray(data.blockedUids)) setBlockedUids(data.blockedUids);
+        if (Array.isArray(data.vendors)) setVendors(data.vendors);
+        if (typeof data.approveGuestPosts === 'boolean') setApproveGuestPosts(data.approveGuestPosts);
+        if (data.feedActionMode === 'download' || data.feedActionMode === 'share') setFeedActionMode(data.feedActionMode);
+        if (typeof data.pushEnabled === 'boolean') setPushEnabled(data.pushEnabled);
+        if (Array.isArray(data.postAds)) {
+          setPostAds(data.postAds);
+          const copy = [...data.postAds];
+          for (let i = copy.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [copy[i], copy[j]] = [copy[j], copy[i]];
+          }
+          setShuffledPostAds(copy);
+        }
+        if (Array.isArray(data.reelAds)) {
+          setReelAds(data.reelAds);
+          const copy = [...data.reelAds];
+          for (let i = copy.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [copy[i], copy[j]] = [copy[j], copy[i]];
+          }
+          setShuffledReelAds(copy);
+        }
+      }
+      setConfigLoaded(true);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'app_config/main');
+      console.error("Config sync error:", err);
+      setConfigLoaded(true); // Still set loaded to stop spinners, but activeAccessCode will remain null
+    });
+    return () => unsub();
+  }, []);
+
+  // 2c. Residents (guest profiles + vendor requests). Public read per rules.
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'residents'), (snap) => {
+      const arr: any[] = [];
+      snap.forEach((d) => arr.push({ uid: d.id, ...d.data() }));
+      setResidents(arr);
+    }, (err) => {
+      console.error('Residents sync error:', err);
+      setResidents([]);
+    });
+    return () => unsub();
+  }, []);
+
+  // 2b. Initialize Config (Admin only)
+  useEffect(() => {
+    if (!isAdmin || !isAdminSessionValid) return;
+    
+    const initConfig = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'app_config', 'main'));
+        if (!snap.exists()) {
+          await setDoc(doc(db, 'app_config', 'main'), {
+            activeAccessCode: 'DARAFEMI26',
+            createdAt: serverTimestamp(),
+            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
+            story: DEFAULT_STORY,
+            weddingDetails: DEFAULT_DETAILS
+          });
+        } else if (!Array.isArray(snap.data().events)) {
+          await setDoc(doc(db, 'app_config', 'main'), {
+            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
+            story: snap.data().story || DEFAULT_STORY,
+            weddingDetails: snap.data().weddingDetails || DEFAULT_DETAILS
+          }, { merge: true });
+        }
+
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'app_config/main');
+        console.error("Config initialization error:", err);
+      }
+    };
+    
+    initConfig();
+
+    // Also sync all admins if super admin
+    if (user?.email === "justfashion414@gmail.com") {
+      const unsubAdmins = onSnapshot(collection(db, 'admins'), (snap) => {
+        setAllAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+
+      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setDeletedPosts(docs);
+        
+        // Auto-purge posts older than 3 days
+        const now = Date.now();
+        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+        docs.forEach(async (dp: any) => {
+          const deletedAt = dp.deletedAt?.toDate?.() || new Date(dp.deletedAt);
+          if (now - deletedAt.getTime() > threeDaysMs) {
+            try {
+              await deleteDoc(doc(db, 'deleted_posts', dp.id));
+              console.log("Auto-purged old deleted post:", dp.id);
+            } catch (err) {
+              console.error("Purge error:", err);
+            }
+          }
+        });
+      });
+
+      return () => {
+        unsubAdmins();
+        unsubDeleted();
+      };
+    } else if (isAdmin) {
+      // Just sync deleted posts for regular admins with permission
+      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+        setDeletedPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+      return () => unsubDeleted();
+    }
+  }, [isAdmin, isAdminSessionValid, user]);
+
+  // Handle Admin Login (email & password)
+  const handleAdminLogin = async (email: string, password: string) => {
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      setAuthScreen(null);
+      setAuthPassword('');
+      setAuthEmail('');
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code.includes('wrong-password') || code.includes('user-not-found') || code.includes('invalid-credential')) {
+        setAuthError('Email or password is incorrect.');
+      } else if (code.includes('too-many-requests')) {
+        setAuthError('Too many attempts. Try again in a moment.');
+      } else {
+        setAuthError('Could not sign in. Please try again.');
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleAdminSignup = async (email: string, password: string) => {
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      await createUserWithEmailAndPassword(auth, email.trim(), password);
+      setAuthScreen(null);
+      setAuthPassword('');
+      setAuthEmail('');
+      showToast('Admin account created.', 'success');
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code.includes('email-already-in-use')) {
+        setAuthError('That email already has an account. Sign in instead.');
+      } else if (code.includes('weak-password')) {
+        setAuthError('Password is too weak. Use at least 6 characters.');
+      } else {
+        setAuthError('Could not create the account. Please try again.');
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleForgotPassword = async (email: string) => {
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setAuthScreen('sent');
+    } catch (err: any) {
+      const code = err?.code || '';
+      setAuthError(code.includes('user-not-found') ? 'No account found for that email.' : 'Could not send the reset email. Please try again.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSetPermanentPassword = async () => {
+    if (newPassword.length < 6) { setAuthError('Use at least 6 characters.'); return; }
+    if (newPassword !== confirmNewPassword) { setAuthError('The two passwords do not match.'); return; }
+    setAuthError('');
+    setSetPasswordBusy(true);
+    try {
+      if (user) await updatePassword(user, newPassword);
+      if (user?.email) await setDoc(doc(db, 'admins', user.email), { mustSetPassword: false }, { merge: true });
+      setMustSetPassword(false);
+      setNewPassword('');
+      setConfirmNewPassword('');
+      showToast('Permanent password saved. Welcome in!', 'success');
+    } catch (err) {
+      console.error('Set password error:', err);
+      setAuthError('Could not update the password. Sign out, sign in again, then try.');
+    } finally {
+      setSetPasswordBusy(false);
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  // Derived wedding content: Firestore values when the couple has saved them,
+  // seeded defaults before their first save.
+  const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : EVENTS_DATA;
+  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : DEFAULT_STORY;
+  const DETAILS: any = cfgDetails || DEFAULT_DETAILS;
+  const vendorRequests = residents.filter((r: any) => r?.vendorRequest && r.vendorRequest.status === 'pending');
+
+  const updateAccessCode = async (newCode: string) => {
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) return;
+    const normalized = normalizeCode(newCode);
+    if (!normalized || normalized.length < 4) return;
+
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), {
+        activeAccessCode: normalized,
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      
+      showToast('Access code updated successfully!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      console.error("Update code error:", err);
+      showToast('Failed to update access code.', 'error');
+    }
+  };
+
+  const updateWedding = async (events: WeddingEvent[], story: string, details: any) => {
+    if (!isAdmin || !isAdminSessionValid) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), {
+        events,
+        story,
+        weddingDetails: details,
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      setCfgEvents(events);
+      setCfgStory(story);
+      setCfgDetails(details);
+      showToast('Saved. Guests see this on the Home screen.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      console.error('Update wedding details error:', err);
+      showToast('Failed to save changes.', 'error');
+    }
+  };
+
+  const updatePeople = async (patch: { vendors?: string[]; blockedUids?: string[] }) => {
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to update.', 'error');
+    }
+  };
+
+  const handleVendorRequest = async (uid: string, name: string, approve: boolean) => {
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      const next = approve ? Array.from(new Set([...(vendors || []), uid])) : (vendors || []).filter((u: any) => u !== uid);
+      await setDoc(doc(db, 'app_config', 'main'), { vendors: next, lastUpdated: serverTimestamp() }, { merge: true });
+      try {
+        await updateDoc(doc(db, 'residents', uid), { vendorRequest: { status: approve ? 'approved' : 'declined', decidedAt: serverTimestamp() } });
+      } catch (err: any) {
+        console.error('Vendor request status update needs superadmin:', err?.message || err);
+      }
+      showToast(approve ? `${name} is now an official vendor.` : 'Request declined.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Could not update the vendor request.', 'error');
+    }
+  };
+
+  const updateAppConfigFlags = async (patch: Record<string, any>, okMsg = 'Setting saved.') => {
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      showToast(okMsg);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to save the setting.', 'error');
+    }
+  };
+
+  // Saves the label attached to each hero photo (url -> event name).
+  const updateHeroLabels = async (map: Record<string, string>) => {
+    setHeroImageLabels(map);
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { heroImageLabels: map, lastUpdated: serverTimestamp() }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Could not save the label.', 'error');
+    }
+  };
+
+  // Saves one section of the wedding details (story, details or events) on its
+  // own, used by the per-section Save buttons in the console's Events & details tab.
+  const updateWeddingSection = async (patch: Record<string, any>) => {
+    if (!isAdmin || !isAdminSessionValid) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      if ('events' in patch) setCfgEvents(patch.events);
+      if ('story' in patch) setCfgStory(patch.story);
+      if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
+      showToast('Saved. Guests see this on the Home screen.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Could not save. Please try again.', 'error');
+    }
+  };
+
+  const approvePost = async (postId: string) => {
+    try {
+      await updateDoc(doc(db, 'posts', postId), { pending: false });
+      showToast('Approved. Guests can now see it', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Could not approve the post.', 'error');
+    }
+  };
+
+  /**
+   * Shares a post through the device's native share sheet where one exists,
+   * falling back to the in-app ShareSheet (WhatsApp / copy link / X).
+   */
+  const sharePost = async (p: any) => {
+    const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
+    const title = p.text || p.caption || 'A memory from Dara & Femi';
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try { await (navigator as any).share({ title: 'Dara & Femi', text: title, url }); return; } catch { return; }
+    }
+    setSharingPost(p);
+  };
+
+  /**
+   * Downloads a post's or reel's media files straight to the guest's device,
+   * one file at a time. This backs the "Download" mode of the feed action
+   * button, which the admin turns on in the console Settings tab
+   * (app_config/main.feedActionMode). Cloudinary files are served with open
+   * CORS headers, so a plain fetch works for both images and videos; a short
+   * pause between files keeps mobile browsers from blocking the batch.
+   */
+  const downloadMediaFiles = async (urls: string[], types: any[] | undefined, baseName = 'dara-femi-memory') => {
+    const list = Array.isArray(urls) ? urls.filter(Boolean) : [];
+    if (!list.length) { showToast('There is no photo or video on this post to download.', 'error'); return; }
+    showToast(list.length > 1 ? 'Downloading files…' : 'Downloading…');
+    let ok = 0;
+    for (let i = 0; i < list.length; i++) {
+      try {
+        const res = await fetch(list[i]);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const u = list[i];
+        const isVideo = types?.[i] === 'video' || u.toLowerCase().includes('.mp4') || u.toLowerCase().includes('.webm') || u.toLowerCase().includes('.mov') || u.includes('/video/');
+        const ext = isVideo ? 'mp4' : (u.split('?')[0].split('.').pop() || 'jpg').slice(0, 5);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${baseName}${list.length > 1 ? `-${i + 1}` : ''}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        ok += 1;
+        if (list.length > 1) await new Promise((r) => setTimeout(r, 400));
+      } catch (err) {
+        console.error('Media download failed:', err);
+      }
+    }
+    showToast(ok ? `Saved ${ok} ${ok === 1 ? 'file' : 'files'} to your device.` : 'Could not download the files. Please try again.', ok ? 'success' : 'error');
+  };
+
+
+  const deleteAllGuestData = async () => {
+    if (!isAdmin || adminPermissions?.canDeletePosts === false) { showToast('You do not have permission to delete posts.', 'error'); return; }
+    try {
+      const snap = await getDocs(collection(db, 'posts'));
+      let n = 0;
+      for (const d of snap.docs) {
+        await deleteDoc(doc(db, 'posts', d.id));
+        n += 1;
+      }
+      showToast(`Deleted ${n} ${n === 1 ? 'post' : 'posts'}.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'posts');
+      showToast('Could not delete everything.', 'error');
+    }
+  };
+
+  const downloadEverything = async () => {
+    if (!posts.length) { showToast('Nothing to download yet.'); return; }
+    try {
+      showToast('Preparing your zip…');
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      let n = 0;
+      for (const p of posts) {
+        const evName = (EVENTS.find((e) => e.id === p.eventId)?.name || 'Other memories').replace(/[^\w -]/g, '').trim() || 'Other memories';
+        const folder = zip.folder(evName) || zip;
+        const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
+        for (const u of urls) {
+          try {
+            const res = await fetch(u);
+            if (!res.ok) continue;
+            const blob = await res.blob();
+            const ext = (u.split('?')[0].split('.').pop() || 'jpg').slice(0, 5);
+            folder.file(`${(p.authorName || 'guest').replace(/[^\w -]/g, '') || 'guest'}-${p.id}-${n}.${ext}`, blob);
+            n += 1;
+          } catch { /* skip a file that will not fetch */ }
+        }
+        if (!urls.length && (p.text || p.caption)) folder.file(`${p.id}.txt`, String(p.text || p.caption));
+      }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'dara-femi-memories.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast(`Downloaded ${n} ${n === 1 ? 'file' : 'files'}.`);
+    } catch (err) {
+      console.error('Download everything failed:', err);
+      showToast('Could not build the zip. Try again on a desktop browser.', 'error');
+    }
+  };
+
+  const createMemoryBook = () => {
+    const win = window.open('', '_blank');
+    if (!win) { showToast('Allow pop-ups to create the memory book.', 'error'); return; }
+    const esc = (s: any) => String(s || '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+    const cards = posts.slice(0, 200).map((p: any) => {
+      const evName = EVENTS.find((e) => e.id === p.eventId)?.name || '';
+      const img = p.mediaUrls && p.mediaUrls[0] ? `<img src="${esc(p.mediaUrls[0])}" alt="" />` : '';
+      const txt = p.text || p.caption || '';
+      return `<section class="card"><header><b>${esc(p.authorName || 'A guest')}</b><span>${esc(evName)}</span></header>${img}<p>${esc(txt)}</p></section>`;
+    }).join('');
+    win.document.write(`<!doctype html><html><head><title>Dara &amp; Femi memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>Dara &amp; Femi</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
+    win.document.close();
+  };
+
+  // Post lifecycle (delete / restore / erase) runs through the server admin
+  // endpoint, which verifies the caller's admins doc, then moves or removes
+  // the Firestore docs and purges the post's Cloudinary files.
+  const adminPostAction = async (action: 'delete' | 'restore' | 'erase', postId: string) => {
+    if (!user) throw new Error('Sign in required.');
+    const idToken = await user.getIdToken();
+    const res = await fetch('/api/admin-post-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ action, postId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Action failed.');
+    return data;
+  };
+
+  // Delete Post (Move to Recycle Bin)
+  const handleDeletePost = async (postId: string) => {
+    if (!isAdmin) {
+      showToast("Permission denied for deletion.", "error");
+      return;
+    }
+    try {
+      const data = await adminPostAction('delete', postId);
+      const purged = data?.media?.purged || 0;
+      showToast(purged > 0 ? `Post moved to recycle bin (${purged} file${purged === 1 ? '' : 's'} removed from Cloudinary)` : 'Post moved to recycle bin');
+    } catch (err: any) {
+      console.error("Delete error:", err);
+      showToast(err?.message || "Failed to move post to bin.", "error");
+    }
+  };
+
+  // Restore Post
+  const handleRestorePost = async (postId: string) => {
+    if (!isAdmin) return;
+    try {
+      await adminPostAction('restore', postId);
+      showToast('Post restored to feed');
+    } catch (err: any) {
+      console.error("Restore error:", err);
+      showToast(err?.message || "Failed to restore post.", "error");
+    }
+  };
+
+  // Permanent Delete
+  const handlePermanentDelete = async (postId: string) => {
+    if (!isAdmin) return;
+    try {
+      const data = await adminPostAction('erase', postId);
+      const purged = data?.media?.purged || 0;
+      showToast(purged > 0 ? `Post permanently erased (${purged} file${purged === 1 ? '' : 's'} removed from Cloudinary)` : 'Post permanently erased');
+    } catch (err: any) {
+      console.error("Erase error:", err);
+      showToast(err?.message || "Failed to erase post.", "error");
+    }
+  };
+
+  // 3. Handle Posts Sync
+  useEffect(() => {
+    const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPosts(p);
+      setIsPostsLoading(false);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'posts');
+      setIsPostsLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // Footer grid: newest posted images replace the placeholder cells first,
+  // then admin-set images, then the placeholders.
+  const postFeedImages = useMemo(() => {
+    const imgs: string[] = [];
+    for (const p of posts as any[]) {
+      if (p.pending) continue;
+      const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
+      urls.forEach((u: string, i: number) => {
+        if (typeof u === 'string' && u.startsWith('http') && (p.mediaTypes?.[i] || 'image') !== 'video' && !imgs.includes(u)) imgs.push(u);
+      });
+    }
+    return imgs;
+  }, [posts]);
+  const footerPool = useMemo(
+    () => [...postFeedImages, ...(footerImages || []), ...PLACEHOLDER_IMAGES],
+    [postFeedImages, footerImages]
+  );
+
+  // 3b. Detect video orientation for existing posts without explicit orientation metadata
+  useEffect(() => {
+    posts.forEach((p) => {
+      if (p.id === 'jubilee_documentary') return;
+      if (p.videoOrientation) {
+        setVideoOrientations((prev) => (prev[p.id] === p.videoOrientation ? prev : { ...prev, [p.id]: p.videoOrientation }));
+        return;
+      }
+      if (videoOrientations[p.id]) return;
+
+      const media: string[] = p.mediaUrls || (p.mediaUrl ? [p.mediaUrl] : []);
+      const videoUrl = media.find((u, idx) =>
+        p.mediaTypes?.[idx] === 'video' ||
+        u.toLowerCase().includes('.mp4') ||
+        u.toLowerCase().includes('.webm') ||
+        u.toLowerCase().includes('.mov') ||
+        u.includes('/video/')
+      );
+
+      if (videoUrl) {
+        const vid = document.createElement('video');
+        vid.preload = 'metadata';
+        vid.onloadedmetadata = () => {
+          const isPortrait = vid.videoHeight > vid.videoWidth;
+          setVideoOrientations((prev) => ({
+            ...prev,
+            [p.id]: isPortrait ? 'portrait' : 'landscape'
+          }));
+        };
+        vid.onerror = () => {
+          setVideoOrientations((prev) => ({
+            ...prev,
+            [p.id]: 'landscape'
+          }));
+        };
+        vid.src = videoUrl;
+      }
+    });
+  }, [posts, videoOrientations]);
+
+  // 3. Handle Local Persistence
+  useEffect(() => {
+    localStorage.setItem('ann-profile-name', displayName);
+  }, [displayName]);
+
+  useEffect(() => {
+    localStorage.setItem('ann-profile-avatar', avatar);
+  }, [avatar]);
+
+  // Handle profile save to Firestore
+  const saveProfile = async () => {
+    if (!user) return;
+    setIsSavingProfile(true);
+    try {
+      let finalAvatarUrl = avatar;
+
+      // Check if we have a temporary file to upload
+      const tempFile = await get('temp_profile_avatar');
+      if (tempFile && avatar?.startsWith('blob:')) {
+        const url = await uploadToCloudinary(tempFile, 'residents');
+        finalAvatarUrl = url;
+      }
+
+      await setDoc(doc(db, 'residents', user.uid), {
+        displayName,
+        photoUrl: finalAvatarUrl,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      await del('temp_profile_avatar');
+      showToast('Profile saved successfully!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `residents/${user.uid}`);
+      console.error("Error saving profile:", err);
+      showToast('Error saving profile. Try again.', 'error');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  // Handle theme
+  useEffect(() => {
+    const root = document.documentElement;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    const applyTheme = (t: string) => {
+      const isDark = t === 'dark' || (t === 'system' && mediaQuery.matches);
+      setIsDarkMode(isDark);
+      if (isDark) {
+        root.classList.add('dark');
+        root.setAttribute('data-theme', 'dark');
+      } else {
+        root.classList.remove('dark');
+        root.setAttribute('data-theme', 'light');
+      }
+    };
+
+    applyTheme(theme);
+    const listener = () => { if (theme === 'system') applyTheme('system'); };
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, [theme]);
+
+  // Handle font size
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute('data-size', fontSize);
+    if (fontSize === 'l') {
+      root.style.fontSize = '112.5%';
+    } else if (fontSize === 'xl') {
+      root.style.fontSize = '125%';
+    } else {
+      root.style.fontSize = '100%';
+    }
+  }, [fontSize]);
+
+  useEffect(() => {
+    localStorage.setItem('ann-bookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  const toggleBookmark = (id: string) => {
+    setBookmarks(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]);
+  };
+
+  const getDayPhase = () => {
+    const now = new Date();
+    const start = new Date(`${WEDDING_DATE}T${WEDDING_TIME}:00`);
+    const end = new Date('2026-12-14T00:00:00');
+    if (now < start) return 'before';
+    if (now > end) return 'after';
+    return 'during';
+  };
+
+  const phase = getDayPhase();
+  const daysToGo = Math.max(0, Math.ceil((new Date(`${WEDDING_DATE}T${WEDDING_TIME}:00`).getTime() - Date.now()) / 86400000));
+
+  return (
+    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans pb-32`}>
+      {/* FOLLOW-UP LAUNCH SPLASH SCREEN AFTER PWA ICON SPLASH */}
+      <AnimatePresence>
+        {showLaunchSplash && (
+          <motion.section
+            key="launch-followup-splash"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.04, filter: 'blur(8px)' }}
+            transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
+            onClick={() => setShowLaunchSplash(false)}
+            className="fixed inset-0 z-[500] overflow-hidden flex items-center justify-center bg-[var(--ann-hero)] cursor-pointer select-none"
+          >
+            {/* SPLASH: DARA & FEMI */}
+            <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
+              <motion.div
+                initial={{ scale: 0.94, opacity: 0, y: 14 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ duration: 0.75, ease: "circOut" }}
+              >
+                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
+                <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
+                  Dara
+                  <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
+                  Femi
+                </h1>
+                <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
+              </motion.div>
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.75 }}
+                transition={{ delay: 0.9, duration: 0.8 }}
+                className="mt-10 text-[0.8rem] text-white"
+              >
+                Tap to enter
+              </motion.p>
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* Simplified Header - CLEAN DESIGN (Hidden when viewing full-portrait Reels) */}
+      {!(activeTab === 'feed' && feedSubTab === 'reels') && (
+        <header className={`sticky top-0 z-[60] backdrop-blur-md px-5 py-3.5 border-b transition-colors ${isDarkMode ? 'bg-[#0B171C]/80 border-[#22363E]' : 'bg-[#EEEDF3]/80 border-[#DAD8E3]'}`}>
+          <div className="max-w-[520px] mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">Dara &amp; Femi</h1>
+              {!isOnline && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[10px] font-black uppercase tracking-wider">
+                  Offline
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2.5">
+              {!isPWAInstalled && (
+                <button
+                  onClick={handleInstallClick}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.72rem] font-black uppercase tracking-wider shadow-sm hover:scale-105 active:scale-95 transition-all"
+                  title="Install App"
+                >
+                  <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Install</span>
+                </button>
+              )}
+              <div className={`w-8 h-8 rounded-full overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'} bg-[var(--ann-accent)] flex items-center justify-center text-[0.65rem] text-white font-black`}>
+                {avatar ? <img src={avatar} className="w-full h-full object-cover" /> : <span>{displayName ? displayName[0].toUpperCase() : 'Y'}</span>}
+              </div>
+            </div>
+          </div>
+        </header>
+      )}
+
+      {route !== '/admin' && (
+      <main className="max-w-[520px] mx-auto px-4 pt-1.5">
+        {/* PERSISTENT HERO SECTION - Kept laid out in the background even when on other tabs so offsetHeight is never 0 and pairs continue scrolling seamlessly */}
+        <div
+          className={
+            activeTab === 'home'
+              ? 'block'
+              : 'fixed top-0 left-0 w-full opacity-0 pointer-events-none -z-50 overflow-hidden'
+          }
+          aria-hidden={activeTab !== 'home'}
+        >
+           <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
+        </div>
+
+        {/* TOAST NOTIFICATION */}
+        <AnimatePresence>
+          {toast && (
+            <motion.div 
+              initial={{ y: -100, x: '-50%', opacity: 0 }}
+              animate={{ y: 20, x: '-50%', opacity: 1 }}
+              exit={{ y: -100, x: '-50%', opacity: 0 }}
+              className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
+            >
+              <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
+                toast.type === 'success' 
+                  ? 'bg-green-500 border-green-600 text-white' 
+                  : toast.type === 'info'
+                    ? 'bg-[var(--ann-accent)] border-[#0A535C] text-white'
+                    : 'bg-red-500 border-red-600 text-white'
+              }`}>
+                {toast.type === 'success' && <Check className="w-5 h-5" />}
+                {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
+                {toast.type === 'error' && <X className="w-5 h-5" />}
+                <p className="text-sm font-bold">{toast.message}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* PROFILE SETUP MODAL */}
+        <ProfilePromptModal 
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          onGoToSettings={() => {
+            setActiveTab('settings');
+            setShowProfileModal(false);
+          }}
+          isDarkMode={isDarkMode}
+        />
+
+        <AnimatePresence mode="wait">
+          {activeTab === 'home' && (
+            <motion.div
+              key={`home-tab-${activeTab}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-0"
+            >
+              {/* COUPLE BANNER - DARA & FEMI */}
+              <div className="rounded-[28px] p-[26px_22px_26px] text-[#F2F7F8] relative overflow-hidden shadow-xl" style={{
+                background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)'
+              }}>
+                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
+                <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
+                  Dara
+                  <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
+                  Femi
+                </h2>
+                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
+
+                {phase === 'before' && (
+                  <div className="mt-5 mx-auto flex items-stretch justify-center bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md divide-x divide-white/25">
+                    <div className="px-5 text-center">
+                      <b className="block text-[1.5rem] font-serif-display leading-none">{daysToGo}</b>
+                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">days to go</span>
+                    </div>
+                    <div className="px-5 text-center">
+                      <b className="block text-[1.5rem] font-serif-display leading-none">12 Dec</b>
+                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">2026</span>
+                    </div>
+                    <div className="px-5 text-center">
+                      <b className="block text-[1.5rem] font-serif-display leading-none">Lagos</b>
+                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
+                    </div>
+                  </div>
+                )}
+
+                {phase === 'during' && (
+                  <div className="mt-5 bg-white/10 border border-white/14 rounded-[18px] p-[14px_16px]">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <div className="w-2 h-2 rounded-full bg-[#7CF2B0]" />
+                      <b className="text-[1.05rem] font-serif-display">It&apos;s the wedding day</b>
+                    </div>
+                    <p className="text-[0.9rem] opacity-[0.9] m-0">Share what you are seeing. We are keeping it all.</p>
+                  </div>
+                )}
+
+                {phase === 'after' && (
+                  <div className="mt-5 bg-white/10 border border-white/14 rounded-[18px] p-[14px_16px]">
+                    <b className="text-[1.05rem] font-serif-display">The memories are here to stay</b>
+                    <p className="text-[0.9rem] opacity-[0.9] m-0">Every moment from the weekend, kept for life.</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setActiveTab('feed')}
+                  className="mt-5 inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-white text-[var(--ann-hero)] text-sm hover:scale-105 transition-all"
+                >
+                  See what guests are posting
+                  <motion.span
+                    animate={{ x: [0, 5, 0] }}
+                    transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                    className="flex items-center"
+                  >
+                    <ChevronRight className="w-5 h-5 stroke-[3]" />
+                  </motion.span>
+                </button>
+              </div>
+
+              {!isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
+                <div className={`rounded-[20px] p-[18px] mt-4 border flex items-center gap-3 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                  <div className="w-10 h-10 rounded-full bg-[#C8932A]/20 text-[#C8932A] grid place-items-center shrink-0"><User className="w-5 h-5" /></div>
+                  <div className="flex-1 min-w-0">
+                    <b className="block text-[0.95rem]">Complete your profile</b>
+                    <small className={`block text-[0.85rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Add your name and photo so the couple knows who you are.</small>
+                  </div>
+                  <button onClick={() => setActiveTab('settings')} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest shrink-0">Set up</button>
+                </div>
+              )}
+
+              {/* OUR STORY */}
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Our story</h2>
+                <p className={`text-[0.95rem] leading-relaxed m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+                  {STORY}
+                </p>
+                <div className={`p-[16px_18px] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                  <strong className="block mb-0.5 text-[0.93rem]">How to share</strong>
+                  <p className={`m-0 text-[0.93rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+                    Tap Feed to browse, then tap Send to post a photo, video, reel or written wish. No email or password needed.
+                  </p>
+                </div>
+              </section>
+
+              {/* THE JOURNEY */}
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap any event to see its memories.</p>
+                <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
+                  {EVENTS.map((e) => {
+                    const st = e.status || 'up';
+                    const cnt = posts.filter((p: any) => p?.eventId === e.id).length;
+                    const tagCls = st === 'done'
+                      ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
+                      : st === 'next'
+                        ? 'bg-[#C8932A]/15 text-[#C8932A] border-[#C8932A]/40'
+                        : (isDarkMode ? 'bg-white/5 text-[#93A4AB] border-[#22363E]' : 'bg-[#EEEDF3] text-[#5A6970] border-[#DAD8E3]');
+                    const dotCls = st === 'done'
+                      ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)]'
+                      : st === 'next'
+                        ? 'bg-[#C8932A] border-[#C8932A] shadow-[0_0_0_5px_rgba(200,147,42,0.18)]'
+                        : (isDarkMode ? 'bg-[#0B171C] border-[#93A4AB]' : 'bg-[#EEEDF3] border-[#5A6970]');
+                    return (
+                      <button key={e.id} onClick={() => setActiveTab('feed')} className="relative block w-full text-left border-0 bg-transparent p-0 group">
+                        <span className={`absolute -left-[30px] top-[20px] w-[14px] h-[14px] rounded-full border-[3px] ${dotCls}`} />
+                        <div className={`rounded-[18px] border p-[14px_16px] transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E] group-hover:border-[#2FB3BF]/50' : 'bg-white border-[#DAD8E3] group-hover:border-[var(--ann-accent)]/40'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <b className="text-[1rem] font-serif-display leading-tight">{e.name}</b>
+                            <span className={`flex-shrink-0 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tagCls}`}>
+                              {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
+                            </span>
+                          </div>
+                          <small className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.type ? `${e.type} · ` : ''}{fmtEventDate(e)}</small>
+                          <p className={`text-[0.9rem] m-0 mt-1.5 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.desc}</p>
+                          <small className={`block text-[0.72rem] font-bold uppercase tracking-wider mt-2 ${st === 'next' ? 'text-[#C8932A]' : 'text-[var(--ann-accent)]'}`}>
+                            {cnt > 0 ? `See ${cnt} ${cnt === 1 ? 'memory' : 'memories'}` : 'Be the first to share'}
+                          </small>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* WEDDING DAY DETAILS */}
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Saturday, 12 December 2026</p>
+                <div className={`p-[16px_18px] rounded-[20px] border space-y-3.5 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                  <div>
+                    <strong className="block text-[0.93rem]">Church wedding · {DETAILS.churchTime}</strong>
+                    <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.churchVenue}</p>
+                  </div>
+                  <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
+                  <div>
+                    <strong className="block text-[0.93rem]">Reception · {DETAILS.receptionTime}</strong>
+                    <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.receptionVenue}</p>
+                  </div>
+                  <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
+                  <div>
+                    <strong className="block text-[0.93rem]">Aso-ebi: {DETAILS.asoEbi}</strong>
+                    <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{DETAILS.hashtag}</span></p>
+                  </div>
+                </div>
+              </section>
+
+              {/* OUR VENDORS */}
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our vendors</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Official media partners. They upload full albums here.</p>
+                <div className="flex gap-3">
+                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <b className="block text-[0.95rem] font-serif-display">Lens &amp; Light Studio</b>
+                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photographer</span>
+                  </div>
+                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <b className="block text-[0.95rem] font-serif-display">Kiln Films</b>
+                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Videographer</span>
+                  </div>
+                </div>
+              </section>
+
+              {/* CTA */}
+              <section className="mt-8 mb-2">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Say something to the couple</h2>
+                <button
+                  onClick={() => setActiveTab('feed')}
+                  className="w-full border-0 rounded-[16px] py-3.5 font-bold bg-[var(--ann-accent)] text-white text-[0.95rem] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Open the feed
+                </button>
+              </section>
+
+              {/* GIANT FOOTER WITH INTERACTIVE PHOTO GRID (placeholders until photos arrive) */}
+              <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[700px] sm:min-h-[850px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
+                <div className="absolute inset-0 z-0 grid grid-cols-10 auto-rows-fr opacity-60">
+                  <GridScanner isDarkMode={isDarkMode} images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
+                </div>
+
+                <motion.div
+                  initial="initial"
+                  whileInView="animate"
+                  viewport={{ once: false, amount: 0.4 }}
+                  className="relative z-10 flex flex-col items-center max-w-full px-4 text-center pointer-events-none"
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    whileInView={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.8, ease: "circOut" }}
+                  >
+                    <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase mb-0 text-[var(--ann-accent)] drop-shadow-sm">
+                      Dara
+                    </h2>
+                    <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase flex items-center justify-center gap-[0.05em] text-[var(--ann-accent)] drop-shadow-sm">
+                      <span>&amp; Femi</span>
+                      <motion.div
+                        animate={{ scale: [1, 1.2, 1], rotate: [0, 12, 0] }}
+                        transition={{ repeat: Infinity, duration: 4 }}
+                        className="w-[0.3em] h-[0.3em] rounded-full bg-[#C8932A] opacity-80"
+                      />
+                    </h2>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, width: 0 }}
+                    whileInView={{ opacity: 1, width: '100%' }}
+                    transition={{ delay: 0.4, duration: 1 }}
+                    className="flex items-center gap-4 mt-12 w-full max-w-md mx-auto"
+                  >
+                    <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
+                    <p className="text-[clamp(0.8rem,3vw,1.5rem)] font-display font-black tracking-[0.4em] uppercase whitespace-nowrap opacity-60 text-[var(--ann-accent)]">
+                      12.12.2026, Lagos
+                    </p>
+                    <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
+                  </motion.div>
+                </motion.div>
+              </section>
+
+              <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex flex-col items-center">
+                    <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">Dara &amp; Femi</h4>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · 12 December 2026</p>
+                  </div>
+                  <div className="pt-2 opacity-40">
+                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">Wedding memories, kept for life</p>
+                  </div>
+                </div>
+              </footer>
+
+            </motion.div>
+          )}
+
+          {activeTab === 'feed' && (
+            <motion.div
+              key={`feed-tab-${activeTab}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-0 pt-3"
+            >
+              {/* Segmented Control: Post vs Reels (pinned at the top of the Feed on both tabs so users can always switch back) */}
+              {(
+                <div className={`flex items-center p-1.5 rounded-2xl mb-4 border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                  <button
+                    onClick={() => setFeedSubTab('post')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                      feedSubTab === 'post'
+                        ? 'bg-[var(--ann-accent)] text-white shadow-md'
+                        : isDarkMode ? 'text-[#93A4AB] hover:text-white' : 'text-[#5A6970] hover:text-[#14262D]'
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Post</span>
+                  </button>
+                  <button
+                    onClick={() => setFeedSubTab('reels')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
+                      feedSubTab === 'reels'
+                        ? 'bg-[var(--ann-accent)] text-white shadow-md'
+                        : isDarkMode ? 'text-[#93A4AB] hover:text-white' : 'text-[#5A6970] hover:text-[#14262D]'
+                    }`}
+                  >
+                    <Film className="w-4 h-4" />
+                    <span>Reels</span>
+                  </button>
+                </div>
+              )}
+
+              {isPostsLoading ? (
+                <div className="py-24 flex flex-col items-center justify-center gap-3 border-t border-[#DAD8E3] dark:border-[#22363E]">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-[var(--ann-accent)] animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-3 h-3 rounded-full bg-[var(--ann-accent)] animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-3 h-3 rounded-full bg-[var(--ann-accent)] animate-bounce" />
+                  </div>
+                </div>
+              ) : feedSubTab === 'post' ? (
+                <div className="border-t-[6px] border-[#D0CEDB] dark:border-[#1E323A]">
+                  {uploadingPost && <UploadingPostCard up={uploadingPost} isDarkMode={isDarkMode} />}
+                  {(() => {
+                    const regularPosts = posts.filter((p) => {
+                      if (p.id === 'jubilee_documentary') return false;
+                      if (p.pending && !(isAdmin || p.authorUid === user?.uid)) return false;
+                      const media: string[] = p.mediaUrls || (p.mediaUrl ? [p.mediaUrl] : []);
+                      const hasVideo = media.some((u, idx) =>
+                        p.mediaTypes?.[idx] === 'video' ||
+                        u.toLowerCase().includes('.mp4') ||
+                        u.toLowerCase().includes('.webm') ||
+                        u.toLowerCase().includes('.mov') ||
+                        u.includes('/video/')
+                      );
+                      const orientation = p.videoOrientation || videoOrientations[p.id];
+                      const hasImage = media.some((u, idx) =>
+                        !(p.mediaTypes?.[idx] === 'video' ||
+                          u.toLowerCase().includes('.mp4') ||
+                          u.toLowerCase().includes('.webm') ||
+                          u.toLowerCase().includes('.mov') ||
+                          u.includes('/video/'))
+                      );
+                      const isPortraitReel = hasVideo && orientation === 'portrait' && !hasImage;
+                      return !isPortraitReel;
+                    });
+
+                    if (regularPosts.length === 0) {
+                      return (
+                        <>
+                          <p className={`py-6 text-center text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>Sample memories · real guest posts appear here</p>
+                          {SAMPLE_POSTS.filter((sp) => sp.mediaType !== 'reel').map((sp) => (
+                            <SamplePostCard key={sp.id} post={sp} isDarkMode={isDarkMode} liked={!!sampleLiked[sp.id]} onLike={() => setSampleLiked((m) => ({ ...m, [sp.id]: !m[sp.id] }))} onComment={() => setCommentsPost(sp)} onShare={() => setSharingPost(sp)} />
+                          ))}
+                        </>
+                      );
+                    }
+
+                    const activePostAds = shuffledPostAds.length > 0 ? shuffledPostAds : postAds;
+                    const feedElements: React.ReactNode[] = [];
+
+                    regularPosts.forEach((p, idx) => {
+                      const formattedDate = p.timestamp?.toDate
+                        ? new Intl.DateTimeFormat('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          }).format(p.timestamp.toDate())
+                        : 'Just now';
+
+                      feedElements.push(
+                        <Post 
+                          key={p.id}
+                          id={p.id}
+                          isDarkMode={isDarkMode}
+                          name={p.authorName || 'Guest'}
+                          text={p.text}
+                          time={formattedDate}
+                          mediaUrls={p.mediaUrls}
+                          mediaTypes={p.mediaTypes}
+                          likeCount={p.likeCount}
+                          loveCount={p.loveCount}
+                          avatar={p.authorPhoto}
+                          onAvatarClick={(u: string) => setAvatarZoom(u)}
+                          isAdmin={isAdmin}
+                          user={user}
+                          onDelete={() => setPostToDelete(p.id)}
+                          onLike={() => handleToggleReaction(p.id, 'like')}
+                          onLove={() => handleToggleReaction(p.id, 'love')}
+                          onShare={() => sharePost(p)}
+                          onOpenMedia={(mIdx: number) => setActiveMediaIndex({ postId: p.id, index: mIdx })}
+                          onComment={() => setCommentsPost(p)}
+                          commentCount={p.commentCount || 0}
+                          eventName={p.eventName || ''}
+                          authorRole={postRole(p)}
+                          authorUid={p.authorUid}
+                          pending={p.pending}
+                          onApprove={() => approvePost(p.id)}
+                        />
+                      );
+
+                      // Place a shuffled Post Ad after every 5 posts
+                      if ((idx + 1) % 5 === 0 && activePostAds.length > 0) {
+                        const adSlotIndex = Math.floor((idx + 1) / 5) - 1;
+                        const ad = activePostAds[adSlotIndex % activePostAds.length];
+                        feedElements.push(
+                          <PostAdCard
+                            key={`post-ad-${ad.id}-${idx}`}
+                            ad={ad}
+                            isDarkMode={isDarkMode}
+                          />
+                        );
+                      }
+                    });
+
+                    return feedElements;
+                  })()}
+                </div>
+                            ) : (
+                <ReelsFeed
+                  onAvatarClick={(u: string) => setAvatarZoom(u)}
+                  reels={(() => {
+                    const filteredReels = posts.filter((p) => {
+                      if (p.id === 'jubilee_documentary') return false;
+                      if (p.pending && !(isAdmin || p.authorUid === user?.uid)) return false;
+                      const media: string[] = p.mediaUrls || (p.mediaUrl ? [p.mediaUrl] : []);
+                      const hasVideo = media.some((u, idx) =>
+                        p.mediaTypes?.[idx] === 'video' ||
+                        u.toLowerCase().includes('.mp4') ||
+                        u.toLowerCase().includes('.webm') ||
+                        u.toLowerCase().includes('.mov') ||
+                        u.includes('/video/')
+                      );
+                      const orientation = p.videoOrientation || videoOrientations[p.id];
+                      const hasImage = media.some((u, idx) =>
+                        !(p.mediaTypes?.[idx] === 'video' ||
+                          u.toLowerCase().includes('.mp4') ||
+                          u.toLowerCase().includes('.webm') ||
+                          u.toLowerCase().includes('.mov') ||
+                          u.includes('/video/'))
+                      );
+                      return hasVideo && orientation === 'portrait' && !hasImage;
+                    });
+
+                    const finalReels = filteredReels.length > 0
+                      ? filteredReels
+                      : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel');
+
+                    const activeReelAds = shuffledReelAds.length > 0 ? shuffledReelAds : reelAds;
+                    if (activeReelAds.length === 0) return finalReels;
+
+                    const combinedReels: any[] = [];
+                    finalReels.forEach((r, idx) => {
+                      combinedReels.push(r);
+                      // Place a video ad after every 3 reels
+                      if ((idx + 1) % 3 === 0) {
+                        const adIdx = Math.floor((idx + 1) / 3) - 1;
+                        const ad = activeReelAds[adIdx % activeReelAds.length];
+                        combinedReels.push({
+                          ...ad,
+                          id: `reel-ad-${ad.id}-${idx}`,
+                          isAd: true
+                        });
+                      }
+                    });
+                    return combinedReels;
+                  })()}
+                  isDarkMode={isDarkMode}
+                  isAdmin={isAdmin}
+                  user={user}
+                  onSwitchToPost={() => setFeedSubTab('post')}
+                  onDelete={(id: string) => setPostToDelete(id)}
+                  onLike={(id: string) => handleToggleReaction(id, 'like')}
+                  onLove={(id: string) => handleToggleReaction(id, 'love')}
+                  onShare={(p: any) => sharePost(p)}
+                  onComment={(p: any) => setCommentsPost(p)}
+                />
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'settings' && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-0"
+            >
+              <TabErrorBoundary label="Settings (guest page)" isDarkMode={isDarkMode}>
+              <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Guest Profile</h2>
+              <div className={`p-[24px_18px] rounded-[24px] border mb-6 flex flex-col items-center gap-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                <div className="relative group">
+                  <div className={`w-28 h-24 rounded-full overflow-hidden border-4 ${isDarkMode ? 'border-[#0B171C]' : 'border-[#EEEDF3]'} bg-[var(--ann-accent)] flex items-center justify-center text-white text-3xl font-black`}>
+                    {avatar ? (
+                      <img src={avatar} className="w-full h-full object-cover" alt="Profile" />
+                    ) : (
+                      <User className="w-10 h-10" />
+                    )}
+
+                  </div>
+                  <input 
+                    type="file" 
+                    id="profile-upload" 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file && user) {
+                        setIsUploading(true);
+                        try {
+                          // Store in IndexedDB
+                          await set('temp_profile_avatar', file);
+                          
+                          // Create local preview URL
+                          const localUrl = URL.createObjectURL(file as any);
+                          setAvatar(localUrl);
+                        } catch (err) {
+                          console.error("Local storage error:", err);
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }
+                    }}
+                  />
+                  <label 
+                    htmlFor="profile-upload"
+                    className="absolute bottom-0 right-0 p-2.5 bg-[var(--ann-accent)] text-white rounded-full shadow-lg cursor-pointer hover:scale-110 active:scale-95 transition-all"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </label>
+                </div>
+                
+                <div className="w-full space-y-4">
+                  <div>
+                    <label className={`block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50 ${isDarkMode ? 'text-white' : 'text-[#14262D]'}`}>Display Name</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Tolu (Dara's cousin)"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className={`w-full p-4 rounded-xl border-none outline-none font-bold transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                    />
+                  </div>
+                  
+<button 
+                    onClick={saveProfile}
+                    disabled={isSavingProfile}
+                    className={`w-full py-3.5 rounded-full font-black text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 ${
+                      isSavingProfile ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white shadow-lg shadow-[var(--ann-accent)]/20 hover:scale-[1.02] active:scale-95'
+                    }`}
+                  >
+                    {isSavingProfile ? 'Saving...' : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Save profile
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              
+              <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Appearance</h2>
+              <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                <div className="p-[14px_18px] flex items-center justify-between gap-4">
+                  <div>
+                    <strong className="block text-[1rem]">Theme</strong>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Light, dark, or follow your phone</small>
+                  </div>
+                  <div className={`inline-flex p-[3px] rounded-full border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-[#DAD8E3]'}`}>
+                    {['light', 'dark', 'system'].map(t => (
+                      <button 
+                        key={t}
+                        onClick={() => setTheme(t as any)}
+                        className={`p-[6px_12px] rounded-full text-[0.88rem] transition-all ${theme === t ? 'bg-[var(--ann-accent)] text-white font-bold' : ''}`}
+                      >
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
+                  <div>
+                    <strong className="block text-[1rem]">Text size</strong>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Make reading easier</small>
+                  </div>
+                  <div className={`inline-flex p-[3px] rounded-full border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-[#DAD8E3]'}`}>
+                    {['m', 'l', 'xl'].map(s => (
+                      <button 
+                        key={s}
+                        onClick={() => setFontSize(s as any)}
+                        className={`p-[6px_12px] rounded-full text-[0.88rem] transition-all ${fontSize === s ? 'bg-[var(--ann-accent)] text-white font-bold' : ''}`}
+                      >
+                        {s === 'm' ? 'A' : (s === 'l' ? 'A+' : 'A++')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">About</h2>
+              <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                <div className="p-[14px_18px]">
+                  <strong className="block text-[1rem]">Dara &amp; Femi 2026</strong>
+                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
+                </div>
+                <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
+                  <div>
+                    <strong className="block text-[1rem]">Report a problem</strong>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tell the couple if something looks wrong</small>
+                  </div>
+                  <button className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
+                </div>
+                <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
+                  <span
+                    onClick={() => {
+                      const newCount = aboutClickCount + 1;
+                      if (newCount >= 3) {
+                        setAuthScreen('signin');
+                        setAboutClickCount(0);
+                      } else {
+                        setAboutClickCount(newCount);
+                      }
+                    }}
+                    className={`text-xs font-bold tracking-wide select-none cursor-pointer ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
+                  >
+                    Happy Wedding, Dara &amp; Femi
+                  </span>
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="pt-6 pb-2">
+                  <button onClick={goAdminPage} className="w-full py-4 rounded-[16px] bg-[var(--ann-accent)] text-white text-[0.75rem] font-black uppercase tracking-widest">
+                    Open admin dashboard
+                  </button>
+                </div>
+              )}
+              </TabErrorBoundary>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+      )}
+
+      {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
+      {isAdminModalOpen && user && !user.isAnonymous && isAdmin && (
+      <AdminDashboardModal 
+        isOpen={isAdminModalOpen}
+        asPage={route === '/admin'}
+        onClose={leaveAdminPage}
+        activeCode={activeAccessCode}
+        onUpdateCode={updateAccessCode}
+        posts={posts}
+        videoOrientations={videoOrientations}
+        events={EVENTS}
+        story={STORY}
+        weddingDetails={DETAILS}
+        onSaveWedding={updateWedding}
+        vendors={vendors}
+        blockedUids={blockedUids}
+        vendorRequests={vendorRequests}
+        onUpdatePeople={updatePeople}
+        onVendorAction={handleVendorRequest}
+        approveGuestPosts={approveGuestPosts}
+        pushEnabled={pushEnabled}
+        archiveMode={archiveMode}
+        feedActionMode={feedActionMode}
+        onUpdateAppFlags={updateAppConfigFlags}
+        onDownloadEverything={downloadEverything}
+        onCreateMemoryBook={createMemoryBook}
+        onDeleteAllGuestData={deleteAllGuestData}
+        onDeletePost={(id: string) => {
+          setIsAdminDashboardOpen(false);
+          setPostToDelete(id);
+        }}
+        isDarkMode={isDarkMode}
+        heroImages={heroImages}
+        heroImageLabels={heroImageLabels}
+        onUpdateHeroLabels={updateHeroLabels}
+        onSaveWeddingSection={updateWeddingSection}
+        onUpdateHeroImages={async (urls: string[]) => {
+          const capped = urls.slice(0, 14);
+          setHeroImages(capped);
+          try {
+            localStorage.setItem('ann-hero-images', JSON.stringify(capped));
+          } catch {
+            // Ignore quota error
+          }
+          try {
+            await setDoc(doc(db, 'app_config', 'main'), {
+              heroImages: capped,
+              lastUpdated: serverTimestamp()
+            }, { merge: true });
+            showToast("Hero images updated!");
+          } catch (err) {
+            console.error("Update hero images error:", err);
+            showToast("Failed to update hero images.", "error");
+          }
+        }}
+        footerImages={footerImages}
+        onUpdateFooterImages={async (urls: string[]) => {
+          const capped = urls.slice(0, 24);
+          setFooterImages(capped);
+          try {
+            localStorage.setItem('ann-footer-images', JSON.stringify(capped));
+          } catch {
+            // Ignore quota error
+          }
+          try {
+            await setDoc(doc(db, 'app_config', 'main'), {
+              footerImages: capped,
+              lastUpdated: serverTimestamp()
+            }, { merge: true });
+            showToast("Footer images updated!");
+          } catch (err) {
+            console.error("Update footer images error:", err);
+            showToast("Failed to update footer images.", "error");
+          }
+        }}
+        allAdmins={allAdmins}
+        deletedPosts={deletedPosts}
+        onRestorePost={handleRestorePost}
+        onPermanentDelete={handlePermanentDelete}
+        currentUserEmail={user?.email}
+        adminPermissions={adminPermissions}
+        showToast={showToast}
+        onBackToMain={onBackToMain}
+        postAds={postAds}
+        reelAds={reelAds}
+        onUpdatePostAds={async (ads: AdItem[]) => {
+          try {
+            await setDoc(doc(db, 'app_config', 'main'), {
+              postAds: ads,
+              lastUpdated: serverTimestamp()
+            }, { merge: true });
+            showToast("Post feed ads updated!");
+          } catch (err) {
+            console.error("Update post ads error:", err);
+            showToast("Failed to update post ads.", "error");
+          }
+        }}
+        onUpdateReelAds={async (ads: AdItem[]) => {
+          try {
+            await setDoc(doc(db, 'app_config', 'main'), {
+              reelAds: ads,
+              lastUpdated: serverTimestamp()
+            }, { merge: true });
+            showToast("Reels video ads updated!");
+          } catch (err) {
+            console.error("Update reel ads error:", err);
+            showToast("Failed to update reel ads.", "error");
+          }
+        }}
+      />
+      )}
+
+      {/* /admin sign-in screen for signed-out visitors */}
+      {route === '/admin' && !(user && !user.isAnonymous && isAdmin) && (
+        <AuthScreen
+          screen={authScreen ?? 'signin'}
+          setScreen={setAuthScreen}
+          onClose={leaveAdminPage}
+          onSignIn={handleAdminLogin}
+          onSignup={handleAdminSignup}
+          onForgot={handleForgotPassword}
+          busy={authBusy}
+          error={authError}
+          clearError={() => setAuthError('')}
+          isDarkMode={isDarkMode}
+        />
+      )}
+
+      <DeleteConfirmationModal 
+        isOpen={!!postToDelete}
+        onClose={() => setPostToDelete(null)}
+        onConfirm={() => {
+          if (postToDelete) {
+            handleDeletePost(postToDelete);
+            setPostToDelete(null);
+          }
+        }}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* Post Composition Modal - BOTTOM SPLASH */}
+      <AnimatePresence>
+        {isComposeOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsComposeOpen(false)}
+              className="fixed inset-0 bg-black/60 z-[100] backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[520px] z-[101] rounded-t-[32px] p-6 shadow-2xl border-t ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}
+            >
+              <div className="w-12 h-1.5 bg-[#DAD8E3] dark:bg-[#22363E] rounded-full mx-auto mb-6" />
+              
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black font-display tracking-tight">Share a Memory</h3>
+                <button 
+                  onClick={() => setIsComposeOpen(false)}
+                  className="p-2 rounded-full hover:bg-[#EEEDF3] dark:hover:bg-[#0B171C] transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-[var(--ann-accent)] flex items-center justify-center text-white font-bold shrink-0">
+                  {avatar && !avatar.startsWith('blob:') ? <img src={avatar} className="w-full h-full object-cover" alt="" /> : <span>{(displayName || 'G').charAt(0).toUpperCase()}</span>}
+                </div>
+                <div className="min-w-0">
+                  <b className="block text-[0.9rem] truncate">{displayName || 'Guest'}</b>
+                  <small className="block opacity-50 text-[0.75rem]">{(vendors || []).includes(user?.uid) ? 'Official vendor' : 'Guest'}</small>
+                </div>
+              </div>
+
+              {attachedMedia.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {attachedMedia.map((item, idx) => (
+                    <div key={item.id} className={`relative rounded-xl overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black ${item.orientation === 'portrait' ? 'aspect-[9/16] max-h-[200px]' : 'aspect-video'}`}>
+                      {item.type === 'video' ? (
+                        <video src={item.url} className="w-full h-full object-cover" muted playsInline />
+                      ) : (
+                        <img src={item.url} className="w-full h-full object-cover" alt="Attachment" />
+                      )}
+                      <button 
+                        onClick={() => {
+                          setAttachedMedia(prev => prev.filter((_, i) => i !== idx));
+                          del(item.id); // Cleanup IDB
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full backdrop-blur-md"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Which part of the celebration is this?</span>
+                <div className="flex flex-wrap gap-2">
+                  {EVENTS.map((e) => (
+                    <button key={e.id} type="button" onClick={() => setNewPostEvent(newPostEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${newPostEvent === e.id ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <input 
+                  type="password"
+                  placeholder={!configLoaded ? "Checking access code..." : "Enter Access Code"}
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  disabled={!configLoaded || !activeAccessCode}
+                  className={`w-full p-4 rounded-xl border-none outline-none font-black tracking-widest text-center transition-colors uppercase ${isDarkMode ? 'bg-[#0B171C] text-[var(--ann-accent)] placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[var(--ann-accent)] placeholder-[#93A4AB]'} ${(!configLoaded || !activeAccessCode) ? 'opacity-50' : ''}`}
+                />
+                {!configLoaded && (
+                  <p className="text-[0.7rem] text-center mt-2 opacity-50 font-bold uppercase tracking-wider">Checking access code, please wait...</p>
+                )}
+                {configLoaded && !activeAccessCode && (
+                  <p className="text-[0.7rem] text-center mt-2 text-red-500 font-bold uppercase tracking-wider">Posting is temporarily unavailable</p>
+                )}
+              </div>
+
+
+              <textarea 
+                placeholder="What's happening at the celebration?"
+                value={newPostText}
+                onChange={(e) => setNewPostText(e.target.value)}
+                className={`mt-4 w-full min-h-[140px] p-4 rounded-2xl border-none outline-none resize-none text-[1.05rem] font-medium transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+              />
+              <p className="text-[0.7rem] opacity-50 font-medium">Up to 5 photos, or one video on its own.</p>
+              <div className="mt-6 flex items-center justify-between">
+                <div className="flex gap-2">
+                  <input 
+                    type="file" 
+                    id="media-upload" 
+                    className="hidden" 
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length === 0) return;
+
+                      // One video per post, on its own; otherwise up to 5 photos.
+                      const vids = files.filter((f: File) => Boolean(f.type && f.type.startsWith('video/')));
+                      const imgs = files.filter((f: File) => !(f.type && f.type.startsWith('video/')));
+                      const hasVideoAttached = attachedMedia.some((m) => m.type === 'video');
+                      const rejectsVideo = vids.length > 1
+                        || (vids.length === 1 && (imgs.length > 0 || attachedMedia.length > 0))
+                        || (vids.length === 0 && hasVideoAttached);
+                      if (rejectsVideo) {
+                        showToast('One video at a time, on its own. Otherwise up to 5 photos.', 'error');
+                        e.target.value = '';
+                        return;
+                      }
+
+                      const filesToAdd = vids.length === 1 ? vids : imgs.slice(0, Math.max(0, 5 - attachedMedia.length));
+
+                      if (filesToAdd.length === 0) {
+                        showToast('Maximum 5 photos allowed per post.', 'error');
+                        e.target.value = '';
+                        return;
+                      }
+                      if (vids.length === 0 && imgs.length > filesToAdd.length) {
+                        showToast(`You can attach up to 5 photos per post. Added the first ${filesToAdd.length}.`, 'error');
+                      }
+
+                      setIsUploading(true);
+                      try {
+                        const newMedia: {url: string, id: string, type: 'image' | 'video', orientation?: 'portrait' | 'landscape'}[] = [];
+                        for (let i = 0; i < filesToAdd.length; i++) {
+                          const file = filesToAdd[i] as File;
+                          const fileId = `post_${Date.now()}_${i}`;
+                          await set(fileId, file);
+                          
+                          const localUrl = URL.createObjectURL(file);
+                          const isVid = Boolean(file.type && file.type.startsWith('video/'));
+                          let orientation: 'portrait' | 'landscape' | undefined = undefined;
+
+                          if (isVid) {
+                            orientation = await new Promise<'portrait' | 'landscape'>((resolve) => {
+                              const v = document.createElement('video');
+                              v.preload = 'metadata';
+                              v.onloadedmetadata = () => {
+                                resolve(v.videoHeight > v.videoWidth ? 'portrait' : 'landscape');
+                              };
+                              v.onerror = () => resolve('landscape');
+                              v.src = localUrl;
+                            });
+                          }
+
+                          newMedia.push({
+                            url: localUrl,
+                            id: fileId,
+                            type: isVid ? 'video' : 'image',
+                            orientation
+                          });
+                        }
+                        setAttachedMedia(prev => [...prev, ...newMedia]);
+                      } catch (err) {
+                        console.error("Local storage error:", err);
+                      } finally {
+                        setIsUploading(false);
+                      }
+                    }}
+                  />
+                  <label 
+                    htmlFor="media-upload"
+                    className={`p-3 rounded-xl transition-colors cursor-pointer flex items-center gap-2 ${isDarkMode ? 'bg-[#0B171C] text-[#4FC3CF]' : 'bg-[var(--ann-soft)] text-[var(--ann-accent)]'}`}
+                  >
+                    <ImageIcon className="w-6 h-6" />
+                    <VideoIcon className="w-6 h-6" />
+                  </label>
+                </div>
+                
+                <button 
+                  disabled={(!newPostText.trim() && attachedMedia.length === 0) || isPosting || !configLoaded || !activeAccessCode}
+                  onClick={async () => {
+                    if (archiveMode) { showToast('This wedding is archived. New posts are turned off.', 'error'); return; }
+                    if (!newPostEvent) { showToast('Select the part of the celebration first.', 'error'); return; }
+                    if (!accessCode.trim()) { showToast('Enter the access code before posting.', 'error'); return; }
+                    if (normalizeCode(accessCode) === normalizeCode(activeAccessCode ?? '')) {
+                      setIsPosting(true);
+                      try {
+                        let finalMediaUrls: string[] = [];
+                        let finalMediaTypes: ('image' | 'video')[] = [];
+                        let postVideoOrientation: 'portrait' | 'landscape' | null = null;
+                        let finalAvatarUrl = avatar;
+
+                        // 1. Check if profile needs uploading/saving
+                        const tempAvatar = await get('temp_profile_avatar');
+                        if (tempAvatar && avatar?.startsWith('blob:')) {
+                          const url = await uploadToCloudinary(tempAvatar, 'residents');
+                          finalAvatarUrl = url;
+                          // Update residents collection too
+                          await setDoc(doc(db, 'residents', user.uid), {
+                            displayName,
+                            photoUrl: finalAvatarUrl,
+                            updatedAt: serverTimestamp()
+                          }, { merge: true });
+                          await del('temp_profile_avatar');
+                          setAvatar(finalAvatarUrl);
+                        }
+
+                        // 2. The post appears in the feed right away with its media
+                        // preview; the upload percentage renders on the card itself.
+                        const pendingFlag = approveGuestPosts && !(vendors || []).includes(user.uid) && !isAdmin;
+                        setUploadingPost({
+                          id: `local_${Date.now()}`,
+                          authorName: displayName || 'Guest',
+                          authorPhoto: finalAvatarUrl || null,
+                          text: newPostText,
+                          localMediaUrls: attachedMedia.map((m) => m.url),
+                          mediaTypes: attachedMedia.map((m) => m.type || 'image'),
+                          pending: pendingFlag,
+                          uploadProgress: 0
+                        });
+                        if (attachedMedia.length === 1 && attachedMedia[0].type === 'video' && attachedMedia[0].orientation === 'portrait') {
+                          setFeedSubTab('reels');
+                        } else {
+                          setFeedSubTab('post');
+                        }
+                        setIsComposeOpen(false);
+                        setNewPostText('');
+                        setAccessCode('');
+                        setNewPostEvent('');
+                        setAttachedMedia([]);
+
+                        // 3. Upload the media with live progress, then publish.
+                        let uploadedCount = 0;
+                        const totalFiles = attachedMedia.length || 1;
+                        for (const item of attachedMedia) {
+                          const tempFile = await get(item.id);
+                          if (tempFile) {
+                            const url = await uploadToCloudinaryWithProgress(tempFile, 'posts', (pct) => {
+                              setUploadingPost((prev) => prev ? { ...prev, uploadProgress: Math.min(99, Math.round(((uploadedCount + pct / 100) / totalFiles) * 100)) } : prev);
+                            });
+                            finalMediaUrls.push(url);
+                            finalMediaTypes.push(item.type || 'image');
+                            if (item.type === 'video' && item.orientation) {
+                              postVideoOrientation = item.orientation;
+                            }
+                            // Cleanup IndexedDB
+                            await del(item.id);
+                          }
+                          uploadedCount++;
+                          setUploadingPost((prev) => prev ? { ...prev, uploadProgress: Math.min(99, Math.round((uploadedCount / totalFiles) * 100)) } : prev);
+                        }
+
+                        await addDoc(collection(db, 'posts'), {
+                          authorUid: user.uid,
+                          authorName: displayName || 'Guest',
+                          authorPhoto: finalAvatarUrl || null,
+                          text: newPostText,
+                          mediaUrls: finalMediaUrls,
+                          mediaTypes: finalMediaTypes,
+                          ...(postVideoOrientation ? { videoOrientation: postVideoOrientation } : {}),
+                          ...(newPostEvent ? { eventId: newPostEvent } : {}),
+                          pending: pendingFlag,
+                          likeCount: 0,
+                          loveCount: 0,
+                          timestamp: serverTimestamp()
+                        });
+                        setUploadingPost(null);
+
+                        showToast(pendingFlag ? 'Shared. Waiting for the couple to approve' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'));
+
+                      } catch (err) {
+                        console.error("Post error:", err);
+                        setUploadingPost(null);
+                        showToast('Failed to share memory. Check your connection and try again.', 'error');
+                      } finally {
+                        setIsPosting(false);
+                      }
+                    } else {
+                      showToast('Invalid access code. Check with the couple.', 'error');
+                    }
+                  }}
+                  className={`px-8 py-3.5 rounded-full font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                    ((newPostText.trim() || attachedMedia.length > 0) && !isPosting)
+                      ? 'bg-[var(--ann-accent)] text-white shadow-lg hover:scale-105 active:scale-95' 
+                      : 'bg-[#DAD8E3] dark:bg-[#22363E] text-[#5A6970] opacity-50'
+                  }`}
+                >
+                  {isPosting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Posting...
+                    </>
+                  ) : 'Post'}
+                </button>
+              </div>
+              
+              <div className="h-[env(safe-area-inset-bottom,20px)]" />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Footer image lightbox */}
+      <AnimatePresence>
+        {footerLightbox && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setFooterLightbox(null)}
+              className="fixed inset-0 z-[140] bg-black/90 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={() => setFooterLightbox(null)}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[141] cursor-pointer"
+            >
+              <img
+                src={footerLightbox}
+                className="max-w-[86vw] max-h-[80vh] object-contain rounded-2xl shadow-2xl"
+                alt="Memory"
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); setFooterLightbox(null); }}
+                aria-label="Close"
+                className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-white text-[#14262D] shadow-lg grid place-items-center hover:bg-[#EEEDF3] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {avatarZoom && (
+        <AvatarZoomModal src={avatarZoom} onClose={() => setAvatarZoom(null)} />
+      )}
+
+      {/* Admin email/password auth screens */}
+      {authScreen && (
+        <AuthScreen
+          screen={authScreen}
+          setScreen={setAuthScreen}
+          onClose={() => { setAuthScreen(null); setAuthError(''); }}
+          onSignIn={handleAdminLogin}
+          onSignup={handleAdminSignup}
+          onForgot={handleForgotPassword}
+          busy={authBusy}
+          error={authError}
+          clearError={() => setAuthError('')}
+          isDarkMode={isDarkMode}
+        />
+      )}
+      {user && !user.isAnonymous && mustSetPassword && !authScreen && (
+        <ForceSetPasswordScreen
+          isDarkMode={isDarkMode}
+          busy={setPasswordBusy}
+          error={authError}
+          newPassword={newPassword}
+          setNewPassword={setNewPassword}
+          confirmPassword={confirmNewPassword}
+          setConfirmPassword={setConfirmNewPassword}
+          onSubmit={handleSetPermanentPassword}
+          onSignOut={() => { signOut(auth); setMustSetPassword(false); setAuthError(''); }}
+        />
+      )}
+
+      {/* Bottom Nav - DYNAMIC FEED/SEND BUTTON (hidden while viewing full-portrait Reels or comments) */}
+      {!(activeTab === 'feed' && feedSubTab === 'reels') && !commentsPost && (
+      <nav className={`fixed left-1/2 bottom-0 -translate-x-1/2 w-full max-w-[520px] z-[90] grid grid-cols-3 items-end p-[8px_12px_calc(8px+env(safe-area-inset-bottom,0px))] border-t transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+        <button 
+          onClick={() => setActiveTab('home')}
+          className={`border-0 bg-transparent flex flex-col items-center gap-[3px] p-[6px_0] min-h-[52px] text-[0.74rem] ${activeTab === 'home' ? 'text-[var(--ann-accent)] font-bold' : 'text-[#5A6970]'}`}
+        >
+          <HomeIcon active={activeTab === 'home'} />
+          <span>Home</span>
+        </button>
+        <button 
+          onClick={() => {
+            if (activeTab === 'feed') {
+              // Robust check for profile completion
+              const isProfileComplete = displayName.trim() !== '' && avatar && !avatar.startsWith('blob:');
+              const hasUnsavedAvatar = avatar && avatar.startsWith('blob:');
+              
+              if (!displayName.trim() || (!avatar && !hasUnsavedAvatar)) {
+                setShowProfileModal(true);
+              } else {
+                setIsComposeOpen(true);
+              }
+            } else {
+              setActiveTab('feed');
+            }
+          }}
+          className="relative -top-[18px] flex flex-col items-center gap-[5px] border-0 bg-transparent text-[0.74rem]"
+        >
+          <div className={`grid place-items-center w-[58px] h-[58px] rounded-full bg-[var(--ann-accent)] text-white shadow-[0_6px_18px_rgba(14,107,117,0.38)] border-4 transition-all duration-300 ${isDarkMode ? 'border-[#13232A]' : 'border-white'} ${activeTab === 'feed' ? 'scale-110 shadow-[0_8px_24px_rgba(14,107,117,0.5)]' : ''}`}>
+            {activeTab === 'feed' ? (
+              <Send className="w-[26px] h-[26px] stroke-[2.4]" />
+            ) : (
+              <Plus className="w-[26px] h-[26px] stroke-[2.4]" />
+            )}
+          </div>
+          <span className={activeTab === 'feed' ? 'text-[var(--ann-accent)] font-bold' : 'text-[#5A6970]'}>
+            {activeTab === 'feed' ? 'Send' : 'Feed'}
+          </span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('settings')}
+          className={`border-0 bg-transparent flex flex-col items-center gap-[3px] p-[6px_0] min-h-[52px] text-[0.74rem] ${activeTab === 'settings' ? 'text-[var(--ann-accent)] font-bold' : 'text-[#5A6970]'}`}
+        >
+          <SettingsIcon active={activeTab === 'settings'} />
+          <span>Settings</span>
+        </button>
+      </nav>
+      )}
+
+      {/* iOS / Add to Home Screen Bottom Splash Pop Up (2 Steps - iOS only) */}
+      <AnimatePresence>
+        {showIOSInstallModal && isIOSDevice && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowIOSInstallModal(false)}
+              className="fixed inset-0 bg-black/60 z-[210] backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 26, stiffness: 220 }}
+              className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[520px] z-[211] rounded-t-[32px] p-6 pb-8 shadow-2xl border-t ${
+                isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'
+              }`}
+            >
+              <div className="w-12 h-1.5 bg-[#DAD8E3] dark:bg-[#22363E] rounded-full mx-auto mb-5" />
+
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[var(--ann-accent)] text-white flex items-center justify-center font-black font-display text-base shadow-md">
+                    30
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black font-display leading-tight">Install Dara &amp; Femi</h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+                      Add to your Home Screen for quick &amp; offline access
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowIOSInstallModal(false)}
+                  className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  aria-label="Close install guide"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                {/* Step 1 */}
+                <div className={`p-4 rounded-2xl border flex items-center gap-4 ${
+                  isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F6F5FA] border-[#DAD8E3]'
+                }`}>
+                  <div className="w-9 h-9 rounded-xl bg-[var(--ann-accent)] text-white font-black text-sm flex items-center justify-center shrink-0">
+                    1
+                  </div>
+                  <div className="flex-1 text-sm leading-snug">
+                    Tap the <strong>Share</strong> button in your browser&apos;s menu bar
+                  </div>
+                  <div className={`p-2 rounded-xl border shrink-0 ${
+                    isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#4FC3CF]' : 'bg-white border-[#DAD8E3] text-[var(--ann-accent)]'
+                  }`}>
+                    <Share2 className="w-5 h-5" />
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className={`p-4 rounded-2xl border flex items-center gap-4 ${
+                  isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F6F5FA] border-[#DAD8E3]'
+                }`}>
+                  <div className="w-9 h-9 rounded-xl bg-[var(--ann-accent)] text-white font-black text-sm flex items-center justify-center shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1 text-sm leading-snug">
+                    Scroll down and tap <strong>Add to Home Screen</strong>
+                  </div>
+                  <div className={`p-2 rounded-xl border shrink-0 ${
+                    isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#4FC3CF]' : 'bg-white border-[#DAD8E3] text-[var(--ann-accent)]'
+                  }`}>
+                    <Plus className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowIOSInstallModal(false)}
+                className="w-full py-3.5 rounded-2xl bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/25 hover:opacity-95 transition-opacity"
+              >
+                Got It
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Sharing and Media Overlays */}
+      {sharingPost && (
+        <ShareSheet 
+          post={sharingPost} 
+          isDarkMode={isDarkMode} 
+          onClose={() => setSharingPost(null)} 
+          showToast={showToast}
+        />
+      )}
+
+      {commentsPost && (
+        <CommentsSheet
+          post={commentsPost}
+          isDarkMode={isDarkMode}
+          user={user}
+          displayName={displayName}
+          avatar={avatar}
+          isAdmin={isAdmin}
+          showToast={showToast}
+          onClose={() => setCommentsPost(null)}
+        />
+      )}
+      
+      {activeMediaIndex && (
+        <MediaLightbox 
+          post={posts.find(p => p.id === activeMediaIndex.postId) || null}
+          initialIndex={activeMediaIndex.index}
+          isDarkMode={isDarkMode}
+          onClose={() => setActiveMediaIndex(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function HomeIcon({ active }: { active: boolean }) {
+  return (
+    <svg className={`w-[22px] h-[22px] fill-none stroke-current stroke-[1.8] ${active ? 'text-[var(--ann-accent)]' : ''}`} viewBox="0 0 24 24">
+      <path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>
+    </svg>
+  );
+}
+
+function SettingsIcon({ active }: { active: boolean }) {
+  return (
+    <svg className={`w-[22px] h-[22px] fill-none stroke-current stroke-[1.8] ${active ? 'text-[var(--ann-accent)]' : ''}`} viewBox="0 0 24 24">
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>
+    </svg>
+  );
+}
+
+function WhatsAppIcon({ className = "w-7 h-7" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12.031 2c-5.516 0-9.969 4.453-9.969 9.969 0 1.758.459 3.473 1.332 4.988L2 22l5.182-1.359c1.466.799 3.111 1.221 4.849 1.221 5.516 0 9.969-4.453 9.969-9.969 0-2.663-1.037-5.167-2.92-7.049C17.197 3.037 14.693 2 12.031 2zm5.819 14.281c-.242.681-1.404 1.304-1.958 1.387-.511.077-1.158.11-1.872-.116-.434-.138-.992-.323-1.707-.632-3.003-1.297-4.962-4.324-5.112-4.525-.15-.201-1.221-1.624-1.221-3.098 0-1.474.772-2.198 1.047-2.499.275-.301.6-.376.8-.376.2 0 .4.002.575.01.184.009.431-.07.674.515.25.603.85 2.076.925 2.227.075.151.125.327.025.528-.1.201-.15.327-.3.503-.15.176-.315.393-.45.528-.15.15-.306.313-.131.614.175.301.778 1.284 1.67 2.079 1.148 1.023 2.115 1.34 2.415 1.49.3.151.475.126.65-.075.175-.201.75-.879.95-1.18.2-.301.4-.251.675-.151.275.1 1.75.826 2.05.976.3.151.5.226.575.352.075.125.075.728-.167 1.409z"/>
+    </svg>
+  );
+}
+
+function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
+  const shareUrl = `${window.location.origin}${window.location.pathname}?post=${post.id || post.uid}`;
+  const title = post.text || "Check out this memory from Dara & Femi's wedding!";
+
+  const shareOptions = [
+    { 
+      name: 'WhatsApp', 
+      icon: <WhatsAppIcon className="w-7 h-7 text-white" />, 
+      color: 'bg-[#25D366]', 
+      url: `https://wa.me/?text=${encodeURIComponent(title + ' ' + shareUrl)}` 
+    },
+    { 
+      name: 'Copy Link', 
+      icon: <ExternalLink className="w-6 h-6 text-white" />, 
+      color: 'bg-[var(--ann-accent)]', 
+      action: () => {
+        navigator.clipboard.writeText(shareUrl);
+        if (showToast) showToast('Link copied');
+      }
+    },
+    { 
+      name: 'Twitter / X', 
+      icon: <span className="text-white font-bold text-xl">𝕏</span>, 
+      color: 'bg-black', 
+      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(shareUrl)}` 
+    }
+  ];
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center">
+        <motion.div 
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+        />
+        <motion.div 
+          initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+          className={`relative w-full max-w-[500px] p-6 rounded-t-[32px] sm:rounded-[32px] shadow-2xl ${isDarkMode ? 'bg-[#13232A]' : 'bg-white'}`}
+        >
+          <div className="w-12 h-1.5 bg-gray-300 dark:bg-gray-700 rounded-full mx-auto mb-6 sm:hidden" />
+          <h3 className="text-xl font-black font-display text-center mb-8">Share Memory</h3>
+          <div className="grid grid-cols-3 gap-4 mb-8">
+            {shareOptions.map((opt, i) => (
+              <button 
+                key={i} 
+                onClick={() => { 
+                  if (opt.action) {
+                    opt.action();
+                  } else if (opt.url) {
+                    const a = document.createElement('a');
+                    a.href = opt.url;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  }
+                  onClose(); 
+                }}
+                className="flex flex-col items-center gap-2 group"
+              >
+                <div className={`w-14 h-14 ${opt.color} rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+                  {opt.icon}
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest opacity-60">{opt.name}</span>
+              </button>
+            ))}
+          </div>
+          <button 
+            onClick={onClose}
+            className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-white/40' : 'bg-gray-100 text-gray-500'}`}
+          >
+            Cancel
+          </button>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
+
+function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
+  const [index, setIndex] = useState(initialIndex);
+  const media = post.mediaUrls || (post.mediaUrl ? [post.mediaUrl] : []);
+  const current = media[index];
+  const isVideo = current?.toLowerCase().includes('.mp4') || current?.includes('/video/');
+
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(current);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dara-femi-memory-${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download error:", err);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[250] bg-black flex flex-col items-center justify-center">
+      <div className="absolute top-0 w-full p-4 flex items-center justify-between z-10">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="p-2 text-white/60 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+          <span className="text-white text-sm font-bold">{index + 1} / {media.length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isVideo && (
+            <button
+              onClick={handleDownload}
+              className="p-2.5 bg-white/15 hover:bg-white/25 text-white rounded-full transition-colors flex items-center justify-center"
+              title="Download Image"
+              aria-label="Download Image"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="w-full flex-1 relative flex items-center justify-center overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.div 
+            key={current}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="w-full h-full flex items-center justify-center p-4"
+          >
+            {isVideo ? (
+              <video
+                src={current}
+                controls
+                autoPlay
+                controlsList="nodownload noplaybackrate"
+                disablePictureInPicture
+                onContextMenu={(e) => e.preventDefault()}
+                className="max-w-full max-h-full rounded-lg"
+              />
+            ) : (
+              <img src={current} className="max-w-full max-h-full object-contain rounded-lg" alt="" />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {media.length > 1 && (
+          <>
+            <button 
+              onClick={() => setIndex((index - 1 + media.length) % media.length)}
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 text-white rounded-full hover:bg-black/60 transition-colors"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button 
+              onClick={() => setIndex((index + 1) % media.length)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/40 text-white rounded-full hover:bg-black/60 transition-colors"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="w-full p-6 pb-12 bg-gradient-to-t from-black to-transparent text-white">
+        <p className="text-sm line-clamp-3">{post.text}</p>
+        <p className="text-[10px] uppercase font-black tracking-widest opacity-40 mt-2">By {post.authorName}</p>
+      </div>
+    </div>
+  );
+}
+
+// Swipeable carousel for posts with several photos: one slide fills the card,
+// swipe or the arrows move between them, dots track position, tap opens the lightbox.
+function MediaCarousel({ urls, mediaTypes, eventName, onOpenMedia }: { urls: string[]; mediaTypes?: string[]; eventName?: string; onOpenMedia: (i: number) => void }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [slide, setSlide] = useState(0);
+
+  const handleScroll = () => {
+    const el = trackRef.current;
+    if (!el || el.clientWidth === 0) return;
+    setSlide(Math.min(urls.length - 1, Math.max(0, Math.round(el.scrollLeft / el.clientWidth))));
+  };
+  const goTo = (i: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+  };
+
+  return (
+    <div className="mt-[10px] relative rounded-[18px] overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black shadow-md">
+      {eventName && slide === 0 && (
+        <span className="absolute bottom-3 left-3 z-20 px-2.5 py-[3px] rounded-full bg-black/40 text-white text-[13px] pointer-events-none">{eventName}</span>
+      )}
+      {urls.length > 1 && (
+        <span className="absolute top-3 right-3 z-20 px-2 py-[2px] rounded-full bg-black/50 text-white text-[0.68rem] font-bold">{slide + 1}/{urls.length}</span>
+      )}
+      {urls.length > 1 && (
+        <>
+          <button type="button" aria-label="Previous photo" onClick={(e) => { e.stopPropagation(); goTo(Math.max(0, slide - 1)); }} className={`hidden sm:flex absolute left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full items-center justify-center bg-black/45 text-white hover:bg-black/65 transition-all ${slide === 0 ? 'opacity-0 pointer-events-none' : ''}`}><ChevronLeft className="w-5 h-5" /></button>
+          <button type="button" aria-label="Next photo" onClick={(e) => { e.stopPropagation(); goTo(Math.min(urls.length - 1, slide + 1)); }} className={`hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full items-center justify-center bg-black/45 text-white hover:bg-black/65 transition-all ${slide === urls.length - 1 ? 'opacity-0 pointer-events-none' : ''}`}><ChevronRight className="w-5 h-5" /></button>
+        </>
+      )}
+      <div
+        ref={trackRef}
+        onScroll={handleScroll}
+        className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar"
+      >
+        {urls.map((url: string, i: number) => {
+          const isVideo = mediaTypes?.[i] === 'video' || url.toLowerCase().includes('.mp4') || url.toLowerCase().includes('.webm') || url.toLowerCase().includes('.mov') || url.includes('/video/');
+          return (
+            <div
+              key={i}
+              className={`relative w-full shrink-0 snap-center cursor-pointer group ${urls.length === 1 ? 'max-h-[420px]' : 'h-[340px] sm:h-[420px]'}`}
+              onClick={() => onOpenMedia(i)}
+            >
+              {isVideo ? (
+                <video src={url} className="w-full h-full object-cover" muted playsInline />
+              ) : (
+                <img src={url} className="w-full h-full object-cover" alt="" draggable={false} />
+              )}
+              {isVideo && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                  <Play className="w-8 h-8 text-white fill-current" />
+                </div>
+              )}
+              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          );
+        })}
+      </div>
+      {urls.length > 1 && (
+        <div className="absolute bottom-3 left-0 right-0 z-10 flex justify-center gap-1.5 pointer-events-none">
+          {urls.map((_, i) => (
+            <span key={i} className={`w-[6px] h-[6px] rounded-full transition-colors ${i === slide ? 'bg-white' : 'bg-white/40'}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Post({ 
+  id, 
+  name, 
+  avatar, 
+  onAvatarClick,
+  text, 
+  time, 
+  mediaUrls, 
+  mediaTypes,
+  likeCount = 0, 
+  loveCount = 0, 
+  isDarkMode, 
+  isAdmin, 
+  user,
+  onDelete,
+  onLike,
+  onLove,
+  onShare,
+  onOpenMedia,
+  onComment,
+  commentCount = 0,
+  eventName,
+  authorRole,
+  authorUid,
+  pending,
+  onApprove
+}: any) {
+  const [localLiked, setLocalLiked] = useState(false);
+  const [localLoved, setLocalLoved] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isLongText = Boolean(text && (text.length > 180 || text.split('\n').length > 4));
+  const displayedText = isLongText && !isExpanded
+    ? text.slice(0, 180).trimEnd() + '...'
+    : text;
+
+  useEffect(() => {
+    if (!user || !id) return;
+    const reactionRef = doc(db, 'posts', id, 'reactions', user.uid);
+    const unsub = onSnapshot(reactionRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setLocalLiked(!!data.like);
+        setLocalLoved(!!data.love);
+      } else {
+        setLocalLiked(false);
+        setLocalLoved(false);
+      }
+    });
+    return () => unsub();
+  }, [user, id]);
+
+  const displayLiked = localLiked;
+  const displayLoved = localLoved;
+  return (
+    <article id={`post-${id}`} className="flex gap-3 p-[20px_4px] border-b-[6px] border-[#D0CEDB] dark:border-[#1E323A] transition-all">
+      <div
+        onClick={() => onAvatarClick && avatar && onAvatarClick(avatar)}
+        className={`flex-shrink-0 w-[42px] h-[42px] rounded-full overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'} bg-[var(--ann-accent)] flex items-center justify-center text-white font-bold text-[0.9rem] ${avatar ? 'cursor-pointer hover:scale-105 transition-transform' : ''}`}
+      >
+        {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="" /> : <span>{name?.[0]?.toUpperCase() || 'R'}</span>}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <strong className="text-[1rem] leading-tight">{name}</strong>
+            {authorRole === 'vendor' && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>)}
+            {authorRole === 'couple' && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>)}
+            {pending && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-white">Awaiting approval</span>)}
+            <span className="text-[0.8rem] text-[#5A6970] dark:text-[#93A4AB] flex items-center gap-1">
+              <span aria-hidden="true">·</span>
+              <span>{time}</span>
+            </span>
+          </div>
+          {eventName && (
+            <span className="block w-full text-[0.8rem] text-[#5A6970] dark:text-[#93A4AB]">{eventName}</span>
+          )}
+          <div className="contents">
+          </div>
+          {(isAdmin || (user && user.uid === authorUid)) && (
+            <button 
+              onClick={onDelete}
+              className="p-1.5 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+              title={isAdmin ? 'Delete post' : 'Remove your post'}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {text && (
+          (!mediaUrls || mediaUrls.length === 0) ? (
+            <div className="m-[10px_0_2px] rounded-2xl bg-[var(--ann-accent)]/[0.06] dark:bg-[var(--ann-accent)]/15 p-[18px] relative">
+              <span aria-hidden="true" className="absolute -top-2 left-4 font-serif-display text-5xl text-[var(--ann-accent)]/25 select-none leading-none">&ldquo;</span>
+              <p className="font-serif-display italic text-[1.08rem] leading-relaxed whitespace-pre-wrap m-0">
+                {displayedText}
+              </p>
+              {isLongText && (
+                <button
+                  type="button"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="mt-1 text-[0.9rem] font-extrabold text-[var(--ann-accent)] dark:text-[#4FC3CF] hover:underline focus:outline-none inline-flex items-center"
+                >
+                  {isExpanded ? 'See less' : 'See more'}
+                </button>
+              )}
+            </div>
+          ) : (
+          <div className="m-[4px_0_0]">
+            <p className="text-[1rem] leading-normal whitespace-pre-wrap inline">
+              {displayedText}
+            </p>
+            {isLongText && (
+              <button
+                type="button"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="ml-1.5 text-[0.9rem] font-extrabold text-[var(--ann-accent)] dark:text-[#4FC3CF] hover:underline focus:outline-none inline-flex items-center"
+              >
+                {isExpanded ? 'See less' : 'See more'}
+              </button>
+            )}
+          </div>
+          )
+        )}
+        
+        {mediaUrls && mediaUrls.length > 0 && (
+          <MediaCarousel urls={mediaUrls} mediaTypes={mediaTypes} eventName={eventName} onOpenMedia={onOpenMedia} />
+        )}
+
+        <div className="grid grid-cols-3 gap-2 w-full mt-3">
+          <button
+            onClick={onLike}
+            className={`flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border text-[13px] transition-all ${displayLiked ? 'text-[var(--ann-accent)] dark:text-[#4FC3CF] border-[var(--ann-accent)] dark:border-[#4FC3CF] font-bold' : 'text-[#5A6970] dark:text-[#93A4AB] border-[#DAD8E3] dark:border-[#22363E] font-medium hover:border-[var(--ann-accent)]/60'}`}
+          >
+            <ThumbsUp className="w-[17px] h-[17px]" />
+            <span>Like{likeCount > 0 ? ` ${likeCount}` : ''}</span>
+          </button>
+          <button
+            onClick={onComment}
+            className="flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium text-[#5A6970] dark:text-[#93A4AB] hover:border-[var(--ann-accent)]/60 transition-all"
+          >
+            <MessageCircle className="w-[17px] h-[17px]" />
+            <span>Comment{commentCount > 0 ? ` ${commentCount}` : ''}</span>
+          </button>
+          <button
+            onClick={onShare}
+            className="flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium text-[#5A6970] dark:text-[#93A4AB] hover:border-[var(--ann-accent)]/60 transition-all"
+          >
+            <Share2 className="w-[17px] h-[17px]" />
+            <span>Share</span>
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+const formatExternalUrl = (url?: string): string => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed) || /^mailto:/i.test(trimmed) || /^tel:/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed.replace(/^\/+/, '')}`;
+};
+
+function PostAdCard({ ad, isDarkMode }: { ad: AdItem; isDarkMode: boolean; [key: string]: any }) {
+  const [isDescExpanded, setIsDescExpanded] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const mediaList = ad.mediaUrls && ad.mediaUrls.length > 0
+    ? ad.mediaUrls
+    : (ad.mediaUrl ? [ad.mediaUrl] : []);
+
+  const isLongDesc = Boolean(ad.description && (ad.description.length > 180 || ad.description.split('\n').length > 4));
+  const displayedDesc = isLongDesc && !isDescExpanded
+    ? ad.description!.slice(0, 180).trimEnd() + '...'
+    : ad.description;
+  const formattedCtaUrl = formatExternalUrl(ad.ctaUrl);
+
+  const handleHorizontalScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollLeft, clientWidth } = scrollRef.current;
+    if (clientWidth > 0) {
+      const idx = Math.round(scrollLeft / clientWidth);
+      if (idx !== activeSlide) {
+        setActiveSlide(idx);
+      }
+    }
+  };
+
+  const scrollToSlide = (idx: number) => {
+    if (!scrollRef.current) return;
+    const target = Math.max(0, Math.min(idx, mediaList.length - 1));
+    scrollRef.current.scrollTo({
+      left: target * scrollRef.current.clientWidth,
+      behavior: 'smooth'
+    });
+    setActiveSlide(target);
+  };
+
+  return (
+    <article className="flex gap-3 p-[20px_4px] border-b-[6px] border-[#D0CEDB] dark:border-[#1E323A] transition-all">
+      <div className={`flex-shrink-0 w-[42px] h-[42px] rounded-full overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'} bg-[#C9A24B] flex items-center justify-center text-[#14262D] font-black text-[0.9rem]`}>
+        <Megaphone className="w-5 h-5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <strong className="text-[1rem] leading-tight">{ad.sponsorName || 'Featured Partner'}</strong>
+            <span className="text-[0.75rem] font-bold text-[#C9A24B] flex items-center gap-1">
+              <span aria-hidden="true">·</span>
+              <span>Sponsored</span>
+            </span>
+          </div>
+        </div>
+        {ad.headline && (
+          <p className="text-[1rem] font-bold m-[4px_0_0] leading-snug">
+            {ad.headline}
+          </p>
+        )}
+        {ad.description && (
+          <div className="m-[4px_0_0]">
+            <p className={`text-[0.92rem] leading-normal whitespace-pre-wrap inline ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+              {displayedDesc}
+            </p>
+            {isLongDesc && (
+              <button
+                type="button"
+                onClick={() => setIsDescExpanded(!isDescExpanded)}
+                className="ml-1.5 text-[0.85rem] font-extrabold text-[var(--ann-accent)] dark:text-[#4FC3CF] hover:underline focus:outline-none inline-flex items-center"
+              >
+                {isDescExpanded ? 'See less' : 'See more'}
+              </button>
+            )}
+          </div>
+        )}
+        {mediaList.length > 0 && (
+          <div className="mt-[10px] rounded-[18px] overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black shadow-md relative">
+            {mediaList.length === 1 ? (
+              (() => {
+                const url = mediaList[0];
+                const isVideo = ad.mediaTypes?.[0] === 'video' || ad.mediaType === 'video' || url?.toLowerCase().includes('.mp4') || url?.includes('/video/');
+                return isVideo ? (
+                  <video
+                    src={url}
+                    className="w-full max-h-[420px] object-cover"
+                    controls
+                    controlsList="nodownload noplaybackrate"
+                    disablePictureInPicture
+                    onContextMenu={(e) => e.preventDefault()}
+                    muted
+                    playsInline
+                    loop
+                  />
+                ) : (
+                  <img src={url} className="w-full max-h-[420px] object-cover" alt={ad.headline || 'Sponsored'} />
+                );
+              })()
+            ) : (
+              <div className="relative group/adcarousel">
+                <div
+                  ref={scrollRef}
+                  onScroll={handleHorizontalScroll}
+                  className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar scroll-smooth"
+                >
+                  {mediaList.map((url, idx) => {
+                    const isVideo = ad.mediaTypes?.[idx] === 'video' || url?.toLowerCase().includes('.mp4') || url?.includes('/video/');
+                    return (
+                      <div
+                        key={idx}
+                        className="w-full flex-shrink-0 snap-center snap-always relative aspect-[4/3] max-h-[420px] overflow-hidden bg-black"
+                      >
+                        {isVideo ? (
+                          <video
+                            src={url}
+                            className="w-full h-full object-cover"
+                            controls
+                            controlsList="nodownload noplaybackrate"
+                            disablePictureInPicture
+                            onContextMenu={(e) => e.preventDefault()}
+                            muted
+                            playsInline
+                            loop
+                          />
+                        ) : (
+                          <img src={url} className="w-full h-full object-cover" alt={`${ad.headline || 'Sponsored'} ${idx + 1}`} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {activeSlide > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToSlide(activeSlide - 1)}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors backdrop-blur-md"
+                    aria-label="Previous image"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+                {activeSlide < mediaList.length - 1 && (
+                  <button
+                    type="button"
+                    onClick={() => scrollToSlide(activeSlide + 1)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors backdrop-blur-md"
+                    aria-label="Next image"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+                <span className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-full bg-black/70 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-md">
+                  {activeSlide + 1} / {mediaList.length}
+                </span>
+                <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md">
+                  {mediaList.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => scrollToSlide(idx)}
+                      className={`h-1.5 rounded-full transition-all ${idx === activeSlide ? 'w-4 bg-white' : 'w-1.5 bg-white/50'}`}
+                      aria-label={`Go to slide ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {formattedCtaUrl && (
+          <div className="mt-3 pt-2">
+            <a
+              href={formattedCtaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-4 rounded-xl bg-[var(--ann-accent)] text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-95 transition-opacity shadow-sm"
+            >
+              <span>{ad.ctaText || 'Learn More'}</span>
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick }: any) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Snap-locked reels: the next video is only seen when swiping up.
+  // The Post/Reels toggle is pinned above this container, outside the scroll.
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop, clientHeight } = containerRef.current;
+    if (clientHeight > 0) {
+      const idx = Math.min(
+        Math.max(0, reels.length - 1),
+        Math.round(scrollTop / clientHeight)
+      );
+      if (idx !== activeIndex) {
+        setActiveIndex(idx);
+      }
+    }
+  };
+
+  if (!reels || reels.length === 0) {
+    return (
+      <div>
+        <div className="py-24 text-center opacity-30 border-t border-[#DAD8E3] dark:border-[#22363E]">
+          <Film className="w-12 h-12 mx-auto mb-4" />
+          <p className="font-black uppercase tracking-widest text-xs">No portrait reels yet</p>
+          <p className="text-[0.75rem] mt-2">Upload a vertical portrait video to feature it in Reels!</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="h-[calc(100dvh-150px)] min-h-[420px] w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar relative rounded-[20px]"
+    >
+      {reels.map((reel: any, idx: number) => (
+        <ReelCard
+          key={reel.id}
+          reel={reel}
+          isActive={idx === activeIndex}
+          isAdmin={isAdmin}
+          user={user}
+          onDelete={() => onDelete(reel.id)}
+          onLike={() => onLike(reel.id)}
+          onLove={() => onLove(reel.id)}
+          onShare={() => onShare(reel)}
+          onComment={() => onComment && onComment(reel)}
+          onAvatarClick={onAvatarClick}
+          hasNext={idx < reels.length - 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ReelCard({
+  reel,
+  isActive,
+  isAdmin,
+  user,
+  onDelete,
+  onLike,
+  onLove,
+  onShare,
+  onComment,
+  onAvatarClick,
+  hasNext
+}: any) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const [localLiked, setLocalLiked] = useState(false);
+  const [localLoved, setLocalLoved] = useState(false);
+
+  const isSample = String(reel.id || '').startsWith('sample-');
+  const reelRole = postRole(reel);
+  const media: string[] = reel.mediaUrls || (reel.mediaUrl ? [reel.mediaUrl] : []);
+  const videoUrl = media.find((u: string, idx: number) =>
+    reel.mediaTypes?.[idx] === 'video' ||
+    u.toLowerCase().includes('.mp4') ||
+    u.toLowerCase().includes('.webm') ||
+    u.toLowerCase().includes('.mov') ||
+    u.includes('/video/')
+  ) || media[0];
+
+  useEffect(() => {
+    if (isSample || !user || !reel.id) return;
+    const reactionRef = doc(db, 'posts', reel.id, 'reactions', user.uid);
+    const unsub = onSnapshot(reactionRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setLocalLiked(!!data.like);
+        setLocalLoved(!!data.love);
+      } else {
+        setLocalLiked(false);
+        setLocalLoved(false);
+      }
+    });
+    return () => unsub();
+  }, [user, reel.id]);
+
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (!isActive) {
+      vid.pause();
+      setIsPlaying(false);
+      return;
+    }
+    // Reels always start with their sound on. If the browser blocks unmuted
+    // autoplay, retry once the video can play, and only fall back to muted
+    // as a last resort.
+    vid.currentTime = 0;
+    vid.muted = false;
+    setMuted(false);
+    const attempt = () => {
+      vid.play().then(() => setIsPlaying(true)).catch(() => {
+        vid.muted = true;
+        setMuted(true);
+        vid.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      });
+    };
+    attempt();
+    vid.addEventListener('canplay', attempt, { once: true });
+    return () => vid.removeEventListener('canplay', attempt);
+  }, [isActive]);
+
+  const togglePlay = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      vid.play();
+      setIsPlaying(true);
+    } else {
+      vid.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const formattedDate = reel.timestamp?.toDate
+    ? new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(reel.timestamp.toDate())
+    : 'Just now';
+
+  return (
+    <div
+      className="snap-start snap-always w-full h-full rounded-[20px] relative bg-black flex items-center justify-center overflow-hidden select-none shadow-2xl border border-[#DAD8E3] dark:border-[#22363E]"
+    >
+      {isSample ? (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: sampleArt(reel.eventName) }}>
+          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
+            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
+          </div>
+        </div>
+      ) : (
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        className="w-full h-full object-cover cursor-pointer"
+        loop
+        playsInline
+        muted={muted}
+        onClick={togglePlay}
+      />
+      )}
+
+      {/* Play/Pause Center Indicator */}
+      {!isPlaying && (
+        <div
+          onClick={togglePlay}
+          className="absolute inset-0 flex items-center justify-center bg-black/20 cursor-pointer"
+        >
+          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
+            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
+          </div>
+        </div>
+      )}
+
+      {/* Top Controls: Mute & Admin Delete */}
+      <div className="absolute top-4 right-4 left-4 flex items-center justify-between z-20 pointer-events-none">
+        <div>
+          {reel.isAd && (
+            <div className="px-3 py-1 rounded-full backdrop-blur-md text-[10px] font-black uppercase tracking-widest pointer-events-auto bg-[#C9A24B] text-[#14262D]">
+              Sponsored Ad
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button
+            onClick={() => setMuted(!muted)}
+            className="p-2.5 rounded-full bg-black/50 text-white backdrop-blur-md hover:bg-black/70 transition-colors"
+          >
+            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Vertical side action stack: like, comment, share */}
+      <div className="absolute right-2.5 bottom-[76px] z-20 flex flex-col items-center gap-4">
+        <button
+          onClick={isSample ? () => setLocalLiked((v) => !v) : onLike}
+          className="flex flex-col items-center gap-1 text-white"
+          aria-label="Like"
+        >
+          <span className={`w-12 h-12 rounded-full grid place-items-center ${localLiked ? 'bg-[var(--ann-accent)]' : 'bg-black/40'}`}>
+            <ThumbsUp className="w-6 h-6" />
+          </span>
+          <span className="text-xs font-semibold">{(reel.likeCount || 0) + (isSample && localLiked ? 1 : 0)}</span>
+        </button>
+        <button onClick={() => onComment && onComment(reel)} className="flex flex-col items-center gap-1 text-white" aria-label="Comments">
+          <span className="w-12 h-12 rounded-full bg-black/40 grid place-items-center">
+            <MessageCircle className="w-6 h-6" />
+          </span>
+          <span className="text-xs font-semibold">{reel.commentCount || 0}</span>
+        </button>
+        <button onClick={onShare ? () => onShare(reel) : undefined} className="flex flex-col items-center gap-1 text-white" aria-label="Share">
+          <span className="w-12 h-12 rounded-full bg-black/40 grid place-items-center">
+            <Share2 className="w-6 h-6" />
+          </span>
+          <span className="text-xs font-semibold">Share</span>
+        </button>
+      </div>
+
+      {/* Bottom scrim & author info */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/55 to-transparent p-4 pt-11 pr-[84px] text-white z-10">
+        <div className="flex items-center gap-2.5">
+          <div
+            onClick={() => onAvatarClick && reel.authorPhoto && onAvatarClick(reel.authorPhoto)}
+            className={`w-[30px] h-[30px] rounded-full overflow-hidden flex items-center justify-center font-bold text-[13px] shrink-0 bg-[var(--ann-accent)] text-white ${reel.authorPhoto && !reel.isAd ? 'cursor-pointer' : ''}`}
+          >
+            {reel.isAd ? (
+              <Megaphone className="w-4 h-4" />
+            ) : reel.authorPhoto ? (
+              <img src={reel.authorPhoto} className="w-full h-full object-cover" alt="" />
+            ) : (
+              <span>{(reel.authorName || 'R').charAt(0).toUpperCase()}</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center flex-wrap gap-x-1.5">
+              <strong className="text-[0.9rem] font-bold leading-tight truncate">
+                {reel.isAd ? (reel.sponsorName || 'Featured Partner') : (reel.authorName || 'Guest')}
+              </strong>
+              {reelRole === 'vendor' && <span className="text-[10px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>}
+              {reelRole === 'couple' && <span className="text-[10px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>}
+              <span className="text-[0.7rem] text-white/70"> · {reel.isAd ? 'Sponsored' : formattedDate}</span>
+            </div>
+            {(reel.isAd || reel.eventName) && (
+              <p className="text-[0.7rem] text-white/70 truncate">{reel.isAd ? 'Sponsored Video' : reel.eventName}</p>
+            )}
+          </div>
+        </div>
+
+        {(reel.headline || reel.text || reel.description) && (
+          <div className="mt-1.5">
+            {reel.headline && (
+              <p className="text-sm font-bold text-white leading-snug">{reel.headline}</p>
+            )}
+            {(reel.text || reel.description) && (
+              <p className="text-sm text-white/95 line-clamp-2 leading-snug">
+                {reel.text || reel.description}
+              </p>
+            )}
+          </div>
+        )}
+
+        {reel.isAd && (
+          <div className="w-full mt-2.5 pt-2.5 border-t border-white/15">
+            {formatExternalUrl(reel.ctaUrl) ? (
+              <a
+                href={formatExternalUrl(reel.ctaUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 rounded-xl bg-[#C9A24B] text-[#14262D] text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-95 transition-opacity shadow-lg"
+              >
+                <span>{reel.ctaText || 'Learn More'}</span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            ) : (
+              <div className="w-full py-2.5 px-4 rounded-xl bg-white/10 text-white/90 text-xs font-bold text-center">
+                Sponsored Reel · {reel.sponsorName || 'Featured Partner'}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Sample placeholder data matching the prototype feed (gradient tiles, no stock imagery)
+const VENDOR_AUTHOR_NAMES = ['Lens & Light Studio', 'Kiln Films'];
+const COUPLE_UID = 'p8BAKdDJEaYYJy0lHuQtzyntynr1';
+const postRole = (p: any): string => {
+  if (!p || p.isAd) return '';
+  if (p.authorRole) return p.authorRole;
+  if (VENDOR_AUTHOR_NAMES.includes(p.authorName || '')) return 'vendor';
+  if (p.authorUid === COUPLE_UID) return 'couple';
+  return '';
+};
+const EVENT_HUE_INDEX: Record<string, number> = {
+  'Introduction': 0, 'Engagement': 1, 'Court Wedding': 2, 'Bridal Shower': 3,
+  "Groom's Party": 4, 'Church Wedding': 5, 'Reception': 6, 'Thanksgiving': 7,
+};
+const sampleArt = (eventName?: string) => {
+  const h = ((EVENT_HUE_INDEX[eventName || ''] ?? 0) * 47 + 260) % 360;
+  return `linear-gradient(135deg, hsl(${h},55%,38%), hsl(${(h + 40) % 360},60%,22%))`;
+};
+const AVATAR_COLORS = ['#7b2d8e', '#0e6b57', '#c8932a', '#d23b5e', '#2b5fb3', '#555555'];
+const avatarColor = (name?: string) => AVATAR_COLORS[(name || 'G').length % AVATAR_COLORS.length];
+
+const SAMPLE_POSTS = [
+  { id: 'sample-1', authorName: 'Aunty Ronke', role: 'guest', eventName: 'Introduction', mediaType: 'image', text: 'Dara walking in with her aunties. We cried before the first prayer.', likeCount: 14, commentCount: 1, timeAgo: '20 Jun 2026, 16:20' },
+  { id: 'sample-2', authorName: 'Lens & Light Studio', role: 'vendor', eventName: 'Introduction', mediaType: 'image', text: 'Full introduction album, 212 photos, delivered.', likeCount: 31, commentCount: 0, timeAgo: '20 Jun 2026, 18:02' },
+  { id: 'sample-3', authorName: 'Tolu', role: 'guest', eventName: 'Engagement', mediaType: 'video', text: 'The exact moment Femi went down on one knee!', likeCount: 42, commentCount: 2, timeAgo: '18 Jul 2026, 12:41' },
+  { id: 'sample-4', authorName: 'Kiln Films', role: 'vendor', eventName: 'Engagement', mediaType: 'reel', text: 'Engagement highlight reel.', likeCount: 27, commentCount: 0, timeAgo: '18 Jul 2026, 13:15' },
+  { id: 'sample-5', authorName: 'Chidi', role: 'guest', eventName: 'Engagement', mediaType: 'wish', text: 'Femi, my guy. Dara, thank you for making him smile like this. Cheers to forever.', likeCount: 9, commentCount: 0, timeAgo: '18 Jul 2026, 21:30' },
+  { id: 'sample-6', authorName: 'Kemi', role: 'guest', eventName: 'Court Wedding', mediaType: 'reel', text: 'Signed, sealed, still in our work clothes.', likeCount: 19, commentCount: 0, timeAgo: '28 Aug 2026, 14:05' },
+  { id: 'sample-7', authorName: 'Dara', role: 'couple', eventName: 'Introduction', mediaType: 'reel', text: 'Dancing in before the families. Look at my mum!', likeCount: 58, commentCount: 0, timeAgo: '20 Jun 2026, 17:10' },
+];
+
+const SAMPLE_COMMENTS: Record<string, Array<{ authorName: string; timeAgo: string; text: string }>> = {
+  'sample-3': [
+    { authorName: 'Aunty Ronke', timeAgo: '18 Jul 2026, 13:02', text: 'I screamed so loud, my neck is still sore!' },
+    { authorName: 'Kemi', timeAgo: '18 Jul 2026, 13:20', text: 'Femi on one knee, I am not okay.' },
+  ],
+  'sample-1': [
+    { authorName: 'Chidi', timeAgo: '20 Jun 2026, 19:40', text: 'The family photos came out so well.' },
+  ],
+};
+// Shown in the feed in place of a post whose media is still uploading: the
+// caption and a preview land immediately, with the upload percentage on the
+// media itself.
+function UploadingPostCard({ up, isDarkMode }: { up: any; isDarkMode: boolean }) {
+  const pct = typeof up.uploadProgress === 'number' ? up.uploadProgress : 0;
+  const urls: string[] = up.localMediaUrls || [];
+  return (
+    <div className={`rounded-[20px] border p-4 mb-4 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+      <div className="flex items-center gap-2.5 mb-3">
+        {up.authorPhoto ? (
+          <img src={up.authorPhoto} className="w-9 h-9 rounded-full object-cover" alt="" />
+        ) : (
+          <span className="w-9 h-9 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-sm">{(up.authorName || 'G').charAt(0).toUpperCase()}</span>
+        )}
+        <div className="min-w-0">
+          <b className="block text-sm">{up.authorName}</b>
+          <p className="text-[0.7rem] opacity-50">Uploading… {pct}%</p>
+        </div>
+      </div>
+      {up.text && <p className="text-[0.95rem] mb-3 whitespace-pre-wrap">{up.text}</p>}
+      {urls.length > 0 && (
+        <div className="relative rounded-[16px] overflow-hidden bg-black">
+          {up.mediaTypes?.[0] === 'video' ? (
+            <video src={urls[0]} className="w-full max-h-[420px] object-cover" muted playsInline autoPlay loop />
+          ) : (
+            <img src={urls[0]} className="w-full max-h-[420px] object-cover" alt="" />
+          )}
+          <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2.5">
+            <span className="w-9 h-9 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
+            <p className="text-white font-black text-sm">{pct}%</p>
+            <div className="w-2/3 h-1.5 rounded-full bg-white/25 overflow-hidden">
+              <div className="h-full bg-white transition-all duration-200" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {up.pending && <p className="text-[0.7rem] opacity-50 mt-3">Waiting for the couple to approve</p>}
+    </div>
+  );
+}
+
+function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }: { post: any; isDarkMode: boolean; liked: boolean; onLike: () => void; onComment: () => void; onShare: () => void }) {
+  const isWish = post.mediaType === 'wish';
+  const isMotion = post.mediaType === 'video' || post.mediaType === 'reel';
+  const likeShown = (post.likeCount || 0) + (liked ? 1 : 0);
+  const mutedCls = isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]';
+  return (
+    <article className={`px-4 py-3.5 border-t-[6px] ${isDarkMode ? 'border-[#1E323A]' : 'border-[#DAD8E3]'}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-[30px] h-[30px] rounded-full flex items-center justify-center text-white text-[13px] font-bold shrink-0" style={{ background: avatarColor(post.authorName) }}>
+          {(post.authorName || 'G').charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center flex-wrap gap-x-1.5">
+            <strong className="text-[0.95rem] leading-tight">{post.authorName}</strong>
+            {post.role === 'vendor' && <span className="text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>}
+            {post.role === 'couple' && <span className="text-[11px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>}
+            <span className={`text-[0.72rem] ${mutedCls}`}> · {post.timeAgo}</span>
+          </div>
+          <p className={`text-[0.72rem] ${mutedCls}`}>{post.eventName}</p>
+        </div>
+      </div>
+      {!isWish && <p className="text-[0.95rem] leading-relaxed mt-1">{post.text}</p>}
+      {isWish ? (
+        <p className="font-display italic text-[1.25rem] leading-[1.35] py-[14px] px-1">&ldquo;{post.text}&rdquo;</p>
+      ) : (
+        <div className="relative mt-2.5 rounded-[14px] overflow-hidden h-[240px] flex items-end p-3" style={{ background: sampleArt(post.eventName) }}>
+          {isMotion && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-[58px] h-[58px] rounded-full bg-white/80 flex items-center justify-center">
+                <Play className="w-6 h-6 text-[#21122B] fill-current ml-0.5" />
+              </div>
+            </div>
+          )}
+          <span className="relative px-2.5 py-[3px] rounded-full bg-black/40 text-white text-[13px]">{post.eventName}</span>
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2 mt-2.5">
+        <button
+          onClick={onLike}
+          className={`flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border text-[13px] transition-all ${liked ? 'text-[var(--ann-accent)] dark:text-[#4FC3CF] border-[var(--ann-accent)] dark:border-[#4FC3CF] font-bold' : `${mutedCls} border-[#DAD8E3] dark:border-[#22363E] font-medium`}`}
+        >
+          <ThumbsUp className="w-[17px] h-[17px]" />
+          <span>Like{likeShown > 0 ? ` ${likeShown}` : ''}</span>
+        </button>
+        <button
+          onClick={onComment}
+          className={`flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium ${mutedCls}`}
+        >
+          <MessageCircle className="w-[17px] h-[17px]" />
+          <span>Comment{post.commentCount > 0 ? ` ${post.commentCount}` : ''}</span>
+        </button>
+        <button
+          onClick={onShare}
+          className={`flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium ${mutedCls}`}
+        >
+          <Share2 className="w-[17px] h-[17px]" />
+          <span>Share</span>
+        </button>
+      </div>
+    </article>
+  );
+}
+function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose }: any) {
+  const isSample = String(post?.id || '').startsWith('sample-');
+  const [comments, setComments] = useState<any[]>(isSample ? (SAMPLE_COMMENTS[post.id] || []) : []);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (isSample || !post?.id) return;
+    const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('comments load failed', err));
+    return () => unsub();
+  }, [isSample, post?.id]);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    try {
+      if (isSample) {
+        setComments((prev) => [...prev, { authorName: displayName || 'Guest', text: body, timeAgo: 'Just now' }]);
+      } else {
+        await addDoc(collection(db, 'posts', post.id, 'comments'), {
+          authorUid: user?.uid || null,
+          authorName: displayName || 'Guest',
+          authorPhoto: avatar || null,
+          text: body,
+          createdAt: serverTimestamp(),
+        });
+        await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(1) });
+      }
+      setText('');
+      if (showToast) showToast('Comment added');
+    } catch (err) {
+      console.error('comment failed', err);
+      if (showToast) showToast('Could not post the comment. Try again.', 'error');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const removeComment = async (c: any) => {
+    if (isSample) {
+      setComments((prev) => prev.filter((x) => x !== c));
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, 'posts', post.id, 'comments', c.id));
+      await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(-1) });
+    } catch (err) {
+      console.error('comment delete failed', err);
+    }
+  };
+
+  const mutedCls = isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]';
+  const fmt = (c: any) => {
+    if (c.createdAt?.toDate) {
+      return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(c.createdAt.toDate());
+    }
+    return c.timeAgo || 'Just now';
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/60 flex items-end justify-center" onClick={onClose}>
+      <div
+        className={`w-full max-w-[430px] max-h-[85vh] overflow-y-auto rounded-t-[24px] px-[18px] pt-5 pb-[calc(22px+env(safe-area-inset-bottom,0px))] ${isDarkMode ? 'bg-[#13232A]' : 'bg-[#F6F5FA]'}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-display text-[22px] font-medium leading-tight">Comments{comments.length > 0 ? ` (${comments.length})` : ''}</h3>
+        {comments.length === 0 ? (
+          <p className={`my-4 text-[0.9rem] ${mutedCls}`}>No comments yet. Start the conversation.</p>
+        ) : (
+          comments.map((c, i) => (
+            <div key={c.id || i} className="flex gap-2.5 my-3">
+              <div className="w-[34px] h-[34px] rounded-full flex items-center justify-center text-white text-[13px] font-bold shrink-0" style={{ background: avatarColor(c.authorName) }}>
+                {(c.authorName || 'G').charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.9rem]">
+                  <strong>{c.authorName || 'Guest'}</strong>
+                  <span className={`text-[0.75rem] ${mutedCls}`}> · {fmt(c)}</span>
+                </p>
+                <p className="text-[0.95rem] mt-0.5 whitespace-pre-wrap">{c.text}</p>
+                {(isAdmin || (user && c.authorUid === user.uid)) && (
+                  <button onClick={() => removeComment(c)} className="text-[13px] text-[#d23b3b] mt-1">Remove</button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+        <div className={`sticky bottom-0 flex items-center gap-2 pt-2 pb-1 ${isDarkMode ? 'bg-[#13232A]' : 'bg-[#F6F5FA]'}`}>
+          <div className="w-[34px] h-[34px] rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center text-[13px] font-bold shrink-0 overflow-hidden">
+            {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="" /> : <span>{(displayName || 'Y').charAt(0).toUpperCase()}</span>}
+          </div>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+            placeholder="Add a comment…"
+            maxLength={500}
+            className={`flex-1 min-w-0 rounded-xl border px-3 py-2.5 text-[0.95rem] outline-none bg-transparent ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}
+          />
+          <button onClick={send} disabled={!text.trim() || sending} className="bg-[var(--ann-accent)] text-white rounded-full px-4 py-2.5 font-semibold text-[0.9rem] disabled:opacity-40 shrink-0">Send</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GridScanner({ isDarkMode, images = [], onTap }: { isDarkMode: boolean; images?: string[]; onTap?: (src: string) => void }) {
+  const [activeRow, setActiveRow] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const rowCount = 10;
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveRow(prev => {
+        let next = prev + direction;
+        if (next >= rowCount - 1) {
+          setDirection(-1);
+          return rowCount - 1;
+        }
+        if (next <= 0) {
+          setDirection(1);
+          return 0;
+        }
+        return next;
+      });
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [direction, rowCount]);
+
+  return (
+    <>
+      {Array.from({ length: 80 }).map((_, i) => {
+        const colCount = 10;
+        const rowIdx = Math.floor(i / colCount);
+        const isCurrentlyScanning = rowIdx === activeRow;
+        return (
+          <GridImage
+            key={i}
+            index={i}
+            isDarkMode={isDarkMode}
+            isCleared={isCurrentlyScanning}
+            images={images}
+            onTap={onTap}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function GridImage({ index, isDarkMode, isCleared: autoCleared, images = [], onTap }: any) {
+  const isCleared = autoCleared;
+  const pool = images.length > 0 ? images : PLACEHOLDER_IMAGES;
+  const imgSrc = pool[index % pool.length];
+
+  return (
+    <div
+      className="relative w-full aspect-square cursor-pointer group pointer-events-auto"
+      onClick={() => onTap && onTap(imgSrc)}
+    >
+      <motion.img
+        src={imgSrc}
+        animate={{
+          filter: isCleared ? 'grayscale(0%) brightness(1.1)' : 'grayscale(100%) brightness(0.8)',
+          scale: isCleared ? 1.05 : 1
+        }}
+        className="w-full h-full object-cover transition-all duration-700"
+        alt=""
+      />
+      <motion.div
+        initial={{ opacity: 1 }}
+        animate={{ opacity: isCleared ? 0 : 1 }}
+        transition={{ duration: 0.4 }}
+        className={`absolute inset-0 ${isDarkMode ? 'bg-[#0B171C]/70' : 'bg-[#EEEDF3]/70'}`}
+      />
+    </div>
+  );
+}
+
+// Circular zoom-in popup for a poster's profile picture. Starts as a modest
+// circle, and the expand button takes it to a near-full-screen view.
+function AvatarZoomModal({ src, onClose }: { src: string; onClose: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[170] bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center"
+      >
+        <motion.div
+          initial={{ scale: 0.7, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.8, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative flex flex-col items-center"
+        >
+          <img
+            src={src}
+            alt="Profile"
+            onClick={() => setExpanded((v) => !v)}
+            className={`${expanded ? 'w-screen max-w-[100vw] h-[82vh] object-contain rounded-3xl' : 'w-[min(72vw,340px)] aspect-square object-cover rounded-full shadow-2xl'} cursor-zoom-in transition-all`}
+          />
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              aria-label={expanded ? 'Exit full screen' : 'View full screen'}
+              className="w-10 h-10 rounded-full bg-white/15 border border-white/40 text-white grid place-items-center hover:bg-white/25 transition-colors"
+            >
+              {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="w-10 h-10 rounded-full bg-white/15 border border-white/40 text-white grid place-items-center hover:bg-white/25 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 z-[120] backdrop-blur-sm"
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[121] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
+          >
+            <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-black font-display tracking-tight mb-2">Delete Post?</h3>
+            <p className="text-sm opacity-60 mb-6">This action cannot be undone. This memory will be removed from the community wall.</p>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={onClose}
+                className={`flex-1 py-3 rounded-full font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={onConfirm}
+                className="flex-1 py-3 rounded-full bg-red-500 text-white font-bold text-xs uppercase tracking-widest shadow-lg shadow-red-500/20"
+              >
+                Delete
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+
+function AuthScreen({ screen, setScreen, onSignIn, onSignup, onForgot, busy, error, clearError, isDarkMode }: {
+  screen: 'signin' | 'forgot' | 'sent';
+  setScreen: (s: 'signin' | 'forgot' | 'sent') => void;
+  onSignIn: (email: string, password: string) => void;
+  onSignup: (email: string, password: string) => void;
+  onForgot: (email: string) => void;
+  busy: boolean;
+  error: string;
+  clearError: () => void;
+  isDarkMode: boolean;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isFirstTime, setIsFirstTime] = useState(false);
+
+  const submit = () => {
+    if (!email.trim() || !password) { return; }
+    if (isFirstTime) { onSignup(email, password); } else { onSignIn(email, password); }
+  };
+
+  return (
+    <div className={`fixed inset-0 z-[300] flex items-center justify-center p-5 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C]' : 'bg-[#F6F5FA]'}`}>
+      <div className={`w-full max-w-[430px] my-auto rounded-[28px] p-8 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}>
+        {screen === 'sent' ? (
+          <>
+            <div className="w-16 h-16 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-5">
+              <Mail className="w-8 h-8" />
+            </div>
+            <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Check your email</h2>
+            <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+              We sent a password reset link. Follow it to set a new password, then come back and sign in.
+            </p>
+            <button
+              onClick={() => setScreen('signin')}
+              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all"
+            >
+              Back to sign in
+            </button>
+          </>
+        ) : screen === 'forgot' ? (
+          <>
+            <div className="w-16 h-16 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-5">
+              <KeyRound className="w-8 h-8" />
+            </div>
+            <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Forgot password?</h2>
+            <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+              Enter the email on your admin account and we will send a reset link.
+            </p>
+            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+            />
+            {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
+            <button
+              onClick={() => onForgot(email)}
+              disabled={busy || !email.trim()}
+              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all"
+            >
+              {busy ? 'Sending…' : 'Send reset link'}
+            </button>
+            <button onClick={() => setScreen('signin')} className={`w-full py-4 font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'text-white/40' : 'text-[#5A6970]'}`}>
+              Back to sign in
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="text-center mb-8">
+              <p className="font-display text-[var(--ann-accent)] text-[0.85rem] font-medium mb-1">Dara &amp; Femi 2026</p>
+              <h2 className="text-[1.9rem] font-black font-display tracking-tight leading-tight">
+                {isFirstTime ? 'Create admin account' : 'Welcome back'}
+              </h2>
+              <p className={`text-[0.92rem] mt-1 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+                {isFirstTime ? 'Set up the couple dashboard sign-in.' : 'Sign in to the couple dashboard.'}
+              </p>
+            </div>
+            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+            />
+            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Password</label>
+            <div className="relative mb-2">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+                placeholder="Your password"
+                autoComplete={isFirstTime ? 'new-password' : 'current-password'}
+                className={`w-full p-4 pr-12 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#5A6970]"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            {!isFirstTime && (
+              <button onClick={() => setScreen('forgot')} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
+                Forgot password?
+              </button>
+            )}
+            {error && <p className="text-[0.85rem] font-bold text-[#C4453B] my-3">{error}</p>}
+            <button
+              onClick={submit}
+              disabled={busy || !email.trim() || !password}
+              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all mt-3"
+            >
+              {busy ? 'Please wait…' : isFirstTime ? 'Create account' : 'Sign in'}
+            </button>
+            <button
+              onClick={() => { setIsFirstTime(!isFirstTime); clearError(); }}
+              className={`w-full py-3 text-[0.85rem] font-bold ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
+            >
+              {isFirstTime ? 'Already have an account? Sign in' : 'First time? Create an admin account'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ForceSetPasswordScreen({ isDarkMode, busy, error, newPassword, setNewPassword, confirmPassword, setConfirmPassword, onSubmit, onSignOut }: {
+  isDarkMode: boolean;
+  busy: boolean;
+  error: string;
+  newPassword: string;
+  setNewPassword: (v: string) => void;
+  confirmPassword: string;
+  setConfirmPassword: (v: string) => void;
+  onSubmit: () => void;
+  onSignOut: () => void;
+}) {
+  const [show1, setShow1] = useState(false);
+  const [show2, setShow2] = useState(false);
+  const strength = newPassword.length >= 10 ? 'Strong' : newPassword.length >= 6 ? 'Okay' : 'Too short';
+  return (
+    <div className={`fixed inset-0 z-[310] flex items-center justify-center p-5 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C]' : 'bg-[#F6F5FA]'}`}>
+      <div className={`w-full max-w-[430px] my-auto rounded-[28px] p-8 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}>
+        <div className="w-16 h-16 rounded-full bg-[#C8932A]/15 text-[#C8932A] flex items-center justify-center mx-auto mb-5">
+          <KeyRound className="w-8 h-8" />
+        </div>
+        <h2 className="text-center text-[1.7rem] font-black font-display tracking-tight mb-2">Set your permanent password</h2>
+        <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+          You signed in with a temporary password. Choose a permanent one before you continue.
+        </p>
+        <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>New password</label>
+        <div className="relative mb-4">
+          <input
+            type={show1 ? 'text' : 'password'}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="At least 6 characters"
+            autoComplete="new-password"
+            className={`w-full p-4 pr-12 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+          />
+          <button type="button" onClick={() => setShow1(!show1)} aria-label={show1 ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#5A6970]">
+            {show1 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        </div>
+        <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Confirm new password</label>
+        <div className="relative mb-4">
+          <input
+            type={show2 ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && newPassword && confirmPassword) onSubmit(); }}
+            placeholder="Type it once more"
+            autoComplete="new-password"
+            className={`w-full p-4 pr-12 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+          />
+          <button type="button" onClick={() => setShow2(!show2)} aria-label={show2 ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#5A6970]">
+            {show2 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        </div>
+        {newPassword && (
+          <p className={`text-[0.8rem] font-bold mb-3 ${newPassword.length >= 6 ? 'text-[var(--ann-accent)]' : 'text-[#C4453B]'}`}>
+            Password strength: {strength}
+          </p>
+        )}
+        {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-3">{error}</p>}
+        <button
+          onClick={onSubmit}
+          disabled={busy || !newPassword || !confirmPassword}
+          className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all"
+        >
+          {busy ? 'Saving…' : 'Save password & continue'}
+        </button>
+        <button onClick={onSignOut} className={`w-full py-4 font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'text-white/40' : 'text-[#5A6970]'}`}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Renders the actual error message instead of a blank page when a section's
+// rendering fails, so a crash is always visible and fixable.
+class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: boolean; children: any }, { error: any }> {
+  state = { error: null as any };
+  static getDerivedStateFromError(error: any) { return { error }; }
+  componentDidCatch(error: any, info: any) {
+    console.error(`Section "${this.props.label}" failed to render:`, error, info);
+  }
+  render() {
+    if (this.state.error) {
+      const msg = String(this.state.error?.message || this.state.error || 'Unknown error');
+      return (
+        <div className={`p-5 rounded-[20px] border border-[#C4453B]/40 ${this.props.isDarkMode ? 'bg-[#C4453B]/10' : 'bg-[#C4453B]/5'}`}>
+          <h3 className="font-black font-display text-lg text-[#C4453B] mb-1">This section could not load</h3>
+          <p className="text-sm opacity-70 mb-2">Section: {this.props.label}. Send the text below to your assistant to get it fixed.</p>
+          <code className="block p-3 rounded-lg bg-black/10 text-[0.7rem] break-words whitespace-pre-wrap">{msg}</code>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AdminDashboardModal({ 
+  isOpen, 
+  asPage, 
+  onClose, 
+  activeCode, 
+  onUpdateCode, 
+  isDarkMode, 
+  heroImages, 
+  heroImageLabels,
+  onUpdateHeroLabels,
+  onSaveWeddingSection,
+  onUpdateHeroImages,
+  footerImages,
+  onUpdateFooterImages,
+  allAdmins,
+  deletedPosts,
+  onRestorePost,
+  onPermanentDelete,
+  currentUserEmail,
+  adminPermissions,
+  videoOrientations,
+  events,
+  story,
+  weddingDetails,
+  onSaveWedding,
+  vendors,
+  blockedUids,
+  vendorRequests,
+  onUpdatePeople,
+  onVendorAction,
+  approveGuestPosts,
+  pushEnabled,
+  archiveMode,
+  feedActionMode,
+  onUpdateAppFlags,
+  onDownloadEverything,
+  onCreateMemoryBook,
+  onDeleteAllGuestData,
+  showToast,
+  onBackToMain,
+  postAds = [],
+  reelAds = [],
+  onUpdatePostAds,
+  onUpdateReelAds,
+  posts = [],
+  onDeletePost
+}: any) {
+  const [newCode, setNewCode] = useState(activeCode ?? '');
+  const [isDirty, setIsDirty] = useState(false);
+  const [isBulkUploading, setIsBulkUploading] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
+      const storedTab = storedAdminUi?.tab;
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'hero', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+    } catch {
+      return 'overview';
+    }
+  });
+  const [mobileAdminNavOpen, setMobileAdminNavOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
+      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, tab: activeAdminTab }));
+    } catch {}
+  }, [activeAdminTab]);
+
+  // Photo albums live in the `albums` collection; every upload carries the
+  // uploader's name and the upload date.
+  useEffect(() => {
+    if (!isOpen) return;
+    const q = query(collection(db, 'albums'), orderBy('uploadedAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => setAlbums(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), (err) => console.error('Albums load error:', err));
+    return () => unsub();
+  }, [isOpen]);
+
+  // Photographers and vendors see and do exactly one thing here: Photo albums.
+  const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail);
+  const restrictedRole = myAdminDoc?.role === 'photographer' || myAdminDoc?.role === 'vendor';
+  useEffect(() => {
+    if (restrictedRole && activeAdminTab !== 'albums') setActiveAdminTab('albums');
+  }, [restrictedRole, activeAdminTab]);
+
+  const uploadAlbumMedia = async (files: FileList | null, kind: 'photo' | 'video') => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    setAlbumBusy(true);
+    let ok = 0;
+    const uploaderName = (currentUserEmail || 'Admin').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+    for (const file of list) {
+      try {
+        const url = await uploadToCloudinary(file, 'albums');
+        await addDoc(collection(db, 'albums'), {
+          mediaUrl: url,
+          mediaType: kind === 'video' ? 'video' : 'image',
+          uploaderName,
+          uploaderEmail: currentUserEmail,
+          uploadedAt: serverTimestamp()
+        });
+        ok++;
+      } catch (err) {
+        console.error('Album upload error:', err);
+      }
+    }
+    setAlbumBusy(false);
+    if (showToast) showToast(ok === list.length ? `Added ${ok} ${kind === 'video' ? 'video' : 'photo'}${ok === 1 ? '' : 's'} to the album.` : `Uploaded ${ok} of ${list.length}. The rest failed, try again.`, ok ? 'success' : 'error');
+  };
+
+  const deleteAlbumMedia = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'albums', id));
+      if (showToast) showToast('Removed from the album.', 'success');
+    } catch (err) {
+      console.error('Album delete error:', err);
+      if (showToast) showToast('Could not remove it. Try again.', 'error');
+    }
+  };
+
+  const handleAdminSignOut = () => {
+    try { localStorage.removeItem('ann-admin-ui'); } catch {}
+    signOut(auth);
+    onClose();
+  };
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  // All posts preview: the post being watched/viewed full-screen from the list.
+  const [adminViewerPost, setAdminViewerPost] = useState<any>(null);
+  // Label to attach to newly uploaded hero photos.
+  const [newHeroLabel, setNewHeroLabel] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('vendor');
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [rulesBusy, setRulesBusy] = useState(false);
+
+  // Re-applies the app's fixed Firestore security rules through the auth-admin
+  // function (super admin only). Keeps guest-post approval enforced server-side.
+  const publishSecurityRules = async () => {
+    setRulesBusy(true);
+    try {
+      const currentUser = auth.currentUser;
+      const token = currentUser ? await currentUser.getIdToken() : '';
+      const res = await fetch('/api/auth-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'publishRules' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) showToast('Security rules published.');
+      else showToast('Could not publish the rules. Try again in a moment.', 'error');
+    } catch (err) {
+      showToast('Could not publish the rules. Check your connection.', 'error');
+    } finally {
+      setRulesBusy(false);
+    }
+  };
+  const [inviteResult, setInviteResult] = useState<{ email: string; tempPassword: string } | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteStep, setInviteStep] = useState<'form' | 'done'>('form');
+  const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
+
+  const openInviteModal = () => {
+    setInviteEmail('');
+    setInviteRole('vendor');
+    setInvitePerms({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
+    setInviteResult(null);
+    setInviteStep('form');
+    setShowInviteModal(true);
+  };
+
+  const applyInviteRole = (r: string) => {
+    setInviteRole(r);
+    setInvitePerms(r === 'couple'
+      ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
+      : { canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
+  };
+
+  // Team list with the signed-in admin always present, plus self markers.
+  const teamList = useMemo(() => {
+    const list = (allAdmins as any[]).map((a: any) => ({ ...a, isSelf: a.email === currentUserEmail }));
+    if (currentUserEmail && !list.some((a: any) => a.isSelf)) {
+      list.push({
+        id: '__self__',
+        email: currentUserEmail,
+        role: (myAdminDoc as any)?.role || 'couple',
+        mustSetPassword: false,
+        permissions: (myAdminDoc as any)?.permissions || { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
+        isSelf: true
+      });
+    }
+    return list;
+  }, [allAdmins, currentUserEmail, myAdminDoc]);
+
+  // Super Admin Ad Creation & Editing State
+  const [adTypeTab, setAdTypeTab] = useState<'post' | 'reel'>('post');
+  const [editingAdId, setEditingAdId] = useState<string | null>(null);
+  const [adSponsor, setAdSponsor] = useState('');
+  const [adHeadline, setAdHeadline] = useState('');
+  const [adDescription, setAdDescription] = useState('');
+  const [adCtaText, setAdCtaText] = useState('Learn More');
+  const [adCtaUrl, setAdCtaUrl] = useState('');
+  const [adMediaUrls, setAdMediaUrls] = useState<string[]>([]);
+  const [adMediaTypes, setAdMediaTypes] = useState<('image' | 'video')[]>([]);
+  const [isAdUploading, setIsAdUploading] = useState(false);
+
+  const resetAdForm = (type: 'post' | 'reel' = adTypeTab) => {
+    setEditingAdId(null);
+    setAdSponsor('');
+    setAdHeadline('');
+    setAdDescription('');
+    setAdCtaText('Learn More');
+    setAdCtaUrl('');
+    setAdMediaUrls([]);
+    setAdMediaTypes(type === 'reel' ? ['video'] : []);
+  };
+
+  const daysToWedding = Math.max(0, Math.ceil((new Date(`${WEDDING_DATE}T11:00:00`).getTime() - Date.now()) / 86400000));
+
+  const inviteDashboardAccess = async (perms: Record<string, boolean>) => {
+    const email = inviteEmail.trim();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      showToast('Enter a valid email address.', 'error');
+      return;
+    }
+    setInviteBusy(true);
+    try {
+      const currentUser = auth.currentUser;
+      const token = currentUser ? await currentUser.getIdToken() : '';
+      const tempPassword = 'DF' + Math.random().toString(36).slice(2, 10);
+      const res = await fetch('/api/auth-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'invite', email, password: tempPassword, role: inviteRole })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        const rolePerms: any = { ...perms };
+        try {
+          await setDoc(doc(db, 'admins', email.toLowerCase().trim()), {
+            email: email.toLowerCase().trim(),
+            role: inviteRole,
+            mustSetPassword: true,
+            permissions: rolePerms,
+            addedAt: serverTimestamp(),
+            addedBy: currentUserEmail
+          }, { merge: true });
+        } catch (permErr) {
+          console.error('Admin doc write error:', permErr);
+        }
+        setInviteResult({ email, tempPassword });
+        setInviteStep('done');
+        setInviteEmail('');
+        showToast('Dashboard access created. Share the temporary password now.', 'success');
+      } else {
+        showToast(data.error || 'Could not create the account. Try again.', 'error');
+      }
+    } catch (err) {
+      console.error('Invite error:', err);
+      showToast('Could not reach the invite service.', 'error');
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  // Sync newCode with live value
+  useEffect(() => {
+    if (isOpen && !isDirty) {
+      setNewCode(activeCode ?? '');
+    }
+  }, [activeCode, isOpen, isDirty]);
+
+  // Reset dirty flag when closing/opening
+  useEffect(() => {
+    if (!isOpen) setIsDirty(false);
+  }, [isOpen]);
+
+  const isSuper = currentUserEmail === "justfashion414@gmail.com";
+
+  const [modQueue, setModQueue] = useState<'pending' | 'reports' | 'vendors'>('pending');
+  const [postEventFilter, setPostEventFilter] = useState<string>('all');
+
+  const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
+  const [storyDraft, setStoryDraft] = useState<string>(story);
+  const [detDraft, setDetDraft] = useState<any>(weddingDetails);
+  const [weddingBusy, setWeddingBusy] = useState(false);
+  useEffect(() => { setEvDraft(events); }, [events]);
+  useEffect(() => { setStoryDraft(story); }, [story]);
+  useEffect(() => { setDetDraft(weddingDetails); }, [weddingDetails]);
+
+  const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
+  // The photos the hero actually shows right now: the admin's list when one
+  // exists, otherwise the built-in placeholder photos the site falls back to.
+  // Editing from the admin grid always writes the full list, so removing a
+  // placeholder or adding a photo takes the hero over from the placeholders.
+  const heroShown: string[] = heroImages.length ? heroImages : PLACEHOLDER_IMAGES;
+
+  // Per-section saves: each card in Events & details commits on its own, so the
+  // couple never has to save unrelated sections together. The Preview button
+  // saves everything first, then opens the live website in a new tab so they
+  // can see the changes without leaving the console.
+  const saveStory = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ story: storyDraft }); } finally { setWeddingBusy(false); } };
+  const saveDetails = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ weddingDetails: detDraft }); } finally { setWeddingBusy(false); } };
+  const saveEvents = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ events: evDraft }); } finally { setWeddingBusy(false); } };
+  const previewSite = async () => {
+    setWeddingBusy(true);
+    try { await onSaveWedding(evDraft, storyDraft, detDraft); } finally { setWeddingBusy(false); }
+    window.open('/', '_blank');
+  };
+
+  const saveWedding = async () => {
+    setWeddingBusy(true);
+    try {
+      await onSaveWedding(evDraft, storyDraft, detDraft);
+    } finally {
+      setWeddingBusy(false);
+    }
+  };
+
+  const [dangerText, setDangerText] = useState('');
+  const [deleteAllBusy, setDeleteAllBusy] = useState(false);
+  const [postTypeFilter, setPostTypeFilter] = useState<string>('all');
+  // Recycle bin: confirm before restoring or permanently removing a post.
+  const [binConfirm, setBinConfirm] = useState<{ id: string; action: 'restore' | 'remove' } | null>(null);
+  // Photo albums: media uploaded by photographers and vendors.
+  const [albums, setAlbums] = useState<any[]>([]);
+  const [albumBusy, setAlbumBusy] = useState(false);
+  const nowHour = new Date().getHours();
+  const greeting = nowHour < 12 ? 'Good morning' : nowHour < 17 ? 'Good afternoon' : 'Good evening';
+  const pendCount = posts.filter((p: any) => p.pending).length;
+  const reportCount = posts.filter((p: any) => ((p as any).reports || 0) > 0).length;
+  const modTotal = pendCount + reportCount + vendorRequests.length;
+  const relTime = (d: Date | null) => {
+    if (!d) return 'just now';
+    const s = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+    const dd = Math.floor(h / 24); if (dd < 7) return `${dd}d ago`;
+    const w = Math.floor(dd / 7); if (w < 5) return `${w}w ago`;
+    const mo = Math.floor(dd / 30); if (mo < 12) return `${mo} month${mo === 1 ? '' : 's'} ago`;
+    return `${Math.floor(dd / 365)}y ago`;
+  };
+  const postTypeOf = (p: any): 'Photo' | 'Video' | 'Reel' | 'Wish' => {
+    const isVid = (p.mediaTypes || []).some((t: string) => t === 'video') || (p.mediaUrls || []).some((u: string) => /\.(mp4|webm|mov)(\?|$)/i.test(u));
+    if (isVid) return ((p.videoOrientation || (videoOrientations as any)[p.id]) === 'portrait' ? 'Reel' : 'Video');
+    const hasImg = (p.mediaTypes || []).some((t: string) => t === 'image') || (p.mediaUrls || []).some((u: string) => /\.(jpe?g|png|webp|gif)(\?|$)/i.test(u));
+    return hasImg ? 'Photo' : 'Wish';
+  };
+  const handleDismissReport = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'posts', id), { reports: 0 });
+      showToast('Report dismissed', 'success');
+    } catch (err) {
+      console.error('Dismiss error:', err);
+      showToast('Could not dismiss the report.', 'error');
+    }
+  };
+
+  const normalizedNewCode = normalizeCode(newCode);
+  const normalizedActiveCode = normalizeCode(activeCode ?? '');
+  const isCodeValid = normalizedNewCode.length >= 4;
+  const isCodeChanged = normalizedNewCode !== normalizedActiveCode;
+  const canSaveCode = isCodeValid && isCodeChanged;
+
+  // Saves a post's media file straight to the admin's device from the All posts
+  // list (the Download button on each row).
+  const adminDownloadMedia = async (p: any) => {
+    const urls = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
+    if (!urls.length) { if (showToast) showToast('There is no photo or video on this post.', 'error'); return; }
+    try {
+      const res = await fetch(urls[0]);
+      if (!res.ok) throw new Error('fetch failed');
+      const blob = await res.blob();
+      const u = urls[0];
+      const isVideo = p.mediaTypes?.[0] === 'video' || u.toLowerCase().includes('.mp4') || u.toLowerCase().includes('.webm') || u.toLowerCase().includes('.mov') || u.includes('/video/');
+      const ext = isVideo ? 'mp4' : (u.split('?')[0].split('.').pop() || 'jpg').slice(0, 5);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `dara-femi-${String(p.authorName || 'memory').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      if (showToast) showToast('Saved to your device.', 'success');
+    } catch (err) {
+      console.error('Admin media download failed:', err);
+      if (showToast) showToast('Could not download the file. Please try again.', 'error');
+    }
+  };
+
+  const handleAddAdmin = async () => {
+    if (!newAdminEmail.trim() || !newAdminEmail.includes('@')) return;
+    try {
+      await setDoc(doc(db, 'admins', newAdminEmail.toLowerCase().trim()), {
+        email: newAdminEmail.toLowerCase().trim(),
+        permissions: {
+          canDeletePosts: true,
+          canUploadImages: true,
+          canSetAccessCode: true
+        },
+        addedAt: serverTimestamp(),
+        addedBy: currentUserEmail
+      });
+      setNewAdminEmail('');
+      alert("Admin added successfully!");
+    } catch (err) {
+      console.error("Add admin error:", err);
+    }
+  };
+
+  const handleRemoveAdmin = async (email: string) => {
+    if (confirm(`Remove ${email} from administrators?`)) {
+      try {
+        await deleteDoc(doc(db, 'admins', email));
+        showToast(`${email} removed from administrators.`);
+      } catch (err) {
+        console.error("Remove admin error:", err);
+        showToast('Could not remove that administrator.', 'error');
+      }
+    }
+  };
+
+  const togglePermission = async (email: string, perm: string, currentVal: boolean) => {
+    try {
+      const adminRef = doc(db, 'admins', email);
+      await setDoc(adminRef, {
+        permissions: {
+          [perm]: !currentVal
+        }
+      }, { merge: true });
+      showToast('Permissions updated.');
+    } catch (err) {
+      console.error("Toggle permission error:", err);
+      showToast('Could not update the permission.', 'error');
+    }
+  };
+  
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {!asPage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 z-[110] backdrop-blur-sm"
+          />
+          )}
+          <motion.div 
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            className={`fixed inset-0 z-[111] p-0 shadow-2xl overflow-hidden flex flex-col ${isDarkMode ? 'bg-[#13232A]' : 'bg-white'}`}
+          >
+            {/* Couple dashboard shell */}
+            <div className="relative flex flex-1 min-h-0 w-full flex-col md:flex-row">
+              {/* Mobile top bar with sidebar toggle */}
+              <div className="md:hidden relative flex items-center gap-2 px-4 py-3 bg-[#0B171C] shrink-0">
+                <button onClick={() => setMobileAdminNavOpen(true)} className="p-2 rounded-xl bg-white/10 text-white active:bg-white/20" aria-label="Open menu">
+                  <Menu className="w-5 h-5" />
+                </button>
+                <p className="font-display text-white text-base font-medium">Dara &amp; Femi</p>
+                <div className="relative ml-auto">
+                  <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
+                  {profileMenuOpen && (
+                    <div className={`absolute right-0 top-10 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                      <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
+                      <button onClick={handleAdminSignOut} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[0.85rem] font-bold text-left text-[#C4453B] hover:bg-[#C4453B]/10">
+                        <LogOut className="w-4 h-4" />
+                        <span>Sign out</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button onClick={onClose} className="shrink-0 p-2 rounded-full bg-white/10 text-white" aria-label="Close dashboard"><X className="w-4 h-4" /></button>
+
+              </div>
+
+                {/* Slide-in sidebar (mobile) */}
+                {mobileAdminNavOpen && (
+                  <div className="absolute inset-0 z-[120] flex" onClick={() => setMobileAdminNavOpen(false)}>
+                    <div className="absolute inset-0 bg-black/50" />
+                    <div
+                      className="relative w-[264px] max-w-[80vw] h-full bg-[#0B171C] text-white p-5 overflow-y-auto shadow-2xl"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="mb-6">
+                        <p className="font-display text-[1.25rem] font-medium">Dara &amp; Femi</p>
+                        <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
+                      </div>
+                      <nav className="flex flex-col gap-1">
+                        {[
+                          { id: 'overview', label: 'Overview', icon: Home },
+                          { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
+                          { id: 'posts', label: 'All posts', icon: Film },
+                          { id: 'events', label: 'Events & details', icon: Calendar },
+                          { id: 'hero', label: 'Hero photos', icon: ImageIcon },
+                          { id: 'albums', label: 'Photo albums', icon: Images },
+                          { id: 'settings', label: 'Settings', icon: Settings },
+                        ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
+                          <button
+                            key={tab.id}
+                            onClick={() => { setActiveAdminTab(tab.id); setMobileAdminNavOpen(false); }}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-left transition-all ${activeAdminTab === tab.id ? 'bg-[var(--ann-accent)] text-white shadow-lg' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            <tab.icon className="w-[18px] h-[18px] shrink-0" />
+                            <span>{tab.label}</span>
+                      {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                          </button>
+                        ))}
+                      </nav>
+                      <p className="mt-5 mb-1 px-3 text-[0.62rem] uppercase tracking-widest text-white/30 font-black">More</p>
+                      <nav className="flex flex-col gap-1">
+                        {[
+                          { id: 'ads', label: 'Ads', icon: Megaphone, show: isSuper && !restrictedRole },
+                          
+                          { id: 'recycle', label: 'Bin', icon: Trash, show: !restrictedRole && (adminPermissions ? adminPermissions.canDeletePosts : true) },
+                        ].filter((t) => t.show).map((tab) => (
+                          <button
+                            key={tab.id}
+                            onClick={() => { setActiveAdminTab(tab.id); setMobileAdminNavOpen(false); }}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-left transition-all ${activeAdminTab === tab.id ? 'bg-[var(--ann-accent)] text-white shadow-lg' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            <tab.icon className="w-[18px] h-[18px] shrink-0" />
+                            <span>{tab.label}</span>
+                      {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                          </button>
+                        ))}
+                      </nav>
+                      <button onClick={onClose} className="mt-6 pt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-white/60 hover:bg-white/10 hover:text-white text-left border-t border-white/10">
+                        <Globe className="w-[18px] h-[18px] shrink-0" />
+                        <span>View website</span>
+                      </button>
+                    </div>
+                  </div>
+
+                )}
+              {/* Sidebar (desktop) */}
+              <aside className="hidden md:flex flex-col w-[250px] shrink-0 bg-[#0B171C] text-white p-5 overflow-y-auto">
+                <div className="mb-6 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-display text-[1.25rem] font-medium">Dara &amp; Femi</p>
+                    <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
+                  </div>
+                  <div className="relative shrink-0">
+                    <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-9 h-9 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
+                    {profileMenuOpen && (
+                      <div className={`absolute right-0 top-11 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                        <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
+                        <button onClick={handleAdminSignOut} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[0.85rem] font-bold text-left text-[#C4453B] hover:bg-[#C4453B]/10">
+                          <LogOut className="w-4 h-4" />
+                          <span>Sign out</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <nav className="flex flex-col gap-1">
+                  {[
+                    { id: 'overview', label: 'Overview', icon: Home },
+                    { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
+                    { id: 'posts', label: 'All posts', icon: Film },
+                    { id: 'events', label: 'Events & details', icon: Calendar },
+                    { id: 'hero', label: 'Hero photos', icon: ImageIcon },
+                    { id: 'albums', label: 'Photo albums', icon: Images },
+                    { id: 'settings', label: 'Settings', icon: Settings },
+                  ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveAdminTab(tab.id)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-left transition-all ${activeAdminTab === tab.id ? 'bg-[var(--ann-accent)] text-white shadow-lg' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                    >
+                      <tab.icon className="w-[18px] h-[18px] shrink-0" />
+                      <span>{tab.label}</span>
+                      {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                    </button>
+                  ))}
+                </nav>
+                <p className="mt-5 mb-1 px-3 text-[0.62rem] uppercase tracking-widest text-white/30 font-black">More</p>
+                <nav className="flex flex-col gap-1">
+                  {[
+                    { id: 'ads', label: 'Ads', icon: Megaphone, show: isSuper && !restrictedRole },
+                    
+                    { id: 'recycle', label: 'Bin', icon: Trash, show: !restrictedRole && (adminPermissions ? adminPermissions.canDeletePosts : true) },
+                  ].filter((t) => t.show).map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveAdminTab(tab.id)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-left transition-all ${activeAdminTab === tab.id ? 'bg-[var(--ann-accent)] text-white shadow-lg' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                    >
+                      <tab.icon className="w-[18px] h-[18px] shrink-0" />
+                      <span>{tab.label}</span>
+                      {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
+                    </button>
+                  ))}
+                </nav>
+                <button onClick={onClose} className="mt-auto pt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-white/60 hover:bg-white/10 hover:text-white text-left">
+                  <Globe className="w-[18px] h-[18px] shrink-0" />
+                  <span>View website</span>
+                </button>
+              </aside>
+
+              {/* Modal Body */}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-6 md:p-8 pt-6">
+              <TabErrorBoundary label={activeAdminTab} isDarkMode={isDarkMode}>
+              {activeAdminTab === 'overview' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, Dara &amp; Femi</h2>
+                    <p className="text-sm opacity-60 mt-0.5">{daysToWedding} days to the wedding. Here is what needs you.</p>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {(() => {
+                      const reelCount = posts.filter((p: any) => postTypeOf(p) === 'Reel').length;
+                      const commentTotal = posts.reduce((s: number, p: any) => s + (p.commentCount || 0), 0);
+                      const authors = new Set(posts.map((p: any) => (p.authorName || '').trim()).filter(Boolean));
+                      const stats: [string, number][] = [
+                        ['Posts', posts.length],
+                        ['Reels', reelCount],
+                        ['Comments', commentTotal],
+                        ['Guests joined', authors.size],
+                      ];
+                      return stats.map(([label, value]) => (
+                        <div key={label} className={`rounded-[20px] p-4 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                          <b className="block text-2xl font-black font-display">{value}</b>
+                          <span className="block text-[0.68rem] font-black uppercase tracking-widest opacity-60 mt-1">{label}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-3">Needs your attention</h3>
+                    <div className="space-y-3">
+                      {([['pending', pendCount, 'post waiting for approval', 'posts waiting for approval'], ['reports', reportCount, 'reported item', 'reported items'], ['vendors', vendorRequests.length, 'vendor request', 'vendor requests']] as [string, number, string, string][]).map(([q, n, one, many]) => (
+                        <div key={q} className="flex items-center justify-between gap-3">
+                          <div><b>{n}</b> {n === 1 ? one : many}</div>
+                          <button onClick={() => { setActiveAdminTab('moderation'); setModQueue(q as 'pending' | 'reports' | 'vendors'); }} className={`px-4 py-2 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${n ? 'bg-[var(--ann-accent)] text-white' : 'border border-[#DAD8E3] opacity-60'}`}>{n ? 'Review' : 'All clear'}</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-3">Posts in the last 14 days</h3>
+                    <div className="flex items-end gap-1 h-28">
+                      {(() => {
+                        const buckets = new Array(14).fill(0);
+                        const today = new Date(); today.setHours(0, 0, 0, 0);
+                        posts.forEach((p: any) => {
+                          const t = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
+                          if (!t) return;
+                          const d = new Date(t); d.setHours(0, 0, 0, 0);
+                          const diff = Math.floor((today.getTime() - d.getTime()) / 86400000);
+                          if (diff >= 0 && diff < 14) buckets[13 - diff]++;
+                        });
+                        const max = Math.max(1, ...buckets);
+                        return buckets.map((v, i) => (
+                          <div key={i} className="flex-1 bg-[var(--ann-accent)]/25 rounded-t-md" style={{ height: `${Math.max(4, (v / max) * 100)}%` }} title={`${v} ${v === 1 ? 'post' : 'posts'}`} />
+                        ));
+                      })()}
+                    </div>
+                    <small className="block mt-2 opacity-50">Activity picks up as the wedding gets closer.</small>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-3">Latest activity</h3>
+                    <div className="space-y-3">
+                      {posts.slice(0, 4).map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-[0.92rem] truncate">{p.authorName || 'A guest'} shared a memory</p>
+                            <small className="block opacity-50 truncate">{p.text || p.caption || ''}</small>
+                          </div>
+                        </div>
+                      ))}
+                      {posts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'moderation' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">Moderation</h2>
+                    <p className="text-sm opacity-60 mt-0.5">Approve, reject and handle reports.</p>
+                  </div>
+                  <div className={`flex p-1 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-[#DAD8E3]'}`}>
+                    {([['pending', `Posts (${pendCount})`], ['reports', `Reports (${reportCount})`], ['vendors', `Vendor requests (${vendorRequests.length})`]] as [string, string][]).map(([q, label]) => (
+                      <button key={q} onClick={() => setModQueue(q as 'pending' | 'reports' | 'vendors')} className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${modQueue === q ? 'bg-[var(--ann-accent)] text-white shadow-sm' : 'opacity-60 hover:opacity-100'}`}>{label}</button>
+                    ))}
+                  </div>
+                  {modQueue === 'pending' && (
+                    pendCount === 0 ? (
+                      <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                        <p className="opacity-50 text-sm">Nothing waiting. New guest posts will appear here when approval is on.</p>
+                      </div>
+                    ) : (
+                      <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
+                        {posts.filter((p: any) => p.pending).map((p: any) => (
+                          <div key={p.id} className="flex items-center gap-3 p-4">
+                            <div className="w-11 h-11 rounded-2xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-[0.92rem] truncate">{p.authorName || 'A guest'}</p>
+                              <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button onClick={async () => { try { await updateDoc(doc(db, 'posts', p.id), { pending: false }); showToast('Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
+                              <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Reject</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                  {modQueue === 'reports' && (
+                    reportCount === 0 ? (
+                      <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                        <p className="opacity-50 text-sm">No reports. Guests can report a problem from their Settings screen.</p>
+                      </div>
+                    ) : (
+                      <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
+                        {posts.filter((p: any) => ((p as any).reports || 0) > 0).map((p: any) => (
+                          <div key={p.id} className="flex items-center gap-3 p-4">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-[0.92rem] truncate">Reported by a guest</p>
+                              <small className="block opacity-50 truncate">Post by {p.authorName || 'a guest'} · {p.text || p.caption || ''}</small>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button onClick={() => handleDismissReport(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Dismiss</button>
+                              <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove post</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                  {modQueue === 'vendors' && (
+                    vendorRequests.length === 0 ? (
+                      <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                        <p className="opacity-50 text-sm">No pending vendor requests. A guest asks by turning on &ldquo;I&rsquo;m an official vendor&rdquo; in their Settings.</p>
+                      </div>
+                    ) : (
+                      <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
+                        {vendorRequests.map((v: any) => (
+                          <div key={v.uid} className="flex items-center gap-3 p-4">
+                            <div className="w-11 h-11 rounded-2xl bg-[#C8932A]/15 text-[#C8932A] flex items-center justify-center font-black shrink-0">{(v.displayName || 'V').charAt(0).toUpperCase()}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-[0.92rem] truncate">{v.displayName || 'A guest'}</p>
+                              <small className="block opacity-50 truncate">{v.vendorRequest?.why || 'Wants to post as an official vendor'}</small>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button onClick={() => onVendorAction(v.uid, v.displayName || 'A guest', true)} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve as vendor</button>
+                              <button onClick={() => onVendorAction(v.uid, v.displayName || 'A guest', false)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Decline</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {activeAdminTab === 'posts' && (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">All posts</h2>
+                    <p className="text-sm opacity-60 mt-0.5">{posts.length} {posts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select value={postEventFilter} onChange={(e) => setPostEventFilter(e.target.value)} aria-label="Filter by event" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
+                      <option value="all">All events</option>
+                      {(events || []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                    <select value={postTypeFilter} onChange={(e) => setPostTypeFilter(e.target.value)} aria-label="Filter by type" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
+                      {['all', 'Photo', 'Video', 'Reel', 'Wish'].map((t) => <option key={t} value={t}>{t === 'all' ? 'All types' : t}</option>)}
+                    </select>
+                  </div>
+                  <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
+                    {(() => {
+                      const filtered = posts.filter((p: any) => (postEventFilter === 'all' || p.eventId === postEventFilter) && (postTypeFilter === 'all' || postTypeOf(p) === postTypeFilter));
+                      if (filtered.length === 0) return <p className="p-5 opacity-50 text-sm">No posts match. Memories your guests share will show up here.</p>;
+                      // How many posts each person has made, shown next to their
+                      // name on every row so the couple sees a guest's history.
+                      const postCountByKey: Record<string, number> = {};
+                      posts.forEach((q: any) => {
+                        const k = q.authorUid || `name:${(q.authorName || '').trim().toLowerCase()}`;
+                        postCountByKey[k] = (postCountByKey[k] || 0) + 1;
+                      });
+                      return filtered.map((p: any) => {
+                        const t = postTypeOf(p);
+                        const authorKey = p.authorUid || `name:${(p.authorName || '').trim().toLowerCase()}`;
+                        const evName = (events || []).find((e) => e.id === p.eventId)?.name;
+                        const when = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
+                        const media = (p.mediaUrls || [])[0];
+                        return (
+                          <div key={p.id} className="flex items-center gap-3 p-4">
+                            {/* Small preview: tap to watch a video or view the photo full-screen. */}
+                            {(() => {
+                              const urls = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
+                              const isVid = urls.length > 0 && (p.mediaTypes?.[0] === 'video' || urls[0].toLowerCase().includes('.mp4') || urls[0].toLowerCase().includes('.webm') || urls[0].toLowerCase().includes('.mov') || urls[0].includes('/video/'));
+                              return urls.length ? (
+                                <button type="button" onClick={() => setAdminViewerPost(p)} className="relative w-14 h-14 rounded-2xl overflow-hidden bg-black shrink-0 border border-[#DAD8E3] dark:border-[#22363E]" title="Open preview">
+                                  {isVid ? (
+                                    <>
+                                      <video src={urls[0]} className="w-full h-full object-cover" muted playsInline />
+                                      <span className="absolute inset-0 grid place-items-center bg-black/30"><Play className="w-5 h-5 text-white fill-current" /></span>
+                                    </>
+                                  ) : (
+                                    <img src={urls[0]} className="w-full h-full object-cover" alt="" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="w-11 h-11 rounded-2xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
+                              );
+                            })()}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-[0.92rem] truncate">
+                                {p.authorName || 'A guest'}
+                                <span className="ml-2 px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-[0.6rem] font-black uppercase tracking-widest opacity-70">{t}</span>
+                                {evName && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-[0.6rem] font-black uppercase tracking-widest opacity-70">{evName}</span>}
+                                {(postCountByKey[authorKey] || 1) > 1 && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] dark:text-[#4FC3CF] text-[0.6rem] font-black uppercase tracking-widest shrink-0">{postCountByKey[authorKey]} posts</span>}
+                              </p>
+                              <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
+                              <small className="block opacity-40">{(p.likeCount || 0) + (p.loveCount || 0)} likes · {p.commentCount || 0} comments · {relTime(when)}</small>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              {media && (
+                                <button onClick={() => adminDownloadMedia(p)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Download</button>
+                              )}
+                              {(adminPermissions ? adminPermissions.canDeletePosts : true) && (
+                                <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove</button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'events' && (
+                <div className="space-y-6">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; details</h2>
+                      <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
+                    </div>
+                    {/* Saves everything, then opens the live website in a new tab. */}
+                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then opens the website in a new tab" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
+                      {weddingBusy ? 'Saving…' : 'Preview site'}
+                    </button>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h3 className="font-black font-display text-lg">Our story</h3>
+                      <button onClick={saveStory} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
+                    </div>
+                    <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h3 className="font-black font-display text-lg">Wedding day details</h3>
+                      <button onClick={saveDetails} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['asoEbi', 'Aso-ebi'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
+                        <label key={k} className="block">
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">{label}</span>
+                          <input value={detDraft?.[k] || ''} onChange={(e) => setDetDraft({ ...(detDraft || {}), [k]: e.target.value })} className={inputCls} />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="font-black font-display text-lg mb-3">The journey</h3>
+                    <div className="space-y-4">
+                      {evDraft.map((e, i) => (
+                        <div key={e.id} className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            <label className="block">
+                              <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Event</span>
+                              <input value={e.name} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, name: ev.target.value } : x))} className={inputCls} />
+                            </label>
+                            <label className="block">
+                              <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Date</span>
+                              <input type="date" value={e.date} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, date: ev.target.value } : x))} className={inputCls} />
+                            </label>
+                            <label className="block">
+                              <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Venue</span>
+                              <input value={e.venue || ''} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, venue: ev.target.value } : x))} className={inputCls} />
+                            </label>
+                            <label className="block">
+                              <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Short description</span>
+                              <input value={e.desc} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, desc: ev.target.value } : x))} className={inputCls} />
+                            </label>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                            <div>
+                              <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Status shown to guests</span>
+                              <div className="flex rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
+                                {(['done', 'next', 'up'] as const).map((s) => (
+                                  <button key={s} type="button" onClick={() => setEvDraft(evDraft.map((x) => x.id === e.id ? { ...x, status: s } : (s === 'next' && x.status === 'next' ? { ...x, status: 'up' } : x)))} className={`px-4 py-2 text-[0.65rem] font-black uppercase tracking-widest ${e.status === s || (!e.status && s === 'up') ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>
+                                    {s === 'done' ? 'Done' : s === 'next' ? 'Next up' : 'Upcoming'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={saveEvents} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60">{weddingBusy ? '…' : 'Save'}</button>
+                              {i > 0 && (
+                                <button type="button" onClick={() => { const u = [...evDraft]; const t = u[i - 1]; u[i - 1] = u[i]; u[i] = t; setEvDraft(u); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Move up</button>
+                              )}
+                              <button type="button" onClick={() => setEvDraft(evDraft.filter((_, xi) => xi !== i))} className="px-4 py-2 rounded-full border border-[#C4453B]/40 text-[#C4453B] text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'hero' && (
+                <div className="space-y-8">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">Hero photos</h2>
+                    <p className="text-sm opacity-60 mt-0.5">Photos that float across the top of the Home screen, and the giant footer grid.</p>
+                  </div>
+                  <div className="space-y-6">
+                  {adminPermissions?.canUploadImages && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
+                          Hero photos ({heroShown.length} / 14)
+                        </label>
+                        {heroShown.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => onUpdateHeroImages([])}
+                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      {/* Label attached to every photo added from the tile below. */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
+                        <select value={newHeroLabel} onChange={(e) => setNewHeroLabel(e.target.value)} className="p-2 rounded-lg border border-[#DAD8E3] dark:border-[#22363E] bg-transparent text-xs font-bold">
+                          <option value="">No label</option>
+                          {(events || []).map((ev: any) => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-4">
+                        {heroShown.slice(0, 14).map((img: string, idx: number) => (
+                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
+                            <img src={img} className="w-full h-full object-cover" alt="" />
+                            <div className="absolute top-1 right-1 flex gap-1">
+                              {idx > 0 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
+                                  <ChevronLeft className="w-3 h-3" />
+                                </button>
+                              )}
+                              {idx < heroShown.length - 1 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx + 1]; u[idx + 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move later">
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              )}
+                              <button type="button" onClick={() => onUpdateHeroImages(heroShown.filter((_: string, i: number) => i !== idx))} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {/* Event label attached to this photo, editable any time. */}
+                            <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
+                              <select value={heroImageLabels?.[img] || ''} onChange={(e) => onUpdateHeroLabels({ ...(heroImageLabels || {}), [img]: e.target.value })} className="w-full bg-transparent text-white text-[9px] font-bold outline-none" title="Photo label">
+                                <option value="" className="text-black">No label</option>
+                                {(events || []).map((ev: any) => <option key={ev.id} value={ev.name} className="text-black">{ev.name}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                        {heroShown.length < 14 && (
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                            <input 
+                              type="file" 
+                              multiple 
+                              accept="image/*" 
+                              className="hidden" 
+                              disabled={isBulkUploading}
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+
+                                const remainingSlots = 14 - heroShown.length;
+                                const filesToUpload = files.slice(0, remainingSlots);
+                                if (files.length > remainingSlots) {
+                                  showToast(`Maximum 14 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
+                                }
+                                
+                                setIsBulkUploading(true);
+                                const uploadedUrls: string[] = [];
+                                
+                                try {
+                                  for (const file of filesToUpload) {
+                                    const url = await uploadToCloudinary(file as any, 'hero');
+                                    uploadedUrls.push(url);
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                  }
+                                  
+                                  if (uploadedUrls.length > 0) {
+                                    onUpdateHeroImages([...heroShown, ...uploadedUrls].slice(0, 14));
+                                    // Attach the chosen label to every newly added photo.
+                                    if (newHeroLabel) {
+                                      const labelMap = { ...(heroImageLabels || {}) };
+                                      uploadedUrls.forEach((u) => { labelMap[u] = newHeroLabel; });
+                                      onUpdateHeroLabels(labelMap);
+                                    }
+                                  }
+                                } catch (err: any) {
+                                  console.error("Bulk upload error:", err);
+                                  showToast(err?.message || "Failed to upload hero images.", "error");
+                                } finally {
+                                  setIsBulkUploading(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            {isBulkUploading ? (
+                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                            ) : (
+                              <>
+                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({14 - heroShown.length})</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently on the website: remove any of them or add your own, and your list takes over the hero.'}</p>
+                    </div>
+                  )}
+
+                  {adminPermissions?.canUploadImages && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
+                          Giant Footer Images ({footerImages.length} / 24)
+                        </label>
+                        {footerImages.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => onUpdateFooterImages([])}
+                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-4">
+                        {footerImages.slice(0, 24).map((img: string, idx: number) => (
+                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
+                            <img src={img} className="w-full h-full object-cover" alt="" />
+                            <button
+                              type="button"
+                              onClick={() => onUpdateFooterImages(footerImages.filter((_: string, i: number) => i !== idx))}
+                              className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remove image"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {footerImages.length < 24 && (
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                            <input 
+                              type="file" 
+                              multiple 
+                              accept="image/*" 
+                              className="hidden" 
+                              disabled={isBulkUploading}
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+
+                                const remainingSlots = 24 - footerImages.length;
+                                const filesToUpload = files.slice(0, remainingSlots);
+                                if (files.length > remainingSlots) {
+                                  showToast(`Maximum 24 footer images allowed. Uploading first ${remainingSlots}.`, 'info');
+                                }
+                                
+                                setIsBulkUploading(true);
+                                const uploadedUrls: string[] = [];
+                                
+                                try {
+                                  for (const file of filesToUpload) {
+                                    const url = await uploadToCloudinary(file as any, 'programme');
+                                    uploadedUrls.push(url);
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                  }
+                                  
+                                  if (uploadedUrls.length > 0) {
+                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 24));
+                                  }
+                                } catch (err: any) {
+                                  console.error("Bulk upload error:", err);
+                                  showToast(err?.message || "Failed to upload footer images.", "error");
+                                } finally {
+                                  setIsBulkUploading(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            {isBulkUploading ? (
+                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                            ) : (
+                              <>
+                                <ImageIcon className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({24 - footerImages.length})</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 24 images for the giant footer photo grid (tapping a tile opens it full-screen).</p>
+                    </div>
+                  )}
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'albums' && (
+                <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Photo albums</h3>
+                    <p className="text-sm opacity-60">Photos and videos from the photographers and vendors, each stamped with the upload date and the name of who added it.</p>
+                  </div>
+                  {([['photo', 'Photos', 'Add photos', 'image/*'], ['video', 'Videos', 'Add videos', 'video/*']] as [string, string, string, string][]).map(([kind, label, btnLabel, accept]) => {
+                    const items = albums.filter((a: any) => a.mediaType === kind);
+                    return (
+                      <div key={kind}>
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">{label}</h4>
+                          <label htmlFor={`album-${kind}-upload`} className={`px-4 py-2.5 rounded-xl text-[0.65rem] font-black uppercase tracking-widest cursor-pointer ${albumBusy ? 'bg-slate-200 text-slate-400 dark:bg-[#22363E] dark:text-[#5A6970]' : 'bg-[var(--ann-accent)] text-white'}`}>
+                            {albumBusy ? 'Uploading…' : btnLabel}
+                          </label>
+                          <input id={`album-${kind}-upload`} type="file" accept={accept} multiple className="hidden" onChange={(e) => { const t = e.target; uploadAlbumMedia(t.files, kind as 'photo' | 'video'); t.value = ''; }} />
+                        </div>
+                        {items.length === 0 ? (
+                          <p className="text-xs opacity-40 py-8 text-center">Nothing here yet.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {items.map((a: any) => (
+                              <div key={a.id} className={`rounded-2xl overflow-hidden border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                                <div className="aspect-[4/3] bg-black relative">
+                                  {a.mediaType === 'video' ? (
+                                    <video src={a.mediaUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                                  ) : (
+                                    <img src={a.mediaUrl} className="w-full h-full object-cover" alt="Album media" loading="lazy" />
+                                  )}
+                                  {a.mediaType === 'video' && (
+                                    <span className="absolute inset-0 grid place-items-center pointer-events-none">
+                                      <span className="w-9 h-9 rounded-full bg-black/50 text-white grid place-items-center"><Play className="w-4 h-4 fill-current" /></span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="p-3">
+                                  <p className="text-[0.6rem] uppercase tracking-widest opacity-50 mb-0.5">
+                                    {a.uploadedAt?.toDate ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(a.uploadedAt.toDate()) : 'Just added'}
+                                  </p>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-bold truncate">By {a.uploaderName || a.uploaderEmail}</p>
+                                    {adminPermissions?.canDeletePosts && (
+                                      <button onClick={() => deleteAlbumMedia(a.id)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {activeAdminTab === 'settings' && (
+                <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
+                    <p className="text-sm opacity-60 mb-4">Guests enter this once before their first post. Anyone can browse without it.</p>
+                    <div className="flex items-center gap-3 flex-wrap mb-4">
+                      <b className="font-display text-2xl tracking-[0.2em]">{activeCode}</b>
+                      <button type="button" onClick={() => { navigator.clipboard?.writeText(activeCode || ''); showToast('Access code copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy</button>
+                    </div>
+                    {adminPermissions?.canSetAccessCode && (
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Set your own code</span>
+                        <div className="flex gap-2 flex-wrap">
+                          <input type="text" value={newCode} maxLength={20} onChange={(e) => { const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase(); setNewCode(val); setIsDirty(true); }} placeholder="E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
+                          <button onClick={async () => { await onUpdateCode(newCode); setIsDirty(false); }} disabled={!canSaveCode} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${canSaveCode ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save code</button>
+                                                  </div>
+                        <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
+                    <div className="space-y-4">
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
+                        <div key={k} className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <b className="block text-[0.95rem]">{label}</b>
+                            <small className="block opacity-50 text-sm">{sub}</small>
+                          </div>
+                          <button type="button" aria-label={label} onClick={() => onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Post action button: the admin picks Share or Download for the
+                      third button on every post and reel (app_config/main.feedActionMode). */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Post action button</h3>
+                    <p className="text-sm opacity-60 mb-4">The third button on every post and reel. Share opens the share sheet; Download saves the photo or video straight to the guest's device.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
+                        <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {isSuper && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
+                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
+                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
+                  </div>
+                  )}
+                  {isSuper && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                      <h3 className="font-black font-display text-lg">Administrators</h3>
+                      <button onClick={openInviteModal} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest shadow-md flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        Invite admin
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">Current team</h4>
+                      {teamList.map((adm: any) => (
+                        <div key={adm.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
+                          <div className="flex items-center justify-between mb-3 gap-2">
+                            <span className="font-bold text-sm break-all">{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
+                            {!adm.isSelf && (
+                              <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${adm.role === 'couple' || !adm.role || adm.role === 'admin' ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
+                              {adm.role === 'photographer' ? 'Photographer' : adm.role === 'vendor' ? 'Vendor' : 'Couple'}
+                            </span>
+                            {adm.mustSetPassword === true ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
+                            ) : (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
+                            )}
+                            {(!adm.role || adm.role === 'couple' || adm.role === 'admin') && [
+                              { id: 'canDeletePosts', label: 'Delete Posts' },
+                              { id: 'canUploadImages', label: 'Upload Images' },
+                              { id: 'canSetAccessCode', label: 'Access Code' }
+                            ].map((p: any) => (
+                              <button
+                                key={p.id}
+                                onClick={() => togglePermission(adm.email, p.id, adm.permissions?.[p.id])}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${adm.permissions?.[p.id] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white shadow-md' : 'opacity-40 border-current'}`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <AnimatePresence>
+                      {showInviteModal && (
+                        <>
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowInviteModal(false)}
+                            className="fixed inset-0 bg-black/60 z-[200] backdrop-blur-sm"
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 24, scale: 0.97 }}
+                            className={`fixed z-[201] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[480px] max-h-[85vh] overflow-y-auto rounded-[28px] p-6 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border border-[#22363E] text-white' : 'bg-white border border-[#DAD8E3] text-[#14262D]'}`}
+                          >
+                            {inviteStep === 'form' ? (
+                              <>
+                                <div className="flex items-start justify-between gap-3 mb-4">
+                                  <div>
+                                    <h4 className="font-black font-display text-lg">Invite an administrator</h4>
+                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do, then share their temporary password.</p>
+                                  </div>
+                                  <button onClick={() => setShowInviteModal(false)} aria-label="Close" className={`p-2 rounded-full shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                                    <X className="w-5 h-5" />
+                                  </button>
+                                </div>
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Who are they?</label>
+                                <div className="grid grid-cols-3 gap-2 mb-4">
+                                  {([['couple', 'Couple', 'Full dashboard'], ['photographer', 'Photographer', 'Photo albums'], ['vendor', 'Vendor', 'Photo albums']] as [string, string, string][]).map(([r, label, sub]) => (
+                                    <button key={r} type="button" onClick={() => applyInviteRole(r)} className={`p-3 rounded-2xl border text-left transition-all ${inviteRole === r ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)] shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
+                                      <span className="block text-[0.65rem] font-black uppercase tracking-widest">{label}</span>
+                                      <span className={`block text-[0.6rem] mt-1 ${inviteRole === r ? 'text-white/70' : 'opacity-50'}`}>{sub}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Their email</label>
+                                <input
+                                  type="email"
+                                  value={inviteEmail}
+                                  onChange={(e) => setInviteEmail(e.target.value)}
+                                  placeholder="name@email.com"
+                                  className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                                />
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">What they can see and do</label>
+                                <div className="space-y-2 mb-5">
+                                  {([['canUploadImages', 'Upload photos & videos', 'Add memories to the albums and the feed'], ['canDeletePosts', 'Delete posts & reels', 'Remove anything from the feed'], ['canSetAccessCode', 'Manage the access code', 'Change the guest code and app settings']] as [string, string, string][]).map(([pid, label, sub]) => (
+                                    <button key={pid} type="button" onClick={() => setInvitePerms((prev) => ({ ...prev, [pid]: !prev[pid] }))} className={`w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border text-left transition-all ${invitePerms[pid] ? (isDarkMode ? 'bg-[var(--ann-accent)]/20 border-[var(--ann-accent)]' : 'bg-[var(--ann-accent)]/5 border-[var(--ann-accent)]') : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
+                                      <span>
+                                        <span className="block text-[0.85rem] font-bold">{label}</span>
+                                        <span className="block text-[0.7rem] opacity-50">{sub}</span>
+                                      </span>
+                                      <span className={`w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${invitePerms[pid] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)]' : 'border-current opacity-40'}`}>
+                                        {invitePerms[pid] && <Check className="w-3 h-3 text-white" />}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <button onClick={() => inviteDashboardAccess(invitePerms)} disabled={inviteBusy} className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg disabled:opacity-50">
+                                  {inviteBusy ? 'Creating account…' : 'Create account & send invite'}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="w-14 h-14 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] grid place-items-center mx-auto mb-4">
+                                  <Check className="w-7 h-7" />
+                                </div>
+                                <h4 className="text-center font-black font-display text-lg">{inviteResult?.email} is invited</h4>
+                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">Share this temporary password now. It shows only once, and they will choose their own password the first time they sign in.</p>
+                                <div className="p-4 rounded-2xl bg-[#C8932A]/10 border border-[#C8932A]/30 text-center mb-4">
+                                  <code className="text-xl font-black tracking-[0.25em]">{inviteResult?.tempPassword}</code>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => { navigator.clipboard?.writeText(inviteResult?.tempPassword || ''); showToast('Temporary password copied'); }} className="flex-1 py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Copy password</button>
+                                  <button onClick={() => setShowInviteModal(false)} className={`flex-1 py-3.5 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>Done</button>
+                                </div>
+                              </>
+                            )}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  )}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-4">Keep the memories</h3>
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                      <div className="min-w-0">
+                        <b className="block text-[0.95rem]">Download everything</b>
+                        <small className="block opacity-50 text-sm">Every photo and video in one zip, organised by event.</small>
+                      </div>
+                      <button onClick={onDownloadEverything} className="px-5 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest shrink-0">Download</button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <b className="block text-[0.95rem]">Memory book</b>
+                        <small className="block opacity-50 text-sm">A printable PDF of the best posts and wishes.</small>
+                      </div>
+                      <button onClick={onCreateMemoryBook} className="px-5 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest shrink-0">Create</button>
+                    </div>
+                  </div>
+                  <div className="rounded-[20px] p-5 border border-[#C4453B]/40">
+                    <h3 className="font-black font-display text-lg mb-1 text-[#C4453B]">Danger zone</h3>
+                    <p className="text-sm opacity-60 mb-3">Delete every guest post and wish. This cannot be undone.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      <input value={dangerText} onChange={(e) => setDangerText(e.target.value.toUpperCase())} placeholder="TYPE DELETE" className={`${inputCls} max-w-[220px]`} />
+                      <button disabled={dangerText !== 'DELETE' || deleteAllBusy} onClick={async () => { setDeleteAllBusy(true); try { await onDeleteAllGuestData(); setDangerText(''); } finally { setDeleteAllBusy(false); } }} className="px-5 py-3 rounded-full bg-[#C4453B] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-40">Delete everything</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'ads' && isSuper && (
+                <div className="space-y-6">
+                  {/* Segmented selector for Post Ads vs Reel Video Ads */}
+                  <div className={`flex p-1 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-[#DAD8E3]'}`}>
+                    <button
+                      onClick={() => {
+                        setAdTypeTab('post');
+                        resetAdForm('post');
+                      }}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${
+                        adTypeTab === 'post' ? 'bg-[var(--ann-accent)] text-white shadow-sm' : 'opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      Post Feed Ads ({postAds.length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAdTypeTab('reel');
+                        resetAdForm('reel');
+                      }}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${
+                        adTypeTab === 'reel' ? 'bg-[var(--ann-accent)] text-white shadow-sm' : 'opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      Reels Video Ads ({reelAds.length})
+                    </button>
+                  </div>
+
+                  <div className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-[var(--ann-accent)]">
+                        {editingAdId
+                          ? `Edit ${adTypeTab === 'post' ? 'Post Ad' : 'Reel Video Ad'}`
+                          : (adTypeTab === 'post' ? 'Create Post Ad (Every 5 Posts · Shuffled)' : 'Create Reel Video Ad (Every 3 Reels)')}
+                      </h4>
+                      {editingAdId && (
+                        <button
+                          type="button"
+                          onClick={() => resetAdForm(adTypeTab)}
+                          className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
+                        >
+                          Cancel Edit
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        placeholder="Sponsor / Business Name *"
+                        value={adSponsor}
+                        onChange={(e) => setAdSponsor(e.target.value)}
+                        className={`w-full p-3 rounded-xl border-none outline-none text-sm font-bold ${isDarkMode ? 'bg-[#13232A] text-white' : 'bg-white text-[#14262D]'}`}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Ad Headline *"
+                        value={adHeadline}
+                        onChange={(e) => setAdHeadline(e.target.value)}
+                        className={`w-full p-3 rounded-xl border-none outline-none text-sm font-medium ${isDarkMode ? 'bg-[#13232A] text-white' : 'bg-white text-[#14262D]'}`}
+                      />
+                      <textarea
+                        placeholder="Short description (optional)"
+                        rows={2}
+                        value={adDescription}
+                        onChange={(e) => setAdDescription(e.target.value)}
+                        className={`w-full p-3 rounded-xl border-none outline-none text-sm resize-none ${isDarkMode ? 'bg-[#13232A] text-white' : 'bg-white text-[#14262D]'}`}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Button Text (e.g. Learn More)"
+                          value={adCtaText}
+                          onChange={(e) => setAdCtaText(e.target.value)}
+                          className={`w-full p-3 rounded-xl border-none outline-none text-xs font-bold ${isDarkMode ? 'bg-[#13232A] text-white' : 'bg-white text-[#14262D]'}`}
+                        />
+                        <input
+                          type="url"
+                          placeholder="Link URL (https://...)"
+                          value={adCtaUrl}
+                          onChange={(e) => setAdCtaUrl(e.target.value)}
+                          className={`w-full p-3 rounded-xl border-none outline-none text-xs font-medium ${isDarkMode ? 'bg-[#13232A] text-white' : 'bg-white text-[#14262D]'}`}
+                        />
+                      </div>
+
+                      {/* Media Upload (Multiple images supported for Post Ads) */}
+                      <div className="pt-1">
+                        <label className={`w-full py-3 px-4 rounded-xl border-2 border-dashed border-[var(--ann-accent)]/40 flex items-center justify-center gap-2 cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors text-xs font-bold text-[var(--ann-accent)]`}>
+                          <input
+                            type="file"
+                            multiple={adTypeTab === 'post'}
+                            accept={adTypeTab === 'reel' ? 'video/*' : 'image/*,video/*'}
+                            className="hidden"
+                            disabled={isAdUploading}
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []) as File[];
+                              if (files.length === 0) return;
+                              setIsAdUploading(true);
+                              try {
+                                if (adTypeTab === 'reel') {
+                                  const file = files[0];
+                                  const isVid = Boolean(file.type && file.type.startsWith('video/'));
+                                  if (!isVid) {
+                                    showToast('Reels ads require a video file.', 'error');
+                                    setIsAdUploading(false);
+                                    return;
+                                  }
+                                  const uploadedUrl = await uploadToCloudinary(file as any, 'ads');
+                                  setAdMediaUrls([uploadedUrl]);
+                                  setAdMediaTypes(['video']);
+                                  showToast('Reel video ad uploaded!');
+                                } else {
+                                  const newUrls: string[] = [];
+                                  const newTypes: ('image' | 'video')[] = [];
+                                  for (const file of files) {
+                                    const isVid = Boolean(file.type && file.type.startsWith('video/'));
+                                    const uploadedUrl = await uploadToCloudinary(file as any, 'ads');
+                                    newUrls.push(uploadedUrl);
+                                    newTypes.push(isVid ? 'video' : 'image');
+                                  }
+                                  setAdMediaUrls(prev => [...prev, ...newUrls]);
+                                  setAdMediaTypes(prev => [...prev, ...newTypes]);
+                                  showToast(`${newUrls.length} media file${newUrls.length > 1 ? 's' : ''} uploaded!`);
+                                }
+                              } catch (err: any) {
+                                console.error('Ad upload error:', err);
+                                showToast(err?.message || 'Failed to upload ad media.', 'error');
+                              } finally {
+                                setIsAdUploading(false);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                          {isAdUploading ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>Uploading Media...</span>
+                            </>
+                          ) : (
+                            <>
+                              {adTypeTab === 'reel' ? <VideoIcon className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                              <span>
+                                {adTypeTab === 'reel'
+                                  ? (adMediaUrls.length > 0 ? 'Replace Portrait Video Ad' : 'Upload Portrait Video Ad *')
+                                  : (adMediaUrls.length > 0 ? `Add More Images / Media (${adMediaUrls.length} attached)` : 'Upload Ad Images (Multiple) or Video *')}
+                              </span>
+                            </>
+                          )}
+                        </label>
+
+                        {adMediaUrls.length > 0 && (
+                          <div className="mt-2 grid grid-cols-3 gap-2">
+                            {adMediaUrls.map((url, i) => {
+                              const type = adMediaTypes[i] || (url.toLowerCase().includes('.mp4') || url.includes('/video/') ? 'video' : 'image');
+                              return (
+                                <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black flex items-center justify-center group">
+                                  {type === 'video' ? (
+                                    <video src={url} className="w-full h-full object-cover" muted playsInline />
+                                  ) : (
+                                    <img src={url} className="w-full h-full object-cover" alt={`Ad media ${i + 1}`} />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAdMediaUrls(prev => prev.filter((_, idx) => idx !== i));
+                                      setAdMediaTypes(prev => prev.filter((_, idx) => idx !== i));
+                                    }}
+                                    className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded-full hover:bg-red-500 transition-colors"
+                                    title="Remove media"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        disabled={!adSponsor.trim() || !adHeadline.trim() || adMediaUrls.length === 0 || isAdUploading}
+                        onClick={async () => {
+                          const primaryType = adTypeTab === 'reel'
+                            ? 'video'
+                            : (adMediaTypes[0] || 'image');
+
+                          const adPayload: AdItem = {
+                            id: editingAdId || `ad_${Date.now()}`,
+                            sponsorName: adSponsor.trim(),
+                            headline: adHeadline.trim(),
+                            description: adDescription.trim(),
+                            mediaUrl: adMediaUrls[0],
+                            mediaUrls: adMediaUrls,
+                            mediaType: primaryType,
+                            mediaTypes: adMediaTypes,
+                            ctaText: adCtaText.trim() || 'Learn More',
+                            ctaUrl: formatExternalUrl(adCtaUrl),
+                            createdAt: Date.now()
+                          };
+
+                          if (adTypeTab === 'post') {
+                            const updatedList = editingAdId
+                              ? postAds.map((a: AdItem) => a.id === editingAdId ? adPayload : a)
+                              : [...postAds, adPayload];
+                            await onUpdatePostAds(updatedList);
+                          } else {
+                            const updatedList = editingAdId
+                              ? reelAds.map((a: AdItem) => a.id === editingAdId ? adPayload : a)
+                              : [...reelAds, adPayload];
+                            await onUpdateReelAds(updatedList);
+                          }
+
+                          resetAdForm(adTypeTab);
+                        }}
+                        className={`w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                          adSponsor.trim() && adHeadline.trim() && adMediaUrls.length > 0 && !isAdUploading
+                            ? 'bg-[var(--ann-accent)] text-white shadow-lg hover:opacity-95'
+                            : 'bg-slate-200 dark:bg-white/10 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        {editingAdId ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                        <span>
+                          {editingAdId
+                            ? `Save Changes to ${adTypeTab === 'post' ? 'Post Ad' : 'Reel Video Ad'}`
+                            : `Publish ${adTypeTab === 'post' ? 'Post Ad' : 'Reel Video Ad'}`}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Active Ads List */}
+                  <div className="space-y-3">
+                    <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">
+                      Active {adTypeTab === 'post' ? 'Post Feed Ads (Shuffled every 5 posts)' : 'Reels Video Ads (Placed every 3 reels)'}
+                    </h4>
+
+                    {(adTypeTab === 'post' ? postAds : reelAds).length === 0 ? (
+                      <div className="py-8 text-center opacity-40 text-xs font-bold">
+                        No {adTypeTab === 'post' ? 'post ads' : 'reel video ads'} active yet.
+                      </div>
+                    ) : (
+                      (adTypeTab === 'post' ? postAds : reelAds).map((ad: AdItem) => {
+                        const adUrls = ad.mediaUrls && ad.mediaUrls.length > 0 ? ad.mediaUrls : (ad.mediaUrl ? [ad.mediaUrl] : []);
+                        const isBeingEdited = editingAdId === ad.id;
+                        return (
+                          <div
+                            key={ad.id}
+                            className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                              isBeingEdited
+                                ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/20 bg-[var(--ann-accent)]/5'
+                                : (isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]')
+                            }`}
+                          >
+                            <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-black shrink-0 border border-white/10">
+                              {ad.mediaType === 'video' ? (
+                                <video src={adUrls[0]} className="w-full h-full object-cover" muted playsInline />
+                              ) : (
+                                <img src={adUrls[0]} className="w-full h-full object-cover" alt="" />
+                              )}
+                              {adUrls.length > 1 && (
+                                <span className="absolute bottom-0.5 right-0.5 px-1.5 py-0.2 rounded bg-black/80 text-white text-[9px] font-black">
+                                  +{adUrls.length - 1}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-[#C9A24B] block">
+                                {ad.sponsorName}
+                              </span>
+                              <strong className="text-sm block truncate">{ad.headline}</strong>
+                              {ad.ctaUrl && (
+                                <span className="text-[11px] opacity-50 block truncate">{ad.ctaUrl}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingAdId(ad.id);
+                                  setAdSponsor(ad.sponsorName || '');
+                                  setAdHeadline(ad.headline || '');
+                                  setAdDescription(ad.description || '');
+                                  setAdCtaText(ad.ctaText || 'Learn More');
+                                  setAdCtaUrl(ad.ctaUrl || '');
+                                  const urls = ad.mediaUrls && ad.mediaUrls.length > 0 ? ad.mediaUrls : (ad.mediaUrl ? [ad.mediaUrl] : []);
+                                  setAdMediaUrls(urls);
+                                  setAdMediaTypes(
+                                    ad.mediaTypes && ad.mediaTypes.length === urls.length
+                                      ? ad.mediaTypes
+                                      : urls.map((u) => (ad.mediaType === 'video' || u.toLowerCase().includes('.mp4') || u.includes('/video/') ? 'video' : 'image'))
+                                  );
+                                }}
+                                className="p-2 text-[var(--ann-accent)] hover:bg-[var(--ann-accent)]/10 rounded-xl transition-colors"
+                                title="Edit Ad"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (editingAdId === ad.id) {
+                                    resetAdForm(adTypeTab);
+                                  }
+                                  if (adTypeTab === 'post') {
+                                    await onUpdatePostAds(postAds.filter((a: AdItem) => a.id !== ad.id));
+                                  } else {
+                                    await onUpdateReelAds(reelAds.filter((a: AdItem) => a.id !== ad.id));
+                                  }
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
+                                title="Remove Ad"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeAdminTab === 'recycle' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">Recycle Bin (3 Day Retention)</h4>
+                    <span className="text-[10px] font-bold opacity-30">{deletedPosts.length} items</span>
+                  </div>
+                  
+                  {deletedPosts.length === 0 && (
+                    <div className="py-12 text-center opacity-20">
+                      <Trash className="w-12 h-12 mx-auto mb-3" />
+                      <p className="text-xs font-black uppercase tracking-widest">Bin is empty</p>
+                    </div>
+                  )}
+
+                  {deletedPosts.map((dp) => (
+                    <div key={dp.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold truncate mb-1">By {dp.postData.authorName}</p>
+                          <p className="text-[10px] opacity-40 line-clamp-2">{dp.postData.text}</p>
+                        </div>
+                        <div className="flex flex-col gap-2 shrink-0">
+                          <button 
+                            onClick={() => setBinConfirm({ id: dp.id, action: 'restore' })}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[var(--ann-accent)] text-white rounded-xl shadow-sm text-[0.65rem] font-black uppercase tracking-widest active:scale-95 transition-transform"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Restore
+                          </button>
+                          <button 
+                            onClick={() => setBinConfirm({ id: dp.id, action: 'remove' })}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-red-500 text-white rounded-xl shadow-sm text-[0.65rem] font-black uppercase tracking-widest active:scale-95 transition-transform"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 opacity-30 text-[9px] font-black uppercase tracking-widest pt-2 border-t border-black/5">
+                        <span>Deleted {new Date(dp.deletedAt?.toDate?.() || Date.now()).toLocaleDateString()}</span>
+                        <span>•</span>
+                        <span>By {dp.deletedBy}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {binConfirm && (
+                <div className="fixed inset-0 z-[140] grid place-items-center bg-black/60 p-6" onClick={() => setBinConfirm(null)}>
+                  <div className={`w-full max-w-sm rounded-[24px] p-6 shadow-2xl ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-white text-[#14262D]'}`} onClick={(e) => e.stopPropagation()}>
+                    <h3 className="font-display font-black text-xl mb-2">{binConfirm.action === 'restore' ? 'Restore this memory?' : 'Remove this memory forever?'}</h3>
+                    <p className="text-sm opacity-60 mb-6">{binConfirm.action === 'restore' ? 'It goes back to the feed exactly as it was.' : 'This deletes it permanently. It cannot be undone.'}</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setBinConfirm(null)} className="flex-1 py-3 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
+                      <button onClick={async () => { const target = binConfirm; setBinConfirm(null); if (target.action === 'restore') { await onRestorePost(target.id); showToast('Memory restored.', 'success'); } else { await onPermanentDelete(target.id); showToast('Removed permanently.', 'success'); } }} className={`flex-1 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest text-white ${binConfirm.action === 'restore' ? 'bg-[var(--ann-accent)]' : 'bg-red-500'}`}>{binConfirm.action === 'restore' ? 'Restore' : 'Remove'}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Admin preview: watch a video or view a photo from All posts full-screen. */}
+              {adminViewerPost && (
+                <MediaLightbox post={adminViewerPost} initialIndex={0} isDarkMode={isDarkMode} onClose={() => setAdminViewerPost(null)} />
+              )}
+              </TabErrorBoundary>
+            </div>
+
+            </div>
+
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+interface FloatingPhotoCardProps {
+  images: string[];
+  imgOffset: number;
+  slot: number;
+  column: number;
+  constraintsRef: React.RefObject<HTMLDivElement | null>;
+  eventNames?: string[];
+}
+
+// Hero runs as a 2x2 grid: two cards in the upper half, two in the lower half, at all times.
+// Each column is a conveyor of four slots spaced half a screen apart; as the top card of a
+// column clears the banner it wraps to the bottom, so the grid never empties.
+const HERO_TRAVERSE_SECONDS = 11; // Time for one card to travel one screen height
+
+const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset, slot, column, constraintsRef, eventNames }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(1000);
+  const isHovered = useRef(false);
+  const isDragging = useRef(false);
+  const isTouching = useRef(false);
+  const initialized = useRef(false);
+  const pxPerSecond = useRef(0);
+  const [imgIdx, setImgIdx] = useState(slot + imgOffset);
+  const [shownImage, setShownImage] = useState<string>('');
+  const prefersReducedMotion = typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+
+  const anyPaused = () => isHovered.current || isDragging.current || isTouching.current;
+
+  useAnimationFrame((_, delta) => {
+    if (!constraintsRef.current || !cardRef.current) return;
+
+    const containerHeight = constraintsRef.current.offsetHeight;
+    const cardHeight = cardRef.current.offsetHeight || 220;
+    const margin = 60;
+    const halfStep = containerHeight / 2;
+    const cycleLength = halfStep * 4;
+
+    if (containerHeight === 0) return;
+
+    if (!initialized.current) {
+      pxPerSecond.current = (containerHeight + cardHeight) / HERO_TRAVERSE_SECONDS;
+      // Slot 0 sits in the upper half, slot 1 in the lower half; slots 2 and 3 wait below the fold
+      y.set(containerHeight * 0.12 + slot * halfStep);
+      initialized.current = true;
+    }
+
+    const dt = Math.min(delta, 100) / 1000;
+
+    let speedMultiplier = 1.0;
+    if (prefersReducedMotion) speedMultiplier *= 0.05;
+    // Only the card being hovered, dragged or touched pauses; the others keep moving.
+    if (isHovered.current || isDragging.current || isTouching.current) speedMultiplier = 0;
+
+    let nextY = y.get() - (pxPerSecond.current * dt * speedMultiplier);
+
+    if (nextY < -(cardHeight + margin)) {
+      nextY += cycleLength;
+      x.set(0);
+      setImgIdx((prev) => (prev + 4) % Math.max(1, images.length));
+    }
+
+    if (!isDragging.current) {
+      y.set(nextY);
+    }
+  });
+
+  const currentImage = images.length > 0 ? images[imgIdx % images.length] : PLACEHOLDER_IMAGES[imgIdx % PLACEHOLDER_IMAGES.length];
+  const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : (EVENTS_DATA.length > 0 ? EVENTS_DATA[(imgIdx + imgOffset) % EVENTS_DATA.length].name : undefined);
+  const isPausedState = isHovered.current || isDragging.current || isTouching.current;
+
+  return (
+    <motion.div
+      ref={cardRef}
+      drag
+      dragMomentum={false}
+      dragElastic={0}
+      dragConstraints={constraintsRef}
+      onDragStart={() => { isDragging.current = true; }}
+      onDragEnd={() => { isDragging.current = false; }}
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') {
+          isHovered.current = true;
+        }
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') {
+          isHovered.current = false;
+        }
+      }}
+      onPointerDown={() => { isTouching.current = true; }}
+      onPointerUp={() => { isTouching.current = false; }}
+      onPointerCancel={() => { isTouching.current = false; }}
+      initial={{ rotate: column === 0 ? (slot % 2 === 0 ? -4 : 3) : (slot % 2 === 0 ? 3 : -4) }}
+      style={{
+        left: column === 0 ? '6%' : '54%',
+        width: 'clamp(150px, 42vw, 280px)',
+        position: 'absolute',
+        x,
+        y,
+        zIndex: isPausedState ? 100 : 10,
+        touchAction: 'none'
+      }}
+      className="cursor-grab active:cursor-grabbing select-none"
+      whileHover={{ scale: 1.05, zIndex: 110 }}
+    >
+      <div className={`bg-white p-2 pb-2 shadow-2xl rounded-sm ${isPausedState ? 'scale-110 shadow-black/40' : 'shadow-black/20'}`}>
+        <div className="relative w-full h-[calc(32.5vh-80px)] sm:h-[calc(40vh-80px)] overflow-hidden pointer-events-none">
+          {shownImage && shownImage !== currentImage && (
+            <img src={shownImage} className="absolute inset-0 w-full h-full object-cover object-center" alt="" draggable={false} />
+          )}
+          <img
+            src={currentImage}
+            onLoad={() => setShownImage(currentImage)}
+            className={`absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-300 ${shownImage === currentImage ? 'opacity-100' : 'opacity-0'}`}
+            alt=""
+            draggable={false}
+          />
+        </div>
+        {caption && (
+          <p className="text-center text-[0.78rem] font-bold font-display text-[#14262D] pt-2 pb-1 leading-tight">{caption}</p>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// URLs already pulled into the browser cache this session; lets a remounted
+// hero show its cards immediately instead of waiting on a fresh preload.
+const heroPreloadedUrls = new Set<string>();
+
+function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: boolean, images: string[], eventNames?: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [cardsReady, setCardsReady] = useState(false);
+
+  const baseImages = images.length > 0 ? images : PLACEHOLDER_IMAGES;
+  const baseKey = baseImages.join('|');
+
+  // Keep every hero image warm in the browser cache, and only mount the cards
+  // once the first batch has loaded, so pictures never pop in or out.
+  useEffect(() => {
+    let cancelled = false;
+    const missing = baseImages.filter((src: string) => !heroPreloadedUrls.has(src));
+    if (missing.length === 0) {
+      setCardsReady(true);
+      return;
+    }
+    let doneCount = 0;
+    missing.forEach((src: string) => {
+      const img = new Image();
+      const done = () => {
+        heroPreloadedUrls.add(src);
+        doneCount += 1;
+        if (!cancelled && doneCount >= missing.length) setCardsReady(true);
+      };
+      img.onload = done;
+      img.onerror = done;
+      img.src = src;
+    });
+    const fallback = setTimeout(() => { if (!cancelled) setCardsReady(true); }, 2000);
+    return () => { cancelled = true; clearTimeout(fallback); };
+  }, [baseKey]);
+
+  return (
+    <section
+      ref={containerRef}
+      className="relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[65vh] sm:h-[80vh] overflow-hidden bg-[var(--ann-accent)] mb-12 shadow-inner"
+    >
+      <div className="absolute inset-0 opacity-20 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent)]" />
+      </div>
+
+      <div className="absolute inset-0 overflow-hidden">
+        {cardsReady && [0, 1].map((column) =>
+          [0, 1, 2, 3].map((slot) => (
+            <FloatingPhotoCard
+              key={`hero-${column}-${slot}`}
+              images={baseImages}
+              imgOffset={column * 2}
+              eventNames={eventNames}
+              slot={slot}
+              column={column}
+              constraintsRef={containerRef}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ProfilePromptModal({ isOpen, onClose, onGoToSettings, isDarkMode }: any) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 z-[150] backdrop-blur-sm"
+          />
+          <motion.div 
+            initial={{ y: '100%', opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: '100%', opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[520px] z-[151] rounded-t-[32px] p-6 pt-4 pb-10 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border-t border-[#22363E]' : 'bg-white border-t border-[#DAD8E3]'}`}
+          >
+            <div className="w-12 h-1.5 bg-[#DAD8E3] dark:bg-[#22363E] rounded-full mx-auto mb-6" />
+            <div className="w-20 h-20 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-6">
+              <User className="w-10 h-10" />
+            </div>
+            <h3 className="text-xl font-black font-display tracking-tight mb-2">Set up your profile</h3>
+            <p className="text-sm opacity-60 mb-8">Please add your name and a profile picture before sharing memories with the guests.</p>
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={onGoToSettings}
+                className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                Go to Settings
+              </button>
+              <button 
+                onClick={onClose}
+                className={`w-full py-4 rounded-full font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'text-white/40' : 'text-[#5A6970]'}`}
+              >
+                Maybe later
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}

@@ -621,7 +621,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
                       style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
                     />
                   ))}
-                  <button className="btn g" onClick={() => window.open(`${location.origin}/?tpl=${k}`, '_blank')}>Preview</button>
+                  <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
                   <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
                 </div>
               </div>
