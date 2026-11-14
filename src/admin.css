@@ -1,0 +1,99 @@
+/* Eventicor platform admin (ported from the prototype design) — scoped under .evad */
+.evad{--bg:#f4f3f9;--card:#fff;--ink:#17162e;--mut:#5f5c7a;--line:#e3e0f0;--acc:#2f3fb8;--on:#fff;--gold:#d8b06a;--soft:#eceafb;--side:#17162e;--ok:#1f9d62;--bad:#d23b3b;--warn:#c8932a}
+@media (prefers-color-scheme:dark){.evad{--bg:#0e0d1f;--card:#1a1933;--ink:#f1f0fa;--mut:#a9a6c6;--line:#2c2a4d;--acc:#8b98ff;--on:#0e0d1f;--soft:#23224a;--side:#0a0919}}
+.evad{box-sizing:border-box;display:grid;grid-template-columns:240px 1fr;min-height:100vh;background:var(--bg);color:var(--ink);font:400 16px/1.55 "Plus Jakarta Sans",system-ui,sans-serif}
+.evad *{box-sizing:border-box}
+.evad button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.evad h1,.evad h2,.evad h3{margin:0;font-family:"Playfair Display",Georgia,serif;font-weight:600}
+.evad aside{background:var(--side);color:#d9d7f0;padding:20px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+.evad .br{display:flex;gap:10px;align-items:center;padding:4px 10px 18px;font:600 24px "Playfair Display",serif;color:#fff}
+.evad .br i{width:20px;height:20px;border-radius:50% 50% 50% 4px;background:linear-gradient(135deg,#8b98ff,var(--gold));transform:rotate(-45deg);flex:none}
+.evad .br small{display:block;font:600 11px "Plus Jakarta Sans";color:#9d9bc4;letter-spacing:.06em}
+.evad aside button{display:flex;width:100%;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;text-align:left;font-weight:600;font-size:15px;margin-bottom:2px;color:#c3c1e4}
+.evad aside button.on{background:#ffffff1f;color:#fff}
+.evad aside svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.evad .bd{margin-left:auto;background:var(--gold);color:#17162e;border-radius:99px;font-size:12px;font-weight:800;padding:0 8px}
+.evad main{padding:24px clamp(14px,3vw,36px) 70px;min-width:0}
+.evad .top{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.evad .top h1{font-size:34px}
+.evad .top p{margin:2px 0 0;color:var(--mut)}
+.evad .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:16px}
+.evad .g4{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:16px}
+.evad .k{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
+.evad .k small{color:var(--mut);font-weight:600}
+.evad .k b{display:block;font:600 32px "Playfair Display",serif;margin-top:2px}
+.evad .k span{font-size:13px;font-weight:700;color:var(--ok)}
+.evad .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 18px;border-radius:99px;background:var(--acc);color:var(--on);font-weight:700;font-size:15px;border:1px solid var(--acc)}
+.evad .btn.g{background:none;color:var(--ink);border-color:var(--line)}
+.evad .btn.d{background:var(--bad);border-color:var(--bad);color:#fff}
+.evad .btn.s{padding:6px 13px;font-size:13px}
+.evad .chip{padding:6px 14px;border-radius:99px;border:1px solid var(--line);font-weight:600;font-size:14px;color:var(--mut)}
+.evad .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.evad .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.evad .two{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+.evad .att{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.evad .att:last-child{border:0}
+.evad .av{font-size:13px;font-weight:700;margin-top:4px}
+.evad .av.ok{color:var(--ok)}
+.evad .av.no{color:var(--bad)}
+.evad .ob{display:grid;grid-template-columns:1fr 290px;gap:22px;align-items:start}
+.evad .fg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.evad label{display:block;font-size:13px;font-weight:700;color:var(--mut);margin:0 0 4px}
+.evad input,.evad select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.evad .fs{margin:16px 0 6px;font-weight:800;font-size:13px;letter-spacing:.06em;color:var(--mut)}
+.evad .sl{display:flex;gap:6px;align-items:center}
+.evad .sl span{white-space:nowrap;color:var(--mut);font-size:14px}
+.evad .pf{width:250px;height:480px;border:8px solid #17162e;border-radius:36px;overflow:hidden;margin:0 auto;box-shadow:0 24px 50px -16px #17162e88;position:sticky;top:30px}
+.evad .mp{height:100%;background:var(--b);color:var(--f);position:relative;font-size:12px}
+.evad .mh{padding:12px 14px;font:italic 15px "Playfair Display",serif;color:var(--a)}
+.evad .mm{text-align:center;padding:30px 12px 0}
+.evad .mm small{opacity:.75}
+.evad .mm b{display:block;font:500 38px/1 "Playfair Display",serif}
+.evad .mm em{display:block;font:italic 18px "Playfair Display",serif;color:var(--a)}
+.evad .mc{display:flex;justify-content:center;gap:22px;margin:16px 14px;padding:8px;border:1px solid color-mix(in srgb,var(--f) 22%,transparent);border-radius:12px}
+.evad .mc b{font:500 17px "Playfair Display",serif;display:block}
+.evad .mr{margin:0 14px 6px;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--f) 9%,transparent);display:flex;gap:8px;align-items:center}
+.evad .mr i{width:8px;height:8px;border-radius:50%;background:var(--a)}
+.evad .mr span{margin-left:auto;opacity:.7;font-size:10px}
+.evad .ov{overflow-x:auto}
+.evad .tb{width:100%;border-collapse:collapse;font-size:14.5px;min-width:640px}
+.evad .tb th{text-align:left;color:var(--mut);font-size:12px;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line)}
+.evad .tb td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.evad .tb tr:last-child td{border:0}
+.evad .tb td small{display:block;color:var(--mut)}
+.evad .pl{display:inline-block;font-size:12px;font-weight:800;padding:2px 10px;border-radius:99px;background:var(--soft);color:var(--mut)}
+.evad .pl.live,.evad .pl.paid{background:#1f9d6226;color:var(--ok)}
+.evad .pl.pending,.evad .pl.draft{background:#c8932a26;color:var(--warn)}
+.evad .pl.failed,.evad .pl.suspended{background:#d23b3b22;color:var(--bad)}
+.evad .dr{position:fixed;inset:0;background:#0008;z-index:50;display:flex;justify-content:flex-end}
+.evad .dp{width:min(440px,100%);height:100%;background:var(--card);padding:calc(22px + env(safe-area-inset-top,0px)) 22px 22px;overflow:auto;animation:evsl .3s}
+.evad .dp h2{font-size:28px}
+@keyframes evsl{from{transform:translateX(40px);opacity:0}}
+.evad .md{position:fixed;inset:0;background:#0009;z-index:60;display:grid;place-items:center;padding:16px}
+.evad .mc2{background:var(--card);border-radius:24px;padding:26px;width:100%;max-width:460px;max-height:92vh;overflow:auto}
+.evad .mc2 h2{font-size:28px;margin-bottom:12px}
+.evad .st{display:flex;gap:12px;align-items:center;padding:9px 0;font-size:15px;color:var(--mut)}
+.evad .st i{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-style:normal;font-size:13px;flex:none}
+.evad .st.run i{border-color:var(--acc);border-top-color:transparent;animation:evspn .8s linear infinite}
+.evad .st.ok{color:var(--ink)}
+.evad .st.ok i{background:var(--ok);border-color:var(--ok);color:#fff}
+@keyframes evspn{to{transform:rotate(360deg)}}
+.evad .rw{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.evad .rw:last-child{border:0}
+.evad .rw small{display:block;color:var(--mut)}
+.evad .sw{width:46px;height:26px;border-radius:99px;background:var(--line);position:relative;flex:none}
+.evad .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.evad .sw.on{background:var(--acc)}
+.evad .sw.on::after{left:23px}
+.evad .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 20px;border-radius:99px;z-index:80;font-size:14px}
+.evad :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+@media (max-width:900px){
+  .evad{grid-template-columns:1fr}
+  .evad aside{position:sticky;height:auto;z-index:30;padding:8px;display:flex;gap:4px;overflow-x:auto}
+  .evad .br{display:none}
+  .evad aside button{width:auto;white-space:nowrap;padding:8px 12px;margin:0}
+  .evad aside svg{display:none}
+  .evad .two,.evad .ob{grid-template-columns:1fr}
+  .evad .pf{position:static}
+  .evad .fg{grid-template-columns:1fr}
+}
