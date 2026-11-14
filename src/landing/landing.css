@@ -87,7 +87,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .artb{margin:0 auto;padding:9px 20px;border-radius:99px;font-size:12px;font-weight:700;width:max-content}
 @media (prefers-reduced-motion:reduce){#ev-l .cfc,#ev-l .arfan{animation:none}}
 /* Open Book: a hardback album whose pages turn themselves. */
-#ev-l .kbw{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 50% 32%,#f5eee1,#c9b9a0);--u:.66}
+#ev-l .kbw{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 50% 32%,#f5eee1,#c9b9a0);--u:.66;transform:translateX(calc(-94px*var(--u))) rotateX(10deg)}
 #ev-l .kbo{position:absolute;left:50%;top:50%;perspective:1300px}
 #ev-l .kbs{position:absolute;border-radius:50%;background:radial-gradient(#0008,transparent 70%);filter:blur(7px);z-index:0}
 #ev-l .kbw .klf{position:absolute;left:0;transform-origin:0 50%;transform-style:preserve-3d;border-radius:2px 8px 8px 2px;transform:translateZ(calc((4 - var(--li))*1.5px))}
