@@ -89,7 +89,8 @@
 .evad :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 @media (max-width:900px){
   .evad{grid-template-columns:1fr}
-  .evad aside{position:sticky;height:auto;z-index:30;padding:8px;display:flex;gap:4px;overflow-x:auto}
+  .evad aside{position:sticky;height:auto;z-index:30;padding:8px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+  .evad aside::-webkit-scrollbar{display:none}
   .evad .br{display:none}
   .evad aside button{width:auto;white-space:nowrap;padding:8px 12px;margin:0}
   .evad aside svg{display:none}
