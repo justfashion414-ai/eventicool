@@ -119,14 +119,12 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l #tg .scr,#ev-l #tg .scr *{animation:none!important;transition:none!important}
 
 /* Builder chips on mobile: all four templates share one line; accents sit three above, three below. */
-@media (max-width:900px){
 #ev-l #tp{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 #ev-l #tp::-webkit-scrollbar{display:none}
 #ev-l #tp .chip{flex:none;white-space:nowrap}
 #ev-l #ac{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-#ev-l #ac .chip{min-width:0;padding:7px 8px;font-size:13px;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden}
+#ev-l #ac .chip{min-width:0;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden}
 #ev-l #ac .chip i{width:18px;height:18px;margin:0 5px 0 -1px}
-}
 @media (max-width:640px){
 #ev-l #tp .chip{font-size:12px;padding:7px 9px}
 #ev-l #ac .chip{font-size:12px;padding:6px 7px}
