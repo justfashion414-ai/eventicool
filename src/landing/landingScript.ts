@@ -45,10 +45,11 @@ function mini(t,anim,ack){var T=ack?(TP[ack]||TP.royal):(TP[P.ac]||TP.royal);if(
  return '<div class="scr" style="--b:'+T.b+';--f:'+T.f+';--a:'+a+'">'+'<div class="mh"'+MHM+'>'+esc(bn)+' &amp; '+esc(gn)+'</div>'+body.replace('class="bd"','class="bd" style="zoom:'+[1,1.1,1.2][P.ts||0]+(ZS?';'+ZS:'')+'"')+tip+nav+cp+'</div>'}
 function pvdraw(){var o=$('.bd'),y=o?o.scrollTop:0;$('#pv').innerHTML=mini(P.tp,1);rvsetup();var q=$('.bd');if(q)q.scrollTop=y}
 function draw(){$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#pc').textContent=UPS.length?(UPS.length+' of 10 photos loaded'):'add up to 10 photos';
- $('#tp').innerHTML=Object.keys(TPL).map(function(k){return '<button class="chip'+(P.tp===k?' on':'')+'" data-a="tp" data-v="'+k+'">'+TPL[k].n+'</button>'}).join('');
+ $('#tp').innerHTML=TGL().map(function(k){return '<button class="chip'+(P.tp===k?' on':'')+'" data-a="tp" data-v="'+k+'">'+TPL[k].n+'</button>'}).join('');
  $('#ac').innerHTML=Object.keys(TP).map(function(k){var c=TP[k];return '<button class="chip'+(P.ac===k?' on':'')+'" data-a="ac" data-v="'+k+'"><i style="background:'+c.b+';box-shadow:inset 0 0 0 2px '+c.a+'"></i>'+c.n+'</button>'}).join('');
 }
-function galbuild(){ $('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
+var OFF={};function TGL(){return Object.keys(TPL).filter(function(k){return !OFF[k]})}
+function galbuild(){ $('#tg').innerHTML=TGL().map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
 var PL=[['Essential',[30000],['5 GB of photos and videos','Unlimited guests','Your own eventicor.com address','Feed, reels, comments and likes','Guest access code and a QR code to scan and join','Your unique link to receive gifts and support','Email notifications','Journey timeline and photo carousel','Online for 12 months'],{gb:5,tag:'A beautiful, simple start',ch:[1,0,0]}],
 ['Complete',[50000],['Everything in Essential','10 GB of photos and videos','Email and push notifications','Photographer and videographer bulk uploads','Approve and moderate every post','Download everything, any time','Memory book PDF','Connect your own domain (add-on)'],{gb:10,tag:'Everything most couples need',ch:[1,1,0]}],
 ['Legacy',[100000],['Everything in Complete','20 GB of photos and videos','Email, push and WhatsApp notifications','Family gallery chapters for life','Archive mode, read-only forever','Free full download, any time','Online for 5 years','Priority support'],{gb:20,tag:'Keep it for life',ch:[1,1,1]}]];
@@ -201,9 +202,23 @@ var tio=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIn
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='plsel'&&!e.target.closest('.btn'))plsel(+b.dataset.v)});
 addEventListener('resize',pkmove);addEventListener('resize',sgbuild);
 draw();pricing();galbuild();
+try{(function(){
+ var q=null;try{q=new URLSearchParams(location.search).get('tpl')}catch(e){}
+ if(q&&TPL[q]){P.tp=q;draw()}
+ fetch('/api/proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'get',collection:'platform',id:'catalog'})}).then(function(r){return r.ok?r.json():null}).then(function(cc){
+  if(!cc||!cc.tplmeta)return;
+  var MAP={classic:'classic',halo:'halo',hero:'carousel',book:'book'};
+  Object.keys(MAP).forEach(function(ak){var tk=MAP[ak],m=cc.tplmeta[ak];if(!m)return;
+   if(m.name)TPL[tk].n=String(m.name);
+   if(m.d)TPL[tk].d=String(m.d);
+   if(m.acc&&TP[m.acc])ACC[tk]=m.acc;
+   if(cc.templates[ak]===false)OFF[tk]=true;});
+  galbuild();draw();
+ }).catch(function(){});
+})()}catch(e){}
 
 function upGrid(){var g='';if(!UPS.length){g='<div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div>'}else{g=UPS.map(function(u,i){return '<div class="ui"><img src="'+u+'" alt=""><button data-u="rm" data-i="'+i+'" aria-label="Remove">&#215;</button></div>'}).join('')+(UPS.length<10?'<div class="ui uph">Add more</div>':'')}return g}
-function upSync(){$('#pc').textContent=UPS.length?(UPS.length+' of 10 photos loaded'):'add up to 10 photos';$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
+function upSync(){$('#pc').textContent=UPS.length?(UPS.length+' of 10 photos loaded'):'add up to 10 photos';$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#tg').innerHTML=TGL().map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
 function openUpload(){var old=document.getElementById('upm');if(old)old.remove();var m=document.createElement('div');m.id='upm';m.innerHTML='<div class="upc"><button class="ux" data-u="close" aria-label="Close">&#215;</button><h3>Add photos</h3><p class="ups">You can upload up to 10 images. They fill the phone preview and become your feed posts, with a different guest name on each post.</p><div class="ug">'+upGrid()+'</div><label class="ubb">Choose images<input type="file" accept="image/*" multiple hidden></label><button class="ubd" data-u="done">Done</button></div>';document.body.appendChild(m);m.querySelector('input').addEventListener('change',function(e){var fs=Array.prototype.slice.call(e.target.files||[]),room=10-UPS.length;if(!fs.length)return;if(room<=0){toast('Up to 10 images only');return}fs.slice(0,room).forEach(function(f){var r=new FileReader();r.onload=function(){UPS.push(String(r.result));m.querySelector('.ug').innerHTML=upGrid();upSync()};r.readAsDataURL(f)})});m.addEventListener('click',function(e){var t=e.target,u=t.getAttribute?t.getAttribute('data-u'):null;if(u==='close'||u==='done'||t===m){m.remove()}else if(u==='rm'){UPS.splice(+t.getAttribute('data-i'),1);m.querySelector('.ug').innerHTML=upGrid();upSync()}})}
 document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;var box=t.closest('.frl');if(!box)return;var v=box.querySelector('video');if(!v)return;var b=t.closest('.rvc');if(!b&&t.tagName!=='VIDEO')return;e.preventDefault();v.muted=!v.muted;v.volume=1;if(!v.muted){var p=v.play();if(p&&p.catch)p.catch(function(){})}var b2=box.querySelector('.rvc');if(b2)b2.innerHTML=v.muted?'&#128263; Tap for sound':'&#128266; Sound on'},true);
 function rsunm(v){v.muted=false;v.volume=1;var p=v.play();if(p&&p.catch)p.catch(function(){v.muted=true;v.volume=1;v.play().catch(function(){})});var b=v.parentElement&&v.parentElement.querySelector('.rvc');if(b)b.innerHTML='&#9834; Sound on'}

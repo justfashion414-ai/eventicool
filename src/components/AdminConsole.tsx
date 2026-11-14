@@ -10,12 +10,21 @@ const PL: Record<string, { name: string; price: number; gb: number }> = {
   complete: { name: 'Complete', price: 50000, gb: 10 },
   legacy: { name: 'Legacy', price: 100000, gb: 20 },
 }
-const TP: Record<string, { name: string; bg: string; fg: string; ac: string }> = {
-  classic: { name: 'Classic', bg: '#14122b', fg: '#f4e9d3', ac: '#d8b06a' },
-  halo: { name: 'Halo Arc', bg: '#fbe1e8', fg: '#4a1530', ac: '#d6285f' },
-  hero: { name: 'Hero Deck', bg: '#0c4a36', fg: '#f2f8ee', ac: '#f4b393' },
-  book: { name: 'Open Book', bg: '#2236b4', fg: '#ffffff', ac: '#f6d36b' },
+const TP: Record<string, { name: string; tagline: string; bg: string; fg: string; ac: string }> = {
+  classic: { name: 'Classic', tagline: 'The signature look', bg: '#14122b', fg: '#f4e9d3', ac: '#d8b06a' },
+  halo: { name: 'Halo Arc', tagline: 'A crown of photos above your names', bg: '#fbe1e8', fg: '#4a1530', ac: '#d6285f' },
+  hero: { name: 'Hero Deck', tagline: 'A sliding cover of your best moments', bg: '#0c4a36', fg: '#f2f8ee', ac: '#f4b393' },
+  book: { name: 'Open Book', tagline: 'A hardback book of your photos that turns its own pages', bg: '#2236b4', fg: '#ffffff', ac: '#f6d36b' },
 }
+const ACC6: Record<string, { bg: string; ac: string }> = {
+  midnight: { bg: '#14122b', ac: '#d8b06a' },
+  blush: { bg: '#fbe1e8', ac: '#d6285f' },
+  emerald: { bg: '#0c4a36', ac: '#f4b393' },
+  royal: { bg: '#2236b4', ac: '#f6d36b' },
+  sunset: { bg: '#2b1a12', ac: '#e07a4f' },
+  sage: { bg: '#1f2b25', ac: '#8fbfa3' },
+}
+const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
 const NAV = [
@@ -59,12 +68,14 @@ interface Site {
   since: string
 }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
-interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean> }
+interface TplMeta { name?: string; d?: string; acc?: string }
+interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
 
 const DEFAULT_CAT: Cat = {
   prices: { essential: 30000, complete: 50000, legacy: 100000 },
   channels: { essential: [true, false, false], complete: [true, true, false], legacy: [true, true, true] },
   templates: { classic: true, halo: true, hero: true, book: true },
+  tplmeta: {},
 }
 
 function fmtDate(ev?: { seconds?: number }) {
@@ -165,6 +176,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
           prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
           channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
           templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
+          tplmeta: { ...(doc.tplmeta || {}) },
         })
       })
       .catch(() => { if (alive) setCat(DEFAULT_CAT) })
@@ -442,7 +454,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
               </div>
             </div>
             <div className="fs">TEMPLATE</div>
-            {chip('tpl', Object.keys(TP).map((k) => [k, TP[k].name] as [string, string]))}
+            {chip('tpl', Object.keys(TP).filter((k) => !cat || cat.templates[k] !== false).map((k) => [k, TP[k].name] as [string, string]))}
             <div className="fs">PLAN</div>
             {chip('plan', Object.keys(PL).map((k) => [k, `${PL[k].name} · ${ng(PL[k].price)}`] as [string, string]))}
             <div className="fs">ADDRESS</div>
@@ -576,15 +588,45 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
         </div>
         <div className="card">
           <h3>Wedding templates</h3>
-          {Object.keys(TP).map((k) => (
-            <div className="rw" key={k}>
-              <div className="row">
-                <i style={{ width: 26, height: 26, borderRadius: 8, background: `linear-gradient(135deg,${TP[k].bg},${TP[k].ac})` }} />
-                <div><b>{TP[k].name}</b><small>{k === 'book' ? 'Default' : 'Available to couples'}</small></div>
+          {Object.keys(TP).map((k) => {
+            const meta = cat.tplmeta[k] || {}
+            const acc = meta.acc || DEF_ACC[k]
+            const pal = ACC6[acc] || TP[k]
+            return (
+              <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
+                <div className="row" style={{ flex: 1, minWidth: 250 }}>
+                  <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
+                  <input
+                    value={meta.name ?? ''}
+                    placeholder={TP[k].name}
+                    aria-label={`${TP[k].name} display name`}
+                    style={{ width: 110 }}
+                    onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, name: e.target.value } } })}
+                  />
+                  <input
+                    value={meta.d ?? ''}
+                    placeholder={TP[k].tagline}
+                    aria-label={`${TP[k].name} tagline`}
+                    style={{ flex: 1, minWidth: 150 }}
+                    onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, d: e.target.value } } })}
+                  />
+                </div>
+                <div className="row">
+                  {Object.keys(ACC6).map((ak) => (
+                    <button
+                      key={ak}
+                      title={`${ak[0].toUpperCase() + ak.slice(1)} accent`}
+                      aria-label={`Use the ${ak} accent for ${TP[k].name}`}
+                      onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, acc: ak } } })}
+                      style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
+                    />
+                  ))}
+                  <button className="btn g" onClick={() => window.open(`${location.origin}/?tpl=${k}`, '_blank')}>Preview</button>
+                  <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
+                </div>
               </div>
-              <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
-            </div>
-          ))}
+            )
+          })}
           <div className="rw">
             <div><b>Birthdays and anniversaries</b><small>Shown as “soon” on the landing page</small></div>
             <span className="pl">Soon</span>

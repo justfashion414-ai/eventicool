@@ -40,6 +40,18 @@ export default async (req) => {
 
   if (req.method !== 'POST') return json(405, { error: 'POST only' })
 
+  // Public, read-only access to the platform catalog: the landing page reads prices and
+  // template settings without signing in. Only this one document, only reads.
+  if (body.op === 'get' && body.collection === 'platform' && body.id === 'catalog') {
+    try {
+      init()
+      const pub = await getFirestore().collection('platform').doc('catalog').get()
+      return json(200, pub.exists ? { id: pub.id, ...pub.data() } : null)
+    } catch (e) {
+      return json(500, { error: String(e?.message || e) })
+    }
+  }
+
   let body
   try {
     body = await req.json()
