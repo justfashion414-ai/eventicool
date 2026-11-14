@@ -85,14 +85,50 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .artt{font:italic 700 24px "Playfair Display",Georgia,serif;text-align:center;padding:0 14px;line-height:1.15}
 #ev-l .arts{text-align:center;font-size:11px;opacity:.8;margin:6px 18px 10px}
 #ev-l .artb{margin:0 auto;padding:9px 20px;border-radius:99px;font-size:12px;font-weight:700;width:max-content}
-#ev-l .caswrap{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden}
-#ev-l .caswrap i{position:absolute;top:-30%;width:58%;height:27%;border-radius:10px;border:3px solid rgba(255,255,255,.88);box-shadow:0 10px 20px rgba(0,0,0,.4);background-size:cover;background-position:center;animation:casfall linear infinite}
-#ev-l .caswrap i:nth-child(1){top:6%}#ev-l .caswrap i:nth-child(2){top:32%}#ev-l .caswrap i:nth-child(3){top:58%}#ev-l .caswrap i:nth-child(4){top:14%}#ev-l .caswrap i:nth-child(5){top:44%}#ev-l .caswrap i:nth-child(6){top:70%}
-@keyframes casfall{0%{top:-30%;transform:rotate(-8deg)}45%{transform:rotate(6deg)}100%{top:108%;transform:rotate(-6deg)}}
-#ev-l .casbar{position:absolute;left:12px;right:12px;bottom:10px;border-radius:12px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:11px}
-#ev-l .casbar b{font:italic 700 13px "Playfair Display",Georgia,serif}
-@media (prefers-reduced-motion:reduce){#ev-l .cfc,#ev-l .arfan,#ev-l .caswrap i{animation:none}}
+@media (prefers-reduced-motion:reduce){#ev-l .cfc,#ev-l .arfan{animation:none}}
+/* Open Book: a hardback album whose pages turn themselves. */
+#ev-l .kbw{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 50% 32%,#f5eee1,#c9b9a0);--u:.66}
+#ev-l .kbo{position:absolute;left:50%;top:50%;perspective:1300px}
+#ev-l .kbs{position:absolute;border-radius:50%;background:radial-gradient(#0008,transparent 70%);filter:blur(7px);z-index:0}
+#ev-l .kbw .klf{position:absolute;left:0;transform-origin:0 50%;transform-style:preserve-3d;border-radius:2px 8px 8px 2px;transform:translateZ(calc((4 - var(--li))*1.5px))}
+#ev-l .kfc{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden;border-radius:2px 8px 8px 2px;box-shadow:0 5px 12px #0003}
+#ev-l .kfc.bf{transform:rotateY(180deg);border-radius:8px 2px 2px 8px}
+#ev-l .kfc>i{position:absolute;inset:0;display:block;pointer-events:none}
+#ev-l .ksp1{background:linear-gradient(90deg,#0006,#0000 18%)}
+#ev-l .ksp2{background:linear-gradient(270deg,#0006,#0000 18%)}
+#ev-l .ksd{opacity:.12;background:linear-gradient(90deg,#0000,#000c)}
+#ev-l .ksd2{background:linear-gradient(270deg,#0000,#000c)}
+#ev-l .kpg{position:absolute;inset:0;background:linear-gradient(#fbf7ef,#f0e7d6);padding:calc(10px*var(--u));display:flex;flex-direction:column;color:#5b4a35}
+#ev-l .kpg .kbp{flex:1;border:calc(4px*var(--u)) solid #fff;box-shadow:0 2px 6px #0004;border-radius:2px;background-size:cover;background-position:center}
+#ev-l .kcp{font:italic 500 calc(13px*var(--u)) "Playfair Display",Georgia,serif;text-align:center;margin-top:calc(8px*var(--u))}
+#ev-l .kpn{position:absolute;bottom:calc(3px*var(--u));left:0;right:0;text-align:center;font-size:calc(9px*var(--u));opacity:.5}
+#ev-l .kpg.ktx{align-items:center;justify-content:center;text-align:center;gap:calc(6px*var(--u))}
+#ev-l .kpg.ktx small{font-size:calc(8px*var(--u));letter-spacing:.2em;text-transform:uppercase;opacity:.7}
+#ev-l .kpg.ktx b{font:600 calc(21px*var(--u))/1.1 "Playfair Display",Georgia,serif;color:#2a2858}
+#ev-l .kpg.ktx i{font:italic calc(10.5px*var(--u)) "Playfair Display",Georgia,serif}
+#ev-l .kpg.ktx span{font-size:calc(10px*var(--u));font-weight:600}
+#ev-l .kor{color:#c8932a;font-size:calc(14px*var(--u))}
+#ev-l .kcv{position:absolute;inset:0;background:linear-gradient(135deg,#27389f,#14122b 80%);color:#e8cf9d;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:calc(8px*var(--u))}
+#ev-l .kcv::before{content:"";position:absolute;inset:calc(9px*var(--u));border:1px solid #d8b06aaa;border-radius:4px}
+#ev-l .kcv small{font-size:calc(8px*var(--u));letter-spacing:.24em}
+#ev-l .kcv b{font:600 calc(25px*var(--u))/1.1 "Playfair Display",Georgia,serif}
+#ev-l .kcv span{font-size:calc(10px*var(--u));letter-spacing:.14em}
+#ev-l .kcv.kbc b,#ev-l .kcv.kbc span{font-size:calc(11px*var(--u))}
 
-/* Template gallery: cards sit still like the first one, and each card wears its own four-accent mix strip. */
+/* Template gallery: cards sit still like the first one, and each card wears one full accent. */
 #ev-l #tg .scr,#ev-l #tg .scr *{animation:none!important;transition:none!important}
-#ev-l .mixbar{position:absolute;top:0;left:0;right:0;height:7px;z-index:6}
+
+/* Builder chips on mobile: all four templates share one line; accents sit three above, three below. */
+@media (max-width:900px){
+#ev-l #tp{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#ev-l #tp::-webkit-scrollbar{display:none}
+#ev-l #tp .chip{flex:none;white-space:nowrap}
+#ev-l #ac{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+#ev-l #ac .chip{min-width:0;padding:7px 8px;font-size:13px;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden}
+#ev-l #ac .chip i{width:18px;height:18px;margin:0 5px 0 -1px}
+}
+@media (max-width:640px){
+#ev-l #tp .chip{font-size:12px;padding:7px 9px}
+#ev-l #ac .chip{font-size:12px;padding:6px 7px}
+#ev-l #ac .chip i{width:16px;height:16px}
+}
