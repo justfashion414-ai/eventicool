@@ -4,9 +4,10 @@ import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
 import AdminConsole from './components/AdminConsole'
 import MailTest from './components/MailTest'
-import { isAdmin, signOutEverywhere, watchAuth, type User } from './auth'
+import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
+import SetPassword from './components/SetPassword'
 
-type AdminState = 'loading' | 'admin' | 'not-admin' | 'signed-out'
+type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out'
 
 function navigate(to: string) {
   window.history.pushState({}, '', to)
@@ -33,7 +34,8 @@ export default function App() {
           return
         }
         setAdminState('loading')
-        setAdminState((await isAdmin(u)) ? 'admin' : 'not-admin')
+        const doc = await getAdminDoc(u)
+        setAdminState(!doc ? 'not-admin' : doc.mustChangePassword ? 'must-change' : 'admin')
       }),
     [],
   )
@@ -47,6 +49,9 @@ export default function App() {
 
   if (route === '/admin') {
     if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
+    if (adminState === 'must-change') {
+      return <SetPassword user={user} onDone={() => setAdminState('admin')} onSignOut={() => navigate('/')} />
+    }
     if (adminState === 'signed-out') {
       return <Login onDone={() => navigate('/admin')} />
     }
