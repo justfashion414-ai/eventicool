@@ -40,6 +40,13 @@ export default async (req) => {
 
   if (req.method !== 'POST') return json(405, { error: 'POST only' })
 
+  let body
+  try {
+    body = await req.json()
+  } catch {
+    return json(400, { error: 'Invalid JSON body' })
+  }
+
   // Public, read-only access to the platform catalog: the landing page reads prices and
   // template settings without signing in. Only this one document, only reads.
   if (body.op === 'get' && body.collection === 'platform' && body.id === 'catalog') {
@@ -52,12 +59,6 @@ export default async (req) => {
     }
   }
 
-  let body
-  try {
-    body = await req.json()
-  } catch {
-    return json(400, { error: 'Invalid JSON body' })
-  }
 
   const authHeader = req.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
