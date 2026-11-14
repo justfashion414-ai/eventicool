@@ -47,7 +47,8 @@ function pvdraw(){var o=$('.bd'),y=o?o.scrollTop:0;$('#pv').innerHTML=mini(P.tp,
 function draw(){$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#pc').textContent=UPS.length?(UPS.length+' of 10 photos loaded'):'add up to 10 photos';
  $('#tp').innerHTML=Object.keys(TPL).map(function(k){return '<button class="chip'+(P.tp===k?' on':'')+'" data-a="tp" data-v="'+k+'">'+TPL[k].n+'</button>'}).join('');
  $('#ac').innerHTML=Object.keys(TP).map(function(k){var c=TP[k];return '<button class="chip'+(P.ac===k?' on':'')+'" data-a="ac" data-v="'+k+'"><i style="background:'+c.b+';box-shadow:inset 0 0 0 2px '+c.a+'"></i>'+c.n+'</button>'}).join('');
- $('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
+}
+function galbuild(){ $('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
 var PL=[['Essential',[30000],['5 GB of photos and videos','Unlimited guests','Your own eventicor.com address','Feed, reels, comments and likes','Guest access code and a QR code to scan and join','Your unique link to receive gifts and support','Email notifications','Journey timeline and photo carousel','Online for 12 months'],{gb:5,tag:'A beautiful, simple start',ch:[1,0,0]}],
 ['Complete',[50000],['Everything in Essential','10 GB of photos and videos','Email and push notifications','Photographer and videographer bulk uploads','Approve and moderate every post','Download everything, any time','Memory book PDF','Connect your own domain (add-on)'],{gb:10,tag:'Everything most couples need',ch:[1,1,0]}],
 ['Legacy',[100000],['Everything in Complete','20 GB of photos and videos','Email, push and WhatsApp notifications','Family gallery chapters for life','Archive mode, read-only forever','Free full download, any time','Online for 5 years','Priority support'],{gb:20,tag:'Keep it for life',ch:[1,1,1]}]];
@@ -75,13 +76,13 @@ function modal(){var s=P.step,h='';if(!s){$('#m').innerHTML='';return}
  '<p class="note">Questions and enquiries live in the Eventicor community, our WhatsApp group for couples. From there you can also request a live webinar with our team that walks you through the dashboard: approving guest posts, controlling who can post and who can see, your access code and your QR code.</p>'+
  '<div class="row" style="margin-top:14px"><button class="btn" data-a="inst">Install the app on my phone</button><button class="btn g" data-a="wa">Join the Eventicor community</button></div>';
  $('#m').innerHTML='<div class="md" data-a="close"><div class="mc" role="dialog" aria-modal="true">'+h+'</div></div>'}
-document.addEventListener('input',function(e){var t=e.target;if(t.id==='b')P.b=t.value;else if(t.id==='g')P.g=t.value;else if(t.id==='c')P.c=t.value;else if(t.id==='d'&&t.value)P.d=t.value;else if(t.id==='pcap'){P.cap=t.value;return}else if(t.id==='sl'){P.slug=t.value.toLowerCase().replace(/[^a-z0-9-]/g,'');return}else return;$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')});
+document.addEventListener('input',function(e){var t=e.target;if(t.id==='b')P.b=t.value;else if(t.id==='g')P.g=t.value;else if(t.id==='c')P.c=t.value;else if(t.id==='d'&&t.value)P.d=t.value;else if(t.id==='pcap'){P.cap=t.value;return}else if(t.id==='sl'){P.slug=t.value.toLowerCase().replace(/[^a-z0-9-]/g,'');return}else return;$('#pv').innerHTML=mini(P.tp,1);rvsetup();galbuild()});
 document.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.dataset&&e.target.dataset.a==='pick'){e.preventDefault();e.target.click()}});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;var a=b.dataset.a,v=b.dataset.v;if((a==='close'||a==='pcc')&&e.target!==b)return;
  if(a==='tp'){P.tp=v;draw()}else if(a==='ac'){P.ac=v||null;draw()}
  else if(a==='photo'){openUpload()}
  else if(a==='pick'){P.tp=v;draw();$('#builder').scrollIntoView({behavior:'smooth'});toast(TPL[v].n+' template applied')}
- else if(a==='copy'){toast('Preview link copied')}
+ 
  else if(a==='live'){if(v!==undefined)P.pl=+v;P.step=1;modal()}
  else if(a==='next'){if(P.step===1){var em=(document.getElementById('em')||{}).value||'';if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){toast('Enter a valid email first');return}P.em=em}
  if(P.step===3){sendSignup()}
@@ -199,7 +200,7 @@ fxbuild();fanbuild();gidraw(false);apdraw();sqdraw();lcdraw(false);sgbuild();
 var tio=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){typer(en.target)}else if(en.target._ty){clearInterval(en.target._ty);en.target._ty=null}})},{threshold:.5});document.querySelectorAll('.ftp2').forEach(function(el){tio.observe(el)});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='plsel'&&!e.target.closest('.btn'))plsel(+b.dataset.v)});
 addEventListener('resize',pkmove);addEventListener('resize',sgbuild);
-draw();pricing();
+draw();pricing();galbuild();
 
 function upGrid(){var g='';if(!UPS.length){g='<div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div>'}else{g=UPS.map(function(u,i){return '<div class="ui"><img src="'+u+'" alt=""><button data-u="rm" data-i="'+i+'" aria-label="Remove">&#215;</button></div>'}).join('')+(UPS.length<10?'<div class="ui uph">Add more</div>':'')}return g}
 function upSync(){$('#pc').textContent=UPS.length?(UPS.length+' of 10 photos loaded'):'add up to 10 photos';$('#pv').innerHTML=mini(P.tp,1);rvsetup();$('#tg').innerHTML=Object.keys(TPL).map(function(k){return '<div class="tc"><div class="vw"><div class="sc">'+mini(k,0,ACC[k])+'</div></div><b>'+TPL[k].n+'</b><small>'+TPL[k].d+'</small></div>'}).join('')}
