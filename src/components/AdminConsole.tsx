@@ -159,14 +159,15 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
       .catch(() => { if (alive) setAudit([]) })
     proxyCall('get', { collection: 'platform', id: 'catalog' })
       .then((doc) => {
-        if (!alive || !doc) return
+        if (!alive) return
+        if (!doc) { setCat(DEFAULT_CAT); return }
         setCat({
           prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
           channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
           templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
         })
       })
-      .catch(() => {})
+      .catch(() => { if (alive) setCat(DEFAULT_CAT) })
     return () => { alive = false }
   }, [])
 
