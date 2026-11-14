@@ -62,6 +62,11 @@ export default function App() {
     )
   }
 
+  if (route === '/console-demo') {
+    // Design check: unauthenticated render of the console with a stand-in user.
+    return <AdminConsole user={{ uid: 'demo', email: 'ola@eventicor.name.ng' }} onSignOut={() => navigate('/')} />
+  }
+
   if (route === '/mail-test') {
     return <MailTest />
   }
