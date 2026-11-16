@@ -52,7 +52,10 @@
 .ev-couple-root {
   background-color: var(--color-estate-cream);
   color: var(--color-estate-secondary);
-  overflow-x: hidden;
+  /* clip, not hidden: hidden turns this box into a scroll container, which
+     breaks position:sticky for every child (header, sample notice). clip
+     keeps the sideways clipping without creating a scroll container. */
+  overflow-x: clip;
 }
 .ev-couple-root h1, .ev-couple-root h2, .ev-couple-root h3, .ev-couple-root h4, .ev-couple-root h5, .ev-couple-root h6 {
   font-family: var(--font-display);

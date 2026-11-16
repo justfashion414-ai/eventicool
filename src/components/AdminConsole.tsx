@@ -98,6 +98,16 @@ function Icon({ id }: { id: SecId }) {
 
 const pill = (s?: string) => (s ? <span className={`pl ${s}`}>{s[0].toUpperCase() + s.slice(1)}</span> : <span>—</span>)
 
+
+/* Demo console seed: /console-demo renders with a fake admin and no Firebase
+   access, so give it three pretend apps to exercise the Sites table, the
+   Manage drawer and the filters without touching real data. */
+const DEMO_EVENTS: EvDoc[] = [
+  { id: 'demo-1', title: 'Chidera & Emeka', slug: 'chidera-emeka', template: 'classic', plan: 'complete', status: 'live', city: 'Lagos', weddingDate: '2026-12-12', accessCode: 'DEMO12', createdAt: { seconds: 1762000000 } },
+  { id: 'demo-2', title: 'Zainab & Yusuf', slug: 'zainab-yusuf', template: 'halo', plan: 'essential', status: 'draft', city: 'Abuja', weddingDate: '2027-01-30', accessCode: 'DEMO34', createdAt: { seconds: 1761200000 } },
+  { id: 'demo-3', title: 'Ifeoma & Kunle', slug: 'ifeoma-kunle', template: 'book', plan: 'legacy', status: 'suspended', city: 'Enugu', weddingDate: '2026-11-28', accessCode: 'DEMO56', createdAt: { seconds: 1759900000 } },
+]
+
 export default function AdminConsole({ user, onSignOut, initialNavOpen = false }: { user: User | null; onSignOut: () => void; initialNavOpen?: boolean }) {
   const [sec, setSec] = useState<SecId>(() => {
     const saved = localStorage.getItem(KEY)
@@ -159,6 +169,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }, [menuOpen])
   useEffect(() => {
     let alive = true
+    if (user?.uid === 'demo') { setEvents(DEMO_EVENTS); return () => { alive = false } }
     proxyCall('list', { collection: 'events', limit: 50 })
       .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
       .catch(() => { if (alive) setEvents([]) })
@@ -265,6 +276,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const drawerDoc = drawerId ? (events || []).find((e) => e.id === drawerId) : null
 
   async function patchEvent(id: string, data: Record<string, unknown>, note: string) {
+    if (user?.uid === 'demo') {
+      setEvents((evs) => (evs || []).map((e) => (e.id === id ? { ...e, ...data } as EvDoc : e)))
+      say('Demo console: nothing is saved')
+      return
+    }
     setBusy(true)
     try {
       await proxyCall('update', { collection: 'events', id, data })
@@ -276,6 +292,12 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
   async function deleteEvent(id: string, s: string) {
     if (delText !== s) { say('Type the address exactly to delete'); return }
+    if (user?.uid === 'demo') {
+      setEvents((evs) => (evs || []).filter((e) => e.id !== id))
+      setDrawerId(null)
+      say('Demo console: nothing is saved')
+      return
+    }
     setBusy(true)
     try {
       await proxyCall('delete', { collection: 'events', id })
