@@ -98,7 +98,7 @@ function Icon({ id }: { id: SecId }) {
 
 const pill = (s?: string) => (s ? <span className={`pl ${s}`}>{s[0].toUpperCase() + s.slice(1)}</span> : <span>—</span>)
 
-export default function AdminConsole({ user, onSignOut }: { user: User | null; onSignOut: () => void }) {
+export default function AdminConsole({ user, onSignOut, initialNavOpen = false }: { user: User | null; onSignOut: () => void; initialNavOpen?: boolean }) {
   const [sec, setSec] = useState<SecId>(() => {
     const saved = localStorage.getItem(KEY)
     return (NAV.some((n) => n.id === saved) ? saved : 'over') as SecId
@@ -669,7 +669,7 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
     )
   }
 
-  const [navOpen, setNavOpen] = useState(false)
+  const [navOpen, setNavOpen] = useState(initialNavOpen)
 
   const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
 

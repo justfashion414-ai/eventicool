@@ -97,7 +97,8 @@ export default function App() {
 
   // Design/demo route: renders the console with a fake admin, no auth or data writes needed.
   if (route === '/console-demo') {
-    return <AdminConsole user={{ uid: 'demo', email: 'ola@eventicor.name.ng' } as User} onSignOut={() => navigate('/')} />
+    const drawer = new URLSearchParams(window.location.search).has('drawer')
+    return <AdminConsole user={{ uid: 'demo', email: 'ola@eventicor.name.ng' } as User} onSignOut={() => navigate('/')} initialNavOpen={drawer} />
   }
   if (route === '/mail-test') {
     return <MailTest />
