@@ -312,27 +312,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         </div>
         <div className="row" style={{ alignItems: 'center' }}>
           {right}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-label="Account menu"
-              className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white"
-              style={{ background: 'var(--acc)' }}
-            >
-              {(user?.email || '?')[0].toUpperCase()}
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">
-                  <div className="truncate font-medium text-slate-900">{user?.email}</div>
-                  Administrator
-                </div>
-                <button onClick={signOut} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-                  <LogOut className="h-4 w-4" /> Sign out
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     )
@@ -675,7 +654,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   return (
     <div className="evad">
-      <button className="evad-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}><Menu /></button>
       <div className={`evad-scrim${navOpen ? ' on' : ''}`} onClick={() => setNavOpen(false)} />
       <aside className={navOpen ? 'open' : ''}>
         <div className="br"><i /><div>Eventicor<small>PLATFORM ADMIN</small></div></div>
@@ -687,7 +665,28 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         ))}
         <a href="/" style={{ display: 'flex', width: '100%', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 12, fontWeight: 600, fontSize: 15, color: '#c3c1e4', textDecoration: 'none', marginTop: 10 }}>View website</a>
       </aside>
-      <main>{VIEWS[sec]()}</main>
+      <main>
+        <div className="evad-topbar">
+          <button className="evad-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}><Menu /></button>
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setMenuOpen((v) => !v)} aria-label="Account menu" className="evad-avatar">
+              {(user?.email || '?')[0].toUpperCase()}
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">
+                  <div className="truncate font-medium text-slate-900">{user?.email}</div>
+                  Administrator
+                </div>
+                <button onClick={signOut} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  <LogOut className="h-4 w-4" /> Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        {VIEWS[sec]()}
+      </main>
 
       {drawer && drawerDoc && (
         <div className="dr" onClick={(e) => { if (e.target === e.currentTarget) setDrawerId(null) }}>

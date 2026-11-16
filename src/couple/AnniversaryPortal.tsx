@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence, useAnimationFrame, useMotionValue } from 'motion/react';
+import { motion, AnimatePresence, animate, useAnimationFrame, useMotionValue } from 'motion/react';
 import { 
   Home, 
   Globe, 
@@ -6470,6 +6470,9 @@ interface FloatingPhotoCardProps {
   column: number;
   constraintsRef: React.RefObject<HTMLDivElement | null>;
   eventNames?: string[];
+  // Shared across the hero: true while any card is being dragged, so every
+  // conveyor holds still and cards can never ride up over each other.
+  hold: { current: boolean };
 }
 
 // Hero runs as a 2x2 grid: two cards in the upper half, two in the lower half, at all times.
@@ -6477,7 +6480,7 @@ interface FloatingPhotoCardProps {
 // column clears the banner it wraps to the bottom, so the grid never empties.
 const HERO_TRAVERSE_SECONDS = 11; // Time for one card to travel one screen height
 
-const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset, slot, column, constraintsRef, eventNames }) => {
+const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset, slot, column, constraintsRef, eventNames, hold }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(1000);
@@ -6486,6 +6489,7 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
   const isTouching = useRef(false);
   const initialized = useRef(false);
   const pxPerSecond = useRef(0);
+  const snapping = useRef(false);
   const [imgIdx, setImgIdx] = useState(slot + imgOffset);
   const [shownImage, setShownImage] = useState<string>('');
   const prefersReducedMotion = typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
@@ -6514,8 +6518,9 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
 
     let speedMultiplier = 1.0;
     if (prefersReducedMotion) speedMultiplier *= 0.05;
-    // Only the card being hovered, dragged or touched pauses; the others keep moving.
-    if (isHovered.current || isDragging.current || isTouching.current) speedMultiplier = 0;
+    // Cards hold formation: no per-card pausing, and while any card is dragged
+    // the whole hero freezes, so followers never climb over a stopped card.
+    if (isDragging.current || hold.current || snapping.current) speedMultiplier = 0;
 
     let nextY = y.get() - (pxPerSecond.current * dt * speedMultiplier);
 
@@ -6525,14 +6530,14 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
       setImgIdx((prev) => (prev + 4) % Math.max(1, images.length));
     }
 
-    if (!isDragging.current) {
+    if (!isDragging.current && !snapping.current) {
       y.set(nextY);
     }
   });
 
   const currentImage = images.length > 0 ? images[imgIdx % images.length] : PLACEHOLDER_IMAGES[imgIdx % PLACEHOLDER_IMAGES.length];
   const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : (EVENTS_DATA.length > 0 ? EVENTS_DATA[(imgIdx + imgOffset) % EVENTS_DATA.length].name : undefined);
-  const isPausedState = isHovered.current || isDragging.current || isTouching.current;
+  const isPausedState = isDragging.current;
 
   return (
     <motion.div
@@ -6541,8 +6546,28 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
       dragMomentum={false}
       dragElastic={0}
       dragConstraints={constraintsRef}
-      onDragStart={() => { isDragging.current = true; }}
-      onDragEnd={() => { isDragging.current = false; }}
+      onDragStart={() => { isDragging.current = true; hold.current = true; }}
+      onDragEnd={() => {
+        isDragging.current = false;
+        // Glide the card back into its conveyor slot so cards never overlap.
+        const box = constraintsRef.current;
+        if (!box || !cardRef.current) { hold.current = false; return; }
+        const H = box.offsetHeight;
+        const cardH = cardRef.current.offsetHeight || 220;
+        const halfStep = H / 2;
+        const cycle = halfStep * 4;
+        const y0 = H * 0.12 + slot * halfStep;
+        const k = Math.round((y.get() - y0) / cycle);
+        let cand = y0 + k * cycle;
+        while (cand < -(cardH + 60)) cand += cycle;
+        while (cand > H + cardH + 60) cand -= cycle;
+        snapping.current = true;
+        Promise.resolve(animate(y, cand, { duration: 0.45, ease: 'easeOut' })).then(() => {
+          snapping.current = false;
+          hold.current = false;
+        });
+        animate(x, 0, { duration: 0.45, ease: 'easeOut' });
+      }}
       onPointerEnter={(e) => {
         if (e.pointerType === 'mouse') {
           isHovered.current = true;
@@ -6596,6 +6621,7 @@ const heroPreloadedUrls = new Set<string>();
 
 function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: boolean, images: string[], eventNames?: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const holdRef = useRef(false);
   const [cardsReady, setCardsReady] = useState(false);
 
   const baseImages = images.length > 0 ? images : PLACEHOLDER_IMAGES;
@@ -6646,6 +6672,7 @@ function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: b
               slot={slot}
               column={column}
               constraintsRef={containerRef}
+              hold={holdRef}
             />
           ))
         )}

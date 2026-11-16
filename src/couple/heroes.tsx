@@ -90,8 +90,8 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
         const H = el.clientHeight;
         const cw = Math.max(74, Math.min(W * 0.23, 116));
         const ch = cw * 1.55;
-        const gap = Math.max(12, W * 0.035);
-        const s = cw + gap;
+        // Cards cluster tightly, overlapping like a fanned hand of photos.
+        const s = cw * 0.68;
         const span = N * s;
         if (!dragging.current) {
           vel.current += (BASE - vel.current) * Math.min(1, dt * 1.6);
@@ -113,12 +113,18 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
           const node = cardRefs.current[i];
           if (node) {
             const d = Math.exp(-0.5 * ((x - mid) / sigma) ** 2);
-            const y = H * 0.48 - amp * d;
-            const rot = Math.max(-16, Math.min(16, ((x - mid) / W) * 30));
-            const sc = 0.9 + 0.14 * d;
+            // Entrance/exit: a card rises in from the lower left and sinks away
+            // to the lower right, dipping below the arc, tilting further and
+            // fading as it goes, like cards falling off the edge of the fan.
+            const edge = Math.max(0, Math.min(1, (Math.abs(x - mid) - W * 0.16) / (W * 0.46)));
+            const e2 = edge * edge;
+            const y = H * 0.48 - amp * d + H * 0.36 * e2;
+            const rot = Math.max(-16, Math.min(16, ((x - mid) / W) * 30)) + 34 * e2;
+            const sc = (0.9 + 0.14 * d) * (1 - 0.24 * e2);
             node.style.width = `${cw}px`;
             node.style.height = `${ch}px`;
             node.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
+            node.style.opacity = (1 - Math.max(0, (edge - 0.5) / 0.45) * 0.95).toFixed(2);
             node.style.zIndex = String(Math.round(200 - Math.abs(x - mid)));
           }
         }
