@@ -65,7 +65,10 @@ function useSpin(autoDegPerSec: number) {
    event tag. */
 export function HaloHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
-  const N = Math.max(6, Math.min(imgs.length, 8));
+  // Enough cards to blanket the viewport width at fan spacing; photos repeat
+  // as the conveyor cycles, so the count is not limited by the album size.
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 390;
+  const N = Math.max(7, Math.min(20, Math.round((vw + 160) / 58)));
   const stageRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const prevRaw = useRef<number[]>(Array(N).fill(-1));
@@ -88,17 +91,18 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
       if (el) {
         const W = el.clientWidth;
         const H = el.clientHeight;
-        const cw = Math.max(74, Math.min(W * 0.23, 116));
+        const cw = Math.max(88, Math.min(W * 0.34, 150));
         const ch = cw * 1.55;
-        // Cards cluster tightly, overlapping like a fanned hand of photos.
-        const s = cw * 0.58;
-        const span = N * s;
+        // Cards cluster tightly, overlapping like a fanned hand of photos,
+        // and the conveyor spans past both edges of the screen.
+        const span = W + 1.6 * cw;
+        const s = span / N;
         if (!dragging.current) {
           vel.current += (BASE - vel.current) * Math.min(1, dt * 1.6);
           flow.current += vel.current * dt;
         }
         const mid = W / 2;
-        const amp = H * 0.15;
+        const amp = H * 0.16;
         const sigma = W * 0.3;
         for (let i = 0; i < N; i++) {
           const raw = ((flow.current + i * s) % span + span) % span;
@@ -118,7 +122,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
             // fading as it goes, like cards falling off the edge of the fan.
             const edge = Math.max(0, Math.min(1, (Math.abs(x - mid) - W * 0.16) / (W * 0.46)));
             const e2 = edge * edge;
-            const y = H * 0.48 - amp * d + H * 0.36 * e2;
+            const y = H * 0.44 - amp * d + H * 0.36 * e2;
             const rot = Math.max(-16, Math.min(16, ((x - mid) / W) * 30)) + 34 * e2;
             const sc = (0.9 + 0.14 * d) * (1 - 0.24 * e2);
             node.style.width = `${cw}px`;
