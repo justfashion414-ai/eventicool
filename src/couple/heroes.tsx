@@ -113,7 +113,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
           const node = cardRefs.current[i];
           if (node) {
             const d = Math.exp(-0.5 * ((x - mid) / sigma) ** 2);
-            const y = H * 0.52 - amp * d;
+            const y = H * 0.48 - amp * d;
             const rot = Math.max(-16, Math.min(16, ((x - mid) / W) * 30));
             const sc = 0.9 + 0.14 * d;
             node.style.width = `${cw}px`;

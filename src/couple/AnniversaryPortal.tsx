@@ -1716,7 +1716,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
             )}
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={DEMO_COUPLE.header} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={DEMO_COUPLE.header} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={DEMO_COUPLE.header} eventNames={EVENTS.map((e) => e.name)} />}
             {heroTemplate === 'book' && <BookHero images={heroImages} bride={DEMO_COUPLE.bride} groom={DEMO_COUPLE.groom} dotDate={heroDotDate} city={DEMO_COUPLE.city} hashtag={DETAILS.hashtag} eventNames={EVENTS.map((e) => e.name)} />}
         </div>
 
