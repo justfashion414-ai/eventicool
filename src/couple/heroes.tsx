@@ -242,7 +242,7 @@ export function BookHero({ images, bride, groom, dotDate, city, hashtag, eventNa
     <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[78vh] sm:h-[80vh] overflow-hidden hv-book mb-10">
       <p className="hv5-hint">Tap a page or drag to turn</p>
       <div className="hv5-float">
-        <div className="hv5-stage" {...bookHandlers} style={{ ['--shift' as any]: `${(((flipped / L) - 0.5) * 50).toFixed(2)}%` } as Img}>
+        <div className="hv5-stage" {...bookHandlers} style={{ ['--shift' as any]: `${flipped === 0 ? -25 : flipped === L ? 25 : 0}%` } as Img}>
           <i className="hv5-bshadow" />
           {leaves.map((pair, bi) => {
             const isFlipped = bi < flipped;
