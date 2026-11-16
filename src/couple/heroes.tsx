@@ -83,7 +83,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
   useEffect(() => {
     let raf = 0;
     let prev = performance.now();
-    const BASE = 34;
+    const BASE = 21;
     const step = (t: number) => {
       const dt = Math.min(0.05, (t - prev) / 1000);
       prev = t;
@@ -128,7 +128,9 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
             node.style.width = `${cw}px`;
             node.style.height = `${ch}px`;
             node.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
-            node.style.opacity = (1 - Math.max(0, (edge - 0.35) / 0.55) * 0.95).toFixed(2);
+            // No visible fade: a card stays fully opaque while any part of it
+            // is on screen; it exits by dipping below the arch and sliding off
+            // the edge, so the hand never dissolves in view.
             node.style.zIndex = String(Math.round(200 - Math.abs(x - mid)));
           }
         }

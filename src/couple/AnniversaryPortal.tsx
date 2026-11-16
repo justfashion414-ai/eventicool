@@ -564,6 +564,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   const [sharingPost, setSharingPost] = useState<any>(null);
   const [commentsPost, setCommentsPost] = useState<any>(null);
   const [sampleLiked, setSampleLiked] = useState<Record<string, boolean>>({});
+  const [sampleBannerGone, setSampleBannerGone] = useState(false);
   const [activeMediaIndex, setActiveMediaIndex] = useState<{postId: string, index: number} | null>(null);
 
   // PWA Install, Launch Follow-up Splash & Offline State
@@ -2030,6 +2031,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </div>
               )}
 
+              {DEMO && !sampleBannerGone && (
+                <div className="mx-3 mt-3 flex items-start gap-2.5 rounded-2xl border border-dashed border-[var(--ann-accent)] bg-[var(--ann-soft)] px-3.5 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[0.8rem] font-bold leading-snug">You're viewing sample content</p>
+                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">Everything here is placeholder data. As the admin, you'll replace it all from your dashboard.</p>
+                  </div>
+                  <button onClick={() => setSampleBannerGone(true)} aria-label="Dismiss sample notice" className="shrink-0 p-1 -m-1 text-[#5A6970] text-[15px] leading-none">&times;</button>
+                </div>
+              )}
               {isPostsLoading ? (
                 <div className="py-24 flex flex-col items-center justify-center gap-3 border-t border-[#DAD8E3] dark:border-[#22363E]">
                   <div className="flex items-center justify-center gap-2">
@@ -2118,6 +2128,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                           authorUid={p.authorUid}
                           pending={p.pending}
                           onApprove={() => approvePost(p.id)}
+                          sample={DEMO}
                         />
                       );
 
@@ -3383,7 +3394,8 @@ function Post({
   authorRole,
   authorUid,
   pending,
-  onApprove
+  onApprove,
+  sample
 }: any) {
   const [localLiked, setLocalLiked] = useState(false);
   const [localLoved, setLocalLoved] = useState(false);
@@ -3427,6 +3439,7 @@ function Post({
             {authorRole === 'vendor' && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>)}
             {authorRole === 'couple' && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>)}
             {pending && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-white">Awaiting approval</span>)}
+            {sample && (<span className="ml-1 inline-block align-middle text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#5A6970] text-white">Sample</span>)}
             <span className="text-[0.8rem] text-[#5A6970] dark:text-[#93A4AB] flex items-center gap-1">
               <span aria-hidden="true">·</span>
               <span>{time}</span>
@@ -3775,7 +3788,8 @@ function ReelCard({
   onShare,
   onComment,
   onAvatarClick,
-  hasNext
+  hasNext,
+  sample
 }: any) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -3958,6 +3972,7 @@ function ReelCard({
                 {reel.isAd ? (reel.sponsorName || 'Featured Partner') : (reel.authorName || 'Guest')}
               </strong>
               {reelRole === 'vendor' && <span className="text-[10px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>}
+              {(isSample || sample) && <span className="text-[10px] font-bold px-2 py-[1px] rounded-full bg-white/25 text-white border border-white/40">Sample</span>}
               {reelRole === 'couple' && <span className="text-[10px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>}
               <span className="text-[0.7rem] text-white/70"> · {reel.isAd ? 'Sponsored' : formattedDate}</span>
             </div>
@@ -4101,6 +4116,7 @@ function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }:
             <strong className="text-[0.95rem] leading-tight">{post.authorName}</strong>
             {post.role === 'vendor' && <span className="text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#C8932A] text-[#21122B]">Official</span>}
             {post.role === 'couple' && <span className="text-[11px] font-bold px-2 py-[1px] rounded-full bg-[var(--ann-accent)] text-white">Couple</span>}
+            <span className="text-[11px] font-bold px-2 py-[1px] rounded-full bg-[#5A6970] text-white">Sample</span>
             <span className={`text-[0.72rem] ${mutedCls}`}> · {post.timeAgo}</span>
           </div>
           <p className={`text-[0.72rem] ${mutedCls}`}>{post.eventName}</p>

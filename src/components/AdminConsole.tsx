@@ -109,6 +109,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [toast, setToast] = useState('')
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [editTpl, setEditTpl] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // onboarding form
@@ -575,20 +576,33 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
                 <div className="row" style={{ flex: 1, minWidth: 250 }}>
                   <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
-                  <input
-                    value={meta.name ?? ''}
-                    placeholder={TP[k].name}
-                    aria-label={`${TP[k].name} display name`}
-                    style={{ width: 110 }}
-                    onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, name: e.target.value } } })}
-                  />
-                  <input
-                    value={meta.d ?? ''}
-                    placeholder={TP[k].tagline}
-                    aria-label={`${TP[k].name} tagline`}
-                    style={{ flex: 1, minWidth: 150 }}
-                    onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, d: e.target.value } } })}
-                  />
+                  {editTpl === k ? (
+                    <>
+                      <input
+                        value={meta.name ?? ''}
+                        placeholder={TP[k].name}
+                        aria-label={`${TP[k].name} display name`}
+                        style={{ width: 110 }}
+                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, name: e.target.value } } })}
+                      />
+                      <input
+                        value={meta.d ?? ''}
+                        placeholder={TP[k].tagline}
+                        aria-label={`${TP[k].name} tagline`}
+                        style={{ flex: 1, minWidth: 150 }}
+                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, d: e.target.value } } })}
+                      />
+                      <button className="btn g s" aria-label={`Done editing ${TP[k].name}`} onClick={() => setEditTpl(null)}>Done</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ flex: 1, minWidth: 150 }}>
+                        <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
+                        <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</div>
+                      </div>
+                      <button className="btn g s" aria-label={`Edit ${TP[k].name} name`} onClick={() => setEditTpl(k)}>Edit</button>
+                    </>
+                  )}
                 </div>
                 <div className="row">
                   {Object.keys(ACC6).map((ak) => (

@@ -105,8 +105,8 @@
 .hv5-float { position: absolute; inset: 0; animation: hv5-bob 7s ease-in-out infinite; }
 @keyframes hv5-bob { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(6px); } }
 .hv5-stage {
-  --pw: clamp(132px, 47vw, 248px);
-  --ph: calc(var(--pw) * 1.74);
+  --pw: clamp(140px, 48vw, 260px);
+  --ph: calc(var(--pw) * 1.95);
   position: absolute; left: 50%; top: 50%;
   width: calc(var(--pw) * 2); height: var(--ph);
   transform: translate(-50%, -50%) translateX(var(--shift, 0%));
