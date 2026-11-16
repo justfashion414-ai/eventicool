@@ -43,7 +43,7 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, demoEvents } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents } from './lib/demoMode';
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
 import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
@@ -6624,7 +6624,7 @@ function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: b
   const holdRef = useRef(false);
   const [cardsReady, setCardsReady] = useState(false);
 
-  const baseImages = images.length > 0 ? images : PLACEHOLDER_IMAGES;
+  const baseImages = images.length > 0 ? images : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
   const baseKey = baseImages.join('|');
 
   // Keep every hero image warm in the browser cache, and only mount the cards

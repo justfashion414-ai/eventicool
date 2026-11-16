@@ -91,7 +91,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
         const cw = Math.max(74, Math.min(W * 0.23, 116));
         const ch = cw * 1.55;
         // Cards cluster tightly, overlapping like a fanned hand of photos.
-        const s = cw * 0.68;
+        const s = cw * 0.58;
         const span = N * s;
         if (!dragging.current) {
           vel.current += (BASE - vel.current) * Math.min(1, dt * 1.6);
@@ -124,7 +124,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
             node.style.width = `${cw}px`;
             node.style.height = `${ch}px`;
             node.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
-            node.style.opacity = (1 - Math.max(0, (edge - 0.5) / 0.45) * 0.95).toFixed(2);
+            node.style.opacity = (1 - Math.max(0, (edge - 0.35) / 0.55) * 0.95).toFixed(2);
             node.style.zIndex = String(Math.round(200 - Math.abs(x - mid)));
           }
         }
