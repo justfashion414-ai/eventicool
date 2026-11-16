@@ -1,34 +1,32 @@
-import { lazy, Suspense } from 'react'
-import type { Tpl } from './TemplateApp'
+import { lazy, Suspense } from 'react';
 
-const TemplateApp = lazy(() => import('./TemplateApp'))
+const AnniversaryPortal = lazy(() => import('./AnniversaryPortal'));
 
-// Six Eventicor accents mapped onto the templateable couple app: --b background,
-// --f foreground, --a accent (the landing's TP palette, verbatim).
-const ACCENTS: Record<string, { b: string; f: string; a: string }> = {
-  midnight: { b: '#14122b', f: '#f4e9d3', a: '#d8b06a' },
-  blush:    { b: '#fbe1e8', f: '#4a1530', a: '#d6285f' },
-  emerald:  { b: '#0c4a36', f: '#f2f8ee', a: '#f4b393' },
-  royal:    { b: '#2236b4', f: '#ffffff', a: '#f6d36b' },
-  sunset:   { b: '#2b1a12', f: '#fdeedd', a: '#e07a4f' },
-  sage:     { b: '#1f2b25', f: '#eef5ef', a: '#8fbfa3' },
-}
-const TPL_ACCENT: Record<Tpl, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+// Six Eventicor accents, mapped onto the couple app's palette.
+const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = {
+  midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
+  blush:    { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
+  emerald:  { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
+  royal:    { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
+  sunset:   { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
+  sage:     { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+};
+const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
 export default function CoupleApp() {
-  const params = new URLSearchParams(window.location.search)
-  const tplRaw = (params.get('tpl') || 'classic') as Tpl
-  const tpl: Tpl = ['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic'
-  const accKey = ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight')
-  const acc = ACCENTS[accKey]
+  const params = new URLSearchParams(window.location.search);
+  const tplRaw = params.get('tpl') || 'classic';
+  const tpl = ['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic';
+  const accKey = ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight');
+  const acc = ACCENTS[accKey];
   return (
     <div
       className="ev-couple-root"
-      style={{ ['--b' as any]: acc.b, ['--f' as any]: acc.f, ['--a' as any]: acc.a }}
+      style={{ ['--ann-accent' as any]: acc.accent, ['--ann-hero' as any]: acc.hero, ['--ann-soft' as any]: acc.soft }}
     >
       <Suspense fallback={null}>
-        <TemplateApp tpl={tpl} />
+        <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} />
       </Suspense>
     </div>
-  )
+  );
 }

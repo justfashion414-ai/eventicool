@@ -1,0 +1,127 @@
+/* Template hero sections for the Eventicor couple app. Each template swaps ONLY
+   this hero; every other section (banner, story, journey, wedding day, vendors,
+   giant footer, feed, settings) is the shared wedding app, unchanged.
+   Themed on the app's own palette: --ann-hero (deep background),
+   --ann-accent (accent), --ann-soft. */
+
+.hv-wrap {
+  --serif: 'Playfair Display', Georgia, serif;
+  --body: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ---------- HALO ARC: a fan of photos arcing up from below ---------- */
+.hv-halo {
+  position: relative; overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 120%, rgba(255,255,255,.14), transparent 55%),
+    linear-gradient(180deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 78%, #000));
+}
+.hv-fan {
+  position: absolute; left: 50%; bottom: -40px; width: 0; height: 0;
+  animation: hv-sway 12s ease-in-out infinite;
+}
+.hv-fan i {
+  position: absolute; left: -42px; bottom: 0; width: 84px; height: 112px; border-radius: 14px;
+  border: 4px solid rgba(255,255,255,.94); box-shadow: 0 10px 22px rgba(0,0,0,.4);
+  background-size: cover; background-position: center;
+  transform-origin: 50% 100%; transform: rotate(var(--r)) translateY(-104px);
+}
+.hv-fan i::after {
+  content: ""; position: absolute; left: 50%; bottom: 8px; width: 22px; height: 2px;
+  transform: translateX(-50%); border-radius: 2px; background: rgba(0,0,0,.22);
+}
+@keyframes hv-sway { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+.hv-halo-sub {
+  position: absolute; left: 0; right: 0; bottom: 26px; text-align: center;
+  font: italic 500 15px var(--serif); color: var(--ann-soft); opacity: .85;
+}
+
+/* ---------- HERO DECK: stacked cards cycling to the front ---------- */
+.hv-deck {
+  position: relative; overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255,255,255,.1), transparent 55%),
+    linear-gradient(180deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 76%, #000));
+}
+.hv-deck-stage { position: relative; max-width: 520px; height: 100%; margin: 0 auto; }
+.hv-dmeta {
+  position: absolute; top: 18px; left: 18px; right: 18px; z-index: 6;
+  display: flex; justify-content: space-between;
+  font: 700 10px var(--body); letter-spacing: .16em; color: var(--ann-soft);
+  text-transform: uppercase; opacity: .9;
+}
+.hv-dmeta b { color: var(--ann-soft); }
+.hv-stack { position: absolute; inset: 0; }
+.hv-cfc {
+  position: absolute; top: 12%; left: 22%; width: 56%; height: 74%;
+  border-radius: 16px; border: 4px solid rgba(255,255,255,.92);
+  box-shadow: 0 12px 26px rgba(0,0,0,.45);
+  background-size: cover; background-position: center;
+  animation: hv-deckmove var(--dur, 15s) linear infinite;
+  animation-delay: var(--dl, 0s);
+}
+.hv-cfc:nth-child(2) { left: 62%; transform: scale(.8) rotate(9deg); opacity: .55; }
+.hv-cfc:nth-child(3) { left: 84%; transform: scale(.62) rotate(14deg); opacity: .3; }
+.hv-cfc:nth-child(4) { left: -14%; transform: scale(.62) rotate(-14deg); opacity: .3; }
+.hv-cfc:nth-child(5) { left: 0; transform: scale(.8) rotate(-9deg); opacity: .55; }
+@keyframes hv-deckmove {
+  0% { left: 22%; transform: scale(1) rotate(0); opacity: 1; z-index: 5; }
+  20% { left: 62%; transform: scale(.8) rotate(9deg); opacity: .55; z-index: 3; }
+  40% { left: 84%; transform: scale(.62) rotate(14deg); opacity: .3; z-index: 1; }
+  60% { left: -14%; transform: scale(.62) rotate(-14deg); opacity: .3; z-index: 1; }
+  80% { left: 0; transform: scale(.8) rotate(-9deg); opacity: .55; z-index: 3; }
+  100% { left: 22%; transform: scale(1) rotate(0); opacity: 1; z-index: 5; }
+}
+
+/* ---------- OPEN BOOK: a flipping hardback ---------- */
+.hv-book {
+  position: relative; overflow: hidden;
+  background: radial-gradient(circle at 50% 32%, #f5eee1, #c9b9a0);
+  --u: 1;
+}
+@media (max-width: 480px) { .hv-book { --u: .82; } }
+.hv-book-stage {
+  position: absolute; left: 50%; top: 50%; perspective: 1300px;
+  transform: translate(calc(-94px * var(--u)), -50%);
+}
+.hv-bshadow { position: absolute; border-radius: 50%; background: radial-gradient(rgba(0,0,0,.5), transparent 70%); filter: blur(7px); z-index: 0; }
+.hv-leaf {
+  position: absolute; left: 0; transform-origin: 0 50%; transform-style: preserve-3d;
+  border-radius: 2px 8px 8px 2px; transform: translateZ(calc((4 - var(--li)) * 1.5px));
+  animation: hv-turn 18s ease-in-out infinite;
+}
+@keyframes hv-turn {
+  0% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(0deg); }
+  6% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(-180deg); }
+  88% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(-180deg); }
+  94%, 100% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(0deg); }
+}
+.hv-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; border-radius: 2px 8px 8px 2px; box-shadow: 0 5px 12px rgba(0,0,0,.2); }
+.hv-face.bf { transform: rotateY(180deg); border-radius: 8px 2px 2px 8px; }
+.hv-face > i { position: absolute; inset: 0; display: block; pointer-events: none; }
+.hv-sp1 { background: linear-gradient(90deg, rgba(0,0,0,.35), transparent 18%); }
+.hv-sp2 { background: linear-gradient(270deg, rgba(0,0,0,.35), transparent 18%); }
+.hv-shade { opacity: .12; background: linear-gradient(90deg, transparent, rgba(0,0,0,.8)); }
+.hv-page {
+  position: absolute; inset: 0; background: linear-gradient(#fbf7ef, #f0e7d6);
+  padding: calc(10px * var(--u)); display: flex; flex-direction: column; color: #5b4a35;
+}
+.hv-page .hv-pimg { flex: 1; border: calc(4px * var(--u)) solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.25); border-radius: 2px; background-size: cover; background-position: center; }
+.hv-pcap { font: italic 500 calc(13px * var(--u)) var(--serif); text-align: center; margin-top: calc(8px * var(--u)); }
+.hv-pno { position: absolute; bottom: calc(3px * var(--u)); left: 0; right: 0; text-align: center; font-size: calc(9px * var(--u)); opacity: .5; }
+.hv-page.ktx { align-items: center; justify-content: center; text-align: center; gap: calc(6px * var(--u)); }
+.hv-page.ktx small { font-size: calc(8px * var(--u)); letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
+.hv-page.ktx b { font: 600 calc(21px * var(--u))/1.1 var(--serif); color: #2a2858; }
+.hv-page.ktx i { font: italic calc(10.5px * var(--u)) var(--serif); }
+.hv-page.ktx span { font-size: calc(10px * var(--u)); font-weight: 600; }
+.hv-star { color: #c8932a; font-size: calc(14px * var(--u)); }
+.hv-cover {
+  position: absolute; inset: 0; background: linear-gradient(135deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 60%, #000) 80%);
+  color: var(--ann-soft); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: calc(8px * var(--u));
+}
+.hv-cover::before { content: ""; position: absolute; inset: calc(9px * var(--u)); border: 1px solid color-mix(in srgb, var(--ann-accent) 70%, transparent); border-radius: 4px; }
+.hv-cover small { font-size: calc(8px * var(--u)); letter-spacing: .24em; }
+.hv-cover b { font: 600 calc(25px * var(--u))/1.1 var(--serif); }
+.hv-cover span { font-size: calc(10px * var(--u)); letter-spacing: .14em; }
+.hv-cover.kbc b, .hv-cover.kbc span { font-size: calc(11px * var(--u)); }

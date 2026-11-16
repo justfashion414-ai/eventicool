@@ -43,8 +43,10 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, demoEvents } from './lib/demoMode';
+import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
-import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
 import { 
   collection, 
   query, 
@@ -60,7 +62,7 @@ import {
   increment,
   updateDoc,
   getDocs
-} from 'firebase/firestore';
+} from './lib/firestoreShim';
 
 
 
@@ -128,6 +130,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 interface AnniversaryPortalProps {
   onBackToMain: () => void;
   previewMode?: boolean;
+  template?: 'classic' | 'halo' | 'hero' | 'book';
 }
 
 export interface AdItem {
@@ -155,10 +158,10 @@ interface WeddingEvent {
   status?: 'done' | 'next' | 'up';
 }
 
-const WEDDING_DATE = '2026-12-12';
-const WEDDING_TIME = '11:00';
+const WEDDING_DATE = DEMO ? DEMO_WEDDING_DATE : '2026-12-12';
+const WEDDING_TIME = DEMO ? DEMO_WEDDING_TIME : '11:00';
 
-const EVENTS_DATA: WeddingEvent[] = [
+const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
   { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
   { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: '2026-07-18', desc: 'The ring, the yes and the first big celebration together.' },
   { id: 'court', name: 'Court Wedding', type: 'Registry', date: '2026-08-28', desc: 'Signing the register with our closest people.' },
@@ -188,9 +191,9 @@ const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
 const fmtEventDate = (e: { date: string; time?: string }) =>
   new Date(`${e.date}T${e.time || '12:00'}:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
-const DEFAULT_STORY = "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
+const DEFAULT_STORY = DEMO ? DEMO_STORY : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
 
-const DEFAULT_DETAILS = {
+const DEFAULT_DETAILS: any = DEMO ? DEMO_DETAILS : {
   churchTime: '11:00 am',
   churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
   receptionTime: '3:00 pm',
@@ -418,7 +421,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   throw new Error(`Upload failed: ${errorInfo}`);
 };
 
-export default function AnniversaryPortal({ onBackToMain, previewMode }: AnniversaryPortalProps) {
+export default function AnniversaryPortal({ onBackToMain, previewMode, template }: AnniversaryPortalProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
   });
@@ -1153,6 +1156,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
   const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : EVENTS_DATA;
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : DEFAULT_STORY;
   const DETAILS: any = cfgDetails || DEFAULT_DETAILS;
+  const heroTemplate = template || 'classic';
+  const _heroWed = new Date(`${WEDDING_DATE}T12:00:00`);
+  const heroDateShort = _heroWed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const _hpd = (x: number) => (x < 10 ? '0' : '') + x;
+  const heroDotDate = `${_hpd(_heroWed.getDate())} · ${_hpd(_heroWed.getMonth() + 1)} · ${_heroWed.getFullYear()}`;
   const vendorRequests = residents.filter((r: any) => r?.vendorRequest && r.vendorRequest.status === 'pending');
 
   const updateAccessCode = async (newCode: string) => {
@@ -1277,7 +1285,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
     const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
     const title = p.text || p.caption || 'A memory from Dara & Femi';
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
-      try { await (navigator as any).share({ title: 'Dara & Femi', text: title, url }); return; } catch { return; }
+      try { await (navigator as any).share({ title: DEMO_COUPLE.header, text: title, url }); return; } catch { return; }
     }
     setSharingPost(p);
   };
@@ -1382,7 +1390,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
       const txt = p.text || p.caption || '';
       return `<section class="card"><header><b>${esc(p.authorName || 'A guest')}</b><span>${esc(evName)}</span></header>${img}<p>${esc(txt)}</p></section>`;
     }).join('');
-    win.document.write(`<!doctype html><html><head><title>Dara &amp; Femi memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>Dara &amp; Femi</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
+    win.document.write(`<!doctype html><html><head><title>${esc(DEMO_COUPLE.header)} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(DEMO_COUPLE.header)}</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
     win.document.close();
   };
 
@@ -1633,9 +1641,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
               >
                 <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
-                  Dara
+                  {DEMO ? 'Amara' : 'Dara'}
                   <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
-                  Femi
+                  {DEMO ? 'Daniel' : 'Femi'}
                 </h1>
                 <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
@@ -1657,7 +1665,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
         <header className={`sticky top-0 z-[60] backdrop-blur-md px-5 py-3.5 border-b transition-colors ${isDarkMode ? 'bg-[#0B171C]/80 border-[#22363E]' : 'bg-[#EEEDF3]/80 border-[#DAD8E3]'}`}>
           <div className="max-w-[520px] mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">Dara &amp; Femi</h1>
+              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">{DEMO_COUPLE.header}</h1>
               {!isOnline && (
                 <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[10px] font-black uppercase tracking-wider">
                   Offline
@@ -1694,7 +1702,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
           }
           aria-hidden={activeTab !== 'home'}
         >
-           <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
+           {heroTemplate === 'classic' && (
+              <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
+            )}
+            {heroTemplate === 'halo' && <HaloHero images={heroImages} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} dateShort={heroDateShort} city={DEMO_COUPLE.city} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={DEMO_COUPLE.bride} groom={DEMO_COUPLE.groom} dotDate={heroDotDate} city={DEMO_COUPLE.city} hashtag={DETAILS.hashtag} />}
         </div>
 
         {/* TOAST NOTIFICATION */}
@@ -1748,9 +1761,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
               }}>
                 <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
                 <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  Dara
+                  {DEMO ? 'Amara' : 'Dara'}
                   <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  Femi
+                  {DEMO ? 'Daniel' : 'Femi'}
                 </h2>
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
 
@@ -1935,10 +1948,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
                     transition={{ duration: 0.8, ease: "circOut" }}
                   >
                     <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase mb-0 text-[var(--ann-accent)] drop-shadow-sm">
-                      Dara
+                      {DEMO ? 'Amara' : 'Dara'}
                     </h2>
                     <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase flex items-center justify-center gap-[0.05em] text-[var(--ann-accent)] drop-shadow-sm">
-                      <span>&amp; Femi</span>
+                      <span>&amp; {DEMO ? 'Daniel' : 'Femi'}</span>
                       <motion.div
                         animate={{ scale: [1, 1.2, 1], rotate: [0, 12, 0] }}
                         transition={{ repeat: Infinity, duration: 4 }}
@@ -1965,7 +1978,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
               <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
-                    <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">Dara &amp; Femi</h4>
+                    <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{DEMO_COUPLE.header}</h4>
                     <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · 12 December 2026</p>
                   </div>
                   <div className="pt-2 opacity-40">
@@ -2241,7 +2254,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
                     <label className={`block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50 ${isDarkMode ? 'text-white' : 'text-[#14262D]'}`}>Display Name</label>
                     <input 
                       type="text"
-                      placeholder="e.g. Tolu (Dara's cousin)"
+                      placeholder="e.g. Tolu (the bride's cousin)"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className={`w-full p-4 rounded-xl border-none outline-none font-bold transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
@@ -2306,7 +2319,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
               <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">About</h2>
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px]">
-                  <strong className="block text-[1rem]">Dara &amp; Femi 2026</strong>
+                  <strong className="block text-[1rem]">{DEMO_COUPLE.header}{DEMO ? '' : ' 2026'}</strong>
                   <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
                 </div>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
@@ -2329,7 +2342,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
                     }}
                     className={`text-xs font-bold tracking-wide select-none cursor-pointer ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
                   >
-                    Happy Wedding, Dara &amp; Femi
+                    {DEMO ? 'Happy Wedding, Amara & Daniel' : 'Happy Wedding, Dara & Femi'}
                   </span>
                 </div>
               </div>
@@ -2938,7 +2951,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode }: Anniver
                     30
                   </div>
                   <div>
-                    <h3 className="text-lg font-black font-display leading-tight">Install Dara &amp; Femi</h3>
+                    <h3 className="text-lg font-black font-display leading-tight">{DEMO ? 'Install Amara & Daniel' : 'Install Dara & Femi'}</h3>
                     <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                       Add to your Home Screen for quick &amp; offline access
                     </p>
@@ -3061,7 +3074,7 @@ function WhatsAppIcon({ className = "w-7 h-7" }: { className?: string }) {
 
 function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
   const shareUrl = `${window.location.origin}${window.location.pathname}?post=${post.id || post.uid}`;
-  const title = post.text || "Check out this memory from Dara & Femi's wedding!";
+  const title = post.text || (DEMO ? "Check out this memory from Amara & Daniel's wedding!" : "Check out this memory from Dara & Femi's wedding!");
 
   const shareOptions = [
     { 
