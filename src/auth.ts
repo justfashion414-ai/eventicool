@@ -2,6 +2,8 @@ import { app, proxyCall } from './firebase'
 import {
   getAuth,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
   signInAnonymously,
@@ -10,19 +12,24 @@ import {
 
 export const auth = getAuth(app)
 
-/** Admin gate: a server-verified admins/{email} Firestore doc, checked through the proxy. */
+// Admins stay signed in across visits: persist the session locally.
+setPersistence(auth, browserLocalPersistence).catch(() => {})
+
+/** Admin gate: a server-verified admins/{email} Firestore doc, checked through the proxy.
+ * Throws when the check itself fails (network, proxy, token) so callers never
+ * mistake a failed check for "not an admin" and sign the admin out. */
 export async function getAdminDoc(user: User | null): Promise<Record<string, unknown> | null> {
   if (!user || !user.email) return null
-  try {
-    const doc = await proxyCall('get', { collection: 'admins', id: user.email.toLowerCase() })
-    return (doc && typeof doc === 'object' ? doc : null) as Record<string, unknown> | null
-  } catch {
-    return null
-  }
+  const doc = await proxyCall('get', { collection: 'admins', id: user.email.toLowerCase() })
+  return (doc && typeof doc === 'object' ? doc : null) as Record<string, unknown> | null
 }
 
 export async function isAdmin(user: User | null): Promise<boolean> {
-  return !!(await getAdminDoc(user))
+  try {
+    return !!(await getAdminDoc(user))
+  } catch {
+    return false
+  }
 }
 
 export function watchAuth(cb: (user: User | null) => void) {

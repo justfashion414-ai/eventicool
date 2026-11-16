@@ -8,7 +8,7 @@ import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
 import SetPassword from './components/SetPassword'
 const CoupleApp = lazy(() => import('./couple/CoupleApp'))
 
-type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out'
+type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out' | 'check-error'
 
 function navigate(to: string) {
   window.history.pushState({}, '', to)
@@ -35,8 +35,13 @@ export default function App() {
           return
         }
         setAdminState('loading')
-        const doc = await getAdminDoc(u)
-        setAdminState(!doc ? 'not-admin' : doc.mustChangePassword ? 'must-change' : 'admin')
+        try {
+          const doc = await getAdminDoc(u)
+          setAdminState(!doc ? 'not-admin' : doc.mustChangePassword ? 'must-change' : 'admin')
+        } catch {
+          // A failed access check (network, proxy hiccup) must never log the admin out.
+          setAdminState('check-error')
+        }
       }),
     [],
   )
@@ -48,6 +53,15 @@ export default function App() {
     }
   }, [route, adminState])
 
+  function retryAdminCheck() {
+    setAdminState('loading')
+    const u = user
+    if (!u) { setAdminState('signed-out'); return }
+    getAdminDoc(u)
+      .then((doc) => setAdminState(!doc ? 'not-admin' : (doc as any).mustChangePassword ? 'must-change' : 'admin'))
+      .catch(() => setAdminState('check-error'))
+  }
+
   if (route === '/app') {
     return <Suspense fallback={null}><CoupleApp /></Suspense>
   }
@@ -58,6 +72,21 @@ export default function App() {
     }
     if (adminState === 'signed-out') {
       return <Login onDone={() => navigate('/admin')} />
+    }
+    if (adminState === 'check-error') {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center">
+          <span className="max-w-xs text-sm text-slate-600">
+            We could not verify your access just now. You are still signed in. Check your connection and try again.
+          </span>
+          <button
+            onClick={retryAdminCheck}
+            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+          >
+            Try again
+          </button>
+        </main>
+      )
     }
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
