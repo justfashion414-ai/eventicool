@@ -224,3 +224,12 @@
   --color-ann-soft: var(--ann-soft);
   font-family: var(--font-sans);
 }
+
+/* Countdown odometer: each figure rolls in from the top and the previous one
+   drops out below, so the numbers visibly tick downward as time passes. */
+.cnt-cell{position:relative;display:block;overflow:hidden;}
+.cnt-in{display:block;animation:cntIn .45s cubic-bezier(.22,.61,.36,1) both;}
+.cnt-out{position:absolute;left:0;right:0;top:0;display:block;animation:cntOut .45s cubic-bezier(.22,.61,.36,1) both;pointer-events:none;}
+@keyframes cntIn{from{transform:translateY(-105%);opacity:0}55%{opacity:1}to{transform:translateY(0);opacity:1}}
+@keyframes cntOut{from{transform:translateY(0);opacity:1}to{transform:translateY(105%);opacity:0}}
+@media (prefers-reduced-motion:reduce){.cnt-in,.cnt-out{animation:none}}

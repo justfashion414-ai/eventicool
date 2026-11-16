@@ -104,9 +104,16 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
         const mid = W / 2;
         const amp = H * 0.16;
         const sigma = W * 0.3;
+        // Part the cards around the middle: extra breathing room near the
+        // centre so a photo crossing it shows FULLY (never half-covered by a
+        // neighbour first and half-covered again after), while the edges keep
+        // the tight fanned-hand look.
+        const spreadSig = cw * 0.8;
+        const spreadK = spreadSig * Math.max(0, (cw + 6) / s - 1);
         for (let i = 0; i < N; i++) {
           const raw = ((flow.current + i * s) % span + span) % span;
-          const x = raw - 1.2 * cw;
+          const u = raw - 1.2 * cw;
+          const x = mid + (u - mid) + spreadK * Math.tanh((u - mid) / spreadSig);
           if (prevRaw.current[i] >= 0) {
             if (raw < prevRaw.current[i] - span / 2 || raw > prevRaw.current[i] + span / 2) {
               const p = nextPhoto.current++ % imgs.length;

@@ -130,3 +130,12 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l #ac .chip{font-size:12px;padding:6px 7px}
 #ev-l #ac .chip i{width:16px;height:16px}
 }
+
+/* Static gallery cards: every template shows the event countdown/date strip,
+   and the classic card's Engagement / Bridal-shower rows sit just above the
+   bottom nav so the photos get the room. */
+#ev-l .bd.st{display:flex;flex-direction:column}
+#ev-l .bd.st .ev.d{margin-top:auto}
+#ev-l .bd .cd{flex:none;align-self:stretch}
+#ev-l .bd.bkb .kbw{inset:0 0 62px 0}
+#ev-l .bd.bkb .cd{position:absolute;left:12px;right:12px;bottom:6px;margin:0}

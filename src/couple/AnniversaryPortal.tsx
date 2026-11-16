@@ -161,6 +161,16 @@ interface WeddingEvent {
 const WEDDING_DATE = DEMO ? DEMO_WEDDING_DATE : '2026-12-12';
 const WEDDING_TIME = DEMO ? DEMO_WEDDING_TIME : '11:00';
 
+// Everything that displays the wedding date derives from WEDDING_DATE, so the
+// date shown and the days-to-go countdown can never disagree again.
+const WED_DT = new Date(`${WEDDING_DATE}T12:00:00`);
+const WED_DAY_SHORT = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const WED_YEAR = String(WED_DT.getFullYear());
+const WED_FULL = WED_DT.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const WED_LONG = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+const p2 = (x: number) => (x < 10 ? '0' : '') + x;
+const WED_DOT = `${p2(WED_DT.getDate())}.${p2(WED_DT.getMonth() + 1)}.${WED_DT.getFullYear()}`;
+
 const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
   { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
   { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: '2026-07-18', desc: 'The ring, the yes and the first big celebration together.' },
@@ -1786,8 +1796,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   <div className="mt-5 mx-auto bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md">
                     <div className="flex items-stretch justify-center divide-x divide-white/25">
                       <div className="px-5 text-center">
-                        <b className="block text-[1.5rem] font-serif-display leading-none">12 Dec</b>
-                        <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">2026</span>
+                        <b className="block text-[1.5rem] font-serif-display leading-none">{WED_DAY_SHORT}</b>
+                        <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">{WED_YEAR}</span>
                       </div>
                       <div className="px-5 text-center">
                         <b className="block text-[1.5rem] font-serif-display leading-none">Lagos</b>
@@ -1815,20 +1825,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   </div>
                 )}
 
-                <button
-                  onClick={() => setActiveTab('feed')}
-                  className="mt-5 inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-white text-[var(--ann-hero)] text-sm hover:scale-105 transition-all"
-                >
-                  See what guests are posting
-                  <motion.span
-                    animate={{ x: [0, 5, 0] }}
-                    transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                    className="flex items-center"
-                  >
-                    <ChevronRight className="w-5 h-5 stroke-[3]" />
-                  </motion.span>
-                </button>
-              </div>
+                              </div>
 
               {!DEMO && !isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
                 <div className={`rounded-[20px] p-[18px] mt-4 border flex items-center gap-3 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -1892,7 +1889,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               {/* WEDDING DAY DETAILS */}
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
-                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Saturday, 12 December 2026</p>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
                 <div className={`p-[16px_18px] rounded-[20px] border space-y-3.5 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                   <div>
                     <strong className="block text-[0.93rem]">Church wedding · {DETAILS.churchTime}</strong>
@@ -1976,7 +1973,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   >
                     <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
                     <p className="text-[clamp(0.8rem,3vw,1.5rem)] font-display font-black tracking-[0.4em] uppercase whitespace-nowrap opacity-60 text-[var(--ann-accent)]">
-                      12.12.2026, Lagos
+                      {WED_DOT}, Lagos
                     </p>
                     <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
                   </motion.div>
@@ -1987,7 +1984,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{DEMO_COUPLE.header}</h4>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · 12 December 2026</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · {WED_LONG}</p>
                   </div>
                   <div className="pt-2 opacity-40">
                     <p className="text-[0.65rem] font-bold uppercase tracking-widest">Wedding memories, kept for life</p>
@@ -6586,6 +6583,29 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
 
 // Live countdown to the wedding day, ticking every second; shown under the
 // date and location inside the names banner.
+// One countdown number as a tiny vertical odometer: the fresh figure rolls in
+// from above and the previous one drops out below, so the figures visibly tick
+// downward every time they change.
+function RollNum({ value }: { value: string }) {
+  const [state, setState] = useState<{ cur: string; prev: string | null }>({ cur: value, prev: null });
+  useEffect(() => {
+    setState((s) => (value === s.cur ? s : { cur: value, prev: s.cur }));
+  }, [value]);
+  useEffect(() => {
+    if (!state.prev) return;
+    const t = window.setTimeout(() => setState((s) => ({ ...s, prev: null })), 480);
+    return () => window.clearTimeout(t);
+  }, [state.prev]);
+  return (
+    <span className="cnt-cell">
+      <span className="cnt-in" key={`in-${state.cur}`}>{state.cur}</span>
+      {state.prev != null && (
+        <span className="cnt-out" key={`out-${state.prev}-${state.cur}`}>{state.prev}</span>
+      )}
+    </span>
+  );
+}
+
 function CountdownRow({ date, time }: { date: string; time: string }) {
   const target = new Date(`${date}T${time}:00`).getTime();
   const [now, setNow] = useState(() => Date.now());
@@ -6608,7 +6628,7 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
     <div className="mt-3 pt-3 border-t border-white/25 flex items-stretch justify-center divide-x divide-white/20">
       {units.map(([v, l]) => (
         <div key={l} className="px-3 sm:px-4 text-center min-w-[52px]">
-          <b className="block text-[1.05rem] font-serif-display leading-none tabular-nums">{v}</b>
+          <b className="block text-[1.05rem] font-serif-display leading-none tabular-nums"><RollNum value={v} /></b>
           <span className="block text-[0.6rem] uppercase tracking-wider opacity-75 mt-1">{l}</span>
         </div>
       ))}
