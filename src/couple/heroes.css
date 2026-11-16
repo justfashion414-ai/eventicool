@@ -40,14 +40,14 @@
 }
 .hv2-tag {
   position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%);
-  padding: 3px 9px; border-radius: 999px; white-space: nowrap; max-width: 92%;
+  padding: 3.5px 10px; border-radius: 999px; white-space: nowrap; max-width: 96%;
   overflow: hidden; text-overflow: ellipsis;
-  font: 700 8.5px/1.2 var(--body); letter-spacing: .09em; text-transform: uppercase;
+  font: 700 9.5px/1.2 var(--body); letter-spacing: .03em;
   background: rgba(8,10,16,.55); color: #fff; border: 1px solid rgba(255,255,255,.4);
   backdrop-filter: blur(4px);
 }
 .hv2-names {
-  position: absolute; left: 0; right: 0; bottom: 3.5vh; z-index: 5;
+  position: absolute; left: 0; right: 0; bottom: 12vh; z-index: 5;
   text-align: center; pointer-events: none; padding: 0 16px;
 }
 .hv2-names h2 {
@@ -79,15 +79,15 @@
   text-shadow: 0 2px 18px rgba(0,0,0,.5);
 }
 .hv3-stage {
-  position: absolute; inset: 0; perspective: 1300px;
+  position: absolute; inset: 0; perspective: 1050px;
   touch-action: pan-y; cursor: grab; user-select: none;
 }
 .hv3-stage:active { cursor: grabbing; }
 .hv3-ring {
-  --dw: clamp(148px, 42vw, 236px);
-  --dh: calc(var(--dw) * 1.52);
-  --dr: clamp(190px, 52vw, 330px);
-  position: absolute; left: 50%; top: 56%;
+  --dw: clamp(164px, 47vw, 258px);
+  --dh: calc(var(--dw) * 1.54);
+  --dr: clamp(210px, 56vw, 352px);
+  position: absolute; left: 50%; top: 58%;
   width: 0; height: 0; transform-style: preserve-3d;
   transform: rotateY(var(--spin, 0deg));
 }
