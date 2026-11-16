@@ -93,13 +93,13 @@
    account avatar in the far right corner; on mobile it also carries the
    hamburger, inside the bar so it never floats over section content. */
 .evad-topbar{position:sticky;top:0;z-index:70;display:flex;align-items:center;justify-content:flex-end;gap:12px;min-height:54px;margin:-24px calc(-1 * clamp(14px,3vw,36px)) 20px;padding:6px clamp(14px,3vw,36px);background:var(--side);box-shadow:0 2px 10px rgba(10,9,25,.18)}
-.evad-avatar{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--acc);color:#fff;font-weight:700;font-size:14px;border:2px solid rgba(255,255,255,.35)}
+.evad-avatar{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--gold);color:var(--side);font-weight:800;font-size:15px}
 .evad-burger{display:none}
 .evad-scrim{display:none}
 @media (max-width:900px){
   .evad{grid-template-columns:1fr}
   .evad-topbar{justify-content:space-between;padding:8px 12px;margin:0 calc(-1 * clamp(14px,3vw,36px)) 20px}
-  .evad-burger{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);color:#fff}
+  .evad-burger{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff}
   .evad-scrim{display:block;position:fixed;inset:0;background:rgba(8,10,25,.55);z-index:75;opacity:0;pointer-events:none;transition:opacity .25s}
   .evad-scrim.on{opacity:1;pointer-events:auto}
   .evad aside{position:fixed;left:0;top:0;bottom:0;width:min(78vw,280px);height:100vh;z-index:80;padding:20px 12px calc(20px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:2px;overflow-y:auto;transform:translateX(-105%);transition:transform .28s ease;box-shadow:0 0 40px rgba(0,0,0,.45)}
