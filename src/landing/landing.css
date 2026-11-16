@@ -73,10 +73,13 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .arwrap{position:relative;width:100%;height:46%;min-height:150px;overflow:hidden}
 #ev-l .arorbit{position:absolute;left:50%;top:calc(100% - 8px);width:0;height:0}
 #ev-l .arorbit i{position:absolute;left:-26px;top:-36px;width:52px;height:72px;border-radius:10px;border:3px solid rgba(255,255,255,.92);box-shadow:0 8px 18px rgba(0,0,0,.35);background-size:cover;background-position:center;transform:rotate(var(--a,0deg)) translateY(-118px) rotate(calc(var(--a,0deg)*-1))}
-#ev-l .arorbit.live{animation:arspin 9s linear infinite}
-#ev-l .arorbit.live i{animation:arflow 9s linear infinite;animation-delay:calc(var(--i,0)*-1.2857s)}
-@keyframes arspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-@keyframes arflow{from{transform:rotate(0deg) translateY(-118px)}to{transform:rotate(-360deg) translateY(-118px)}}
+#ev-l .arorbit.live{animation:none}
+#ev-l .arorbit.live i{animation:arflow 10s linear infinite;animation-delay:calc(var(--i,0)*-1.4286s)}
+@keyframes arflow{
+0%{transform:rotate(-86deg) translateY(-118px) rotate(86deg);opacity:0}
+7%{opacity:1}
+93%{opacity:1}
+100%{transform:rotate(86deg) translateY(-118px) rotate(-86deg);opacity:0}}
 #ev-l .dkwrap{position:relative;flex:1;min-height:190px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.1),transparent 55%),linear-gradient(180deg,var(--h),color-mix(in srgb,var(--h) 76%,#000))}
 #ev-l .dknames{position:absolute;top:14px;left:0;right:0;z-index:5;text-align:center;font:italic 500 21px/1.05 "Playfair Display",Georgia,serif;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.5);pointer-events:none}
 #ev-l .dkstage{position:absolute;inset:0;perspective:900px}
@@ -88,8 +91,22 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .artt{font:italic 700 24px "Playfair Display",Georgia,serif;text-align:center;padding:0 14px;line-height:1.15}
 #ev-l .arts{text-align:center;font-size:11px;opacity:.8;margin:6px 18px 10px}
 #ev-l .artb{margin:0 auto;padding:9px 20px;border-radius:99px;font-size:12px;font-weight:700;width:max-content}
-@media (prefers-reduced-motion:reduce){#ev-l .arorbit.live,#ev-l .arorbit.live i,#ev-l .dkring.live{animation:none}}
+
 /* Open Book: a hardback album whose pages turn themselves. */
+#ev-l .kbw.live>div>div{transform-style:preserve-3d}
+#ev-l .kbw.live{animation:kbshift 21s linear infinite}
+#ev-l .kbw.live>div .klf{animation-duration:21s;animation-iteration-count:infinite;animation-timing-function:linear}
+#ev-l .kbw.live>div>div:nth-of-type(1){animation-name:kbl0}
+#ev-l .kbw.live>div>div:nth-of-type(2){animation-name:kbl1}
+#ev-l .kbw.live>div>div:nth-of-type(3){animation-name:kbl2}
+#ev-l .kbw.live>div>div:nth-of-type(4){animation-name:kbl3}
+#ev-l .kbw.live>div>div:nth-of-type(5){animation-name:kbl4}
+@keyframes kbshift{0%,3.3%{transform:translateX(-44px);animation-timing-function:cubic-bezier(.45,.05,.55,.95)}43.3%,50.5%{transform:translateX(44px);animation-timing-function:cubic-bezier(.45,.05,.55,.95)}90.5%,100%{transform:translateX(-44px)}}
+@keyframes kbl0{0%,3.3%{transform:translateZ(6px) rotateY(0deg);z-index:105;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}7.3%{transform:translateZ(16px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}11.3%{transform:translateZ(6px) rotateY(-180deg);z-index:10}82.5%{transform:translateZ(6px) rotateY(-180deg);z-index:10;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}86.5%{transform:translateZ(16px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}90.5%,100%{transform:translateZ(6px) rotateY(0deg);z-index:105}}
+@keyframes kbl1{0%,11.3%{transform:translateZ(4.5px) rotateY(0deg);z-index:104;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}15.3%{transform:translateZ(14.5px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}19.3%{transform:translateZ(4.5px) rotateY(-180deg);z-index:11}74.5%{transform:translateZ(4.5px) rotateY(-180deg);z-index:11;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}78.5%{transform:translateZ(14.5px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}82.5%,100%{transform:translateZ(4.5px) rotateY(0deg);z-index:104}}
+@keyframes kbl2{0%,19.3%{transform:translateZ(3px) rotateY(0deg);z-index:103;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}23.3%{transform:translateZ(13px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}27.3%{transform:translateZ(3px) rotateY(-180deg);z-index:12}66.5%{transform:translateZ(3px) rotateY(-180deg);z-index:12;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}70.5%{transform:translateZ(13px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}74.5%,100%{transform:translateZ(3px) rotateY(0deg);z-index:103}}
+@keyframes kbl3{0%,27.3%{transform:translateZ(1.5px) rotateY(0deg);z-index:102;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}31.3%{transform:translateZ(11.5px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}35.3%{transform:translateZ(1.5px) rotateY(-180deg);z-index:13}58.5%{transform:translateZ(1.5px) rotateY(-180deg);z-index:13;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}62.5%{transform:translateZ(11.5px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}66.5%,100%{transform:translateZ(1.5px) rotateY(0deg);z-index:102}}
+@keyframes kbl4{0%,35.3%{transform:translateZ(0px) rotateY(0deg);z-index:101;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}39.3%{transform:translateZ(10px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}43.3%{transform:translateZ(0px) rotateY(-180deg);z-index:14}50.5%{transform:translateZ(0px) rotateY(-180deg);z-index:14;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}54.5%{transform:translateZ(10px) rotateY(-90deg);z-index:300;animation-timing-function:cubic-bezier(.45,.05,.55,.95)}58.5%,100%{transform:translateZ(0px) rotateY(0deg);z-index:101}}
 #ev-l .kbw{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 50% 32%,#f7f1e4,#c9b89e);--u:.8}
 #ev-l .kbo{position:absolute;left:50%;top:50%;width:0;height:0;perspective:1300px}
 #ev-l .kbs{position:absolute;left:calc(-112px*var(--u));top:calc(88px*var(--u));width:calc(224px*var(--u));height:calc(22px*var(--u));border-radius:50%;background:radial-gradient(rgba(0,0,0,.5),transparent 70%);filter:blur(7px);z-index:0}
