@@ -31,7 +31,7 @@ const NAV = [
   { id: 'over', label: 'Overview' },
   { id: 'pipe', label: 'Pipeline' },
   { id: 'onb', label: 'Onboard a couple' },
-  { id: 'sites', label: 'Sites' },
+  { id: 'sites', label: 'Apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
   { id: 'team', label: 'Team and audit' },
@@ -280,9 +280,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     try {
       await proxyCall('delete', { collection: 'events', id })
       setEvents((evs) => (evs || []).filter((e) => e.id !== id))
-      logAudit(`Deleted site ${s}`)
+      logAudit(`Deleted app ${s}`)
       setDrawerId(null)
-      say('Site deleted')
+      say('App deleted')
     } catch { say('Could not delete. Try again') }
     setBusy(false)
   }
@@ -324,26 +324,26 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   function overview() {
     const attention: { n: number; one: string; many: string; go: SecId }[] = [
-      { n: draftCount, one: 'site waiting to be set up', many: 'sites waiting to be set up', go: 'sites' as const },
-      { n: suspCount, one: 'suspended site to review', many: 'suspended sites to review', go: 'sites' as const },
+      { n: draftCount, one: 'app waiting to be set up', many: 'apps waiting to be set up', go: 'sites' as const },
+      { n: suspCount, one: 'suspended app to review', many: 'suspended apps to review', go: 'sites' as const },
     ].filter((x) => x.n > 0)
     return (
       <>
         {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.', <button className="btn" onClick={() => go('onb')}>+ Onboard a couple</button>)}
         <div className="g4">
-          <div className="k"><small>Couples’ sites</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
+          <div className="k"><small>Couples’ apps</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
           <div className="k"><small>Orders paid</small><b>₦0</b><span>No orders yet</span></div>
           <div className="k"><small>Templates available</small><b>{cat ? Object.values(cat.templates).filter(Boolean).length : '…'}</b><span>of {Object.keys(TP).length}</span></div>
           <div className="k"><small>Guest posts pending</small><b>—</b><span>Appears with the first event</span></div>
         </div>
         <div className="two">
           <div className="card">
-            <h3>Latest sites</h3>
+            <h3>Latest apps</h3>
             <div style={{ marginTop: 6 }}>
               {events === null ? (
                 <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
               ) : sites.length === 0 ? (
-                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No sites yet. Onboard your first couple.</p>
+                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No apps yet. Onboard your first couple.</p>
               ) : (
                 sites.slice(0, 5).map((s) => (
                   <div className="att" key={s.id}>
@@ -419,7 +419,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
     return (
       <>
-        {head('Onboard a couple', 'Create a couple’s site in under a minute. Everything on the right updates as you type.')}
+        {head('Onboard a couple', 'Create a couple’s app in under a minute. Everything on the right updates as you type.')}
         <div className="ob">
           <div className="card">
             <div className="fs" style={{ marginTop: 0 }}>THE COUPLE</div>
@@ -446,7 +446,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <div className="fs">PAYMENT</div>
             {chip('pay', [['paid', 'Paid online'], ['bank', 'Bank transfer received'], ['link', 'Send payment link']])}
             <div style={{ marginTop: 20 }} className="row">
-              <button className="btn" onClick={createSite}>Create site</button>
+              <button className="btn" onClick={createSite}>Create app</button>
               <button className="btn g" onClick={() => setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })}>Clear form</button>
             </div>
           </div>
@@ -464,7 +464,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>
-        {head('Sites', `${sites.length} couples’ sites. Open one to manage billing, storage and access.`)}
+        {head('Apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             {(['all', 'live', 'draft', 'suspended'] as const).map((k) => (
@@ -481,7 +481,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 {events === null ? (
                   <tr><td colSpan={6}><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading events…</div></td></tr>
                 ) : L.length === 0 ? (
-                  <tr><td colSpan={6}>No sites match.</td></tr>
+                  <tr><td colSpan={6}>No apps match.</td></tr>
                 ) : (
                   L.map((s) => (
                     <tr key={s.id}>
@@ -677,7 +677,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             {n.label}
           </button>
         ))}
-        <a href="/" style={{ display: 'flex', width: '100%', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 12, fontWeight: 600, fontSize: 15, color: '#c3c1e4', textDecoration: 'none', marginTop: 10 }}>View website</a>
+        <a href="/" style={{ display: 'flex', width: '100%', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 12, fontWeight: 600, fontSize: 15, color: '#c3c1e4', textDecoration: 'none', marginTop: 10 }}>View app</a>
       </aside>
       <main>
         <div className="evad-topbar">
@@ -704,7 +704,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
       {drawer && drawerDoc && (
         <div className="dr" onClick={(e) => { if (e.target === e.currentTarget) setDrawerId(null) }}>
-          <div className="dp">
+          <div className="dp" key={drawerId}>
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <h2>{drawer.couple}</h2>
               <button className="btn g s" onClick={() => setDrawerId(null)}>Close</button>
@@ -712,10 +712,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <p style={{ color: 'var(--mut)', margin: '4px 0 14px' }}>
               {drawer.slug}.eventicor.com · since {drawer.since} {drawer.status ? '· ' + drawer.status[0].toUpperCase() + drawer.status.slice(1) : ''}
             </p>
-            <div className="g4" style={{ gridTemplateColumns: '1fr 1fr' }}>
-              <div className="k"><small>Plan</small><b>{drawer.plan ? PL[drawer.plan]?.name || drawer.plan : '—'}</b></div>
-              <div className="k"><small>Created</small><b style={{ fontSize: 20 }}>{drawer.since}</b></div>
-            </div>
             <div className="rw">
               <div><b>Plan</b><small>{drawer.plan ? `${ng(PL[drawer.plan]?.price || 0)} · ${PL[drawer.plan]?.gb || '—'} GB` : 'Not set'}</small></div>
               <select style={{ width: 'auto' }} value={drawer.plan || ''} disabled={busy} onChange={(e) => patchEvent(drawer.id, { plan: e.target.value }, `Changed ${drawer.slug} to ${PL[e.target.value]?.name}`)}>
@@ -741,11 +737,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <div className="fs">STATUS</div>
             <div className="row">
               <button className="btn g s" disabled={busy} onClick={() => patchEvent(drawer.id, { status: drawer.status === 'suspended' ? 'live' : 'suspended' }, `${drawer.status === 'suspended' ? 'Reactivated' : 'Suspended'} ${drawer.slug}`)}>
-                {drawer.status === 'suspended' ? 'Reactivate' : 'Suspend'} site
+                {drawer.status === 'suspended' ? 'Reactivate' : 'Suspend'} app
               </button>
             </div>
             <div className="fs">DANGER ZONE</div>
-            <label>Type <b>{drawer.slug}</b> to delete this site forever</label>
+            <label>Type <b>{drawer.slug}</b> to delete this app forever</label>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
               <input placeholder={drawer.slug} value={delText} onChange={(e) => setDelText(e.target.value)} />
               <button className="btn d s" disabled={busy} onClick={() => deleteEvent(drawer.id, drawer.slug)}>Delete</button>
@@ -759,13 +755,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div className="mc2">
             {prov.error ? (
               <>
-                <h2>Could not create the site</h2>
+                <h2>Could not create the app</h2>
                 <p style={{ color: 'var(--mut)' }}>{prov.error}</p>
                 <div className="row"><button className="btn g" onClick={() => setProv(null)}>Close</button></div>
               </>
             ) : prov.done ? (
               <>
-                <h2>Site is live</h2>
+                <h2>App is live</h2>
                 <p style={{ margin: '0 0 6px', color: 'var(--mut)' }}>Share this with the couple.</p>
                 <div className="card" style={{ margin: '0 0 10px' }}>
                   <b>{prov.slug}.eventicor.com</b><br />

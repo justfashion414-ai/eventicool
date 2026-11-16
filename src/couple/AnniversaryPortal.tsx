@@ -544,6 +544,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   const [shuffledPostAds, setShuffledPostAds] = useState<AdItem[]>([]);
   const [shuffledReelAds, setShuffledReelAds] = useState<AdItem[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
+
+  // Sample-mode markers: the demo preview (and any app with no real posts yet)
+  // carries a permanent sample notice and chips; they disappear the moment the
+  // first real post exists.
+  const sampleMode = DEMO || !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-'));
   const [isPostsLoading, setIsPostsLoading] = useState(true);
   const [aboutClickCount, setAboutClickCount] = useState(0);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
@@ -564,7 +569,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   const [sharingPost, setSharingPost] = useState<any>(null);
   const [commentsPost, setCommentsPost] = useState<any>(null);
   const [sampleLiked, setSampleLiked] = useState<Record<string, boolean>>({});
-  const [sampleBannerGone, setSampleBannerGone] = useState(false);
   const [activeMediaIndex, setActiveMediaIndex] = useState<{postId: string, index: number} | null>(null);
 
   // PWA Install, Launch Follow-up Splash & Offline State
@@ -1779,19 +1783,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
 
                 {phase === 'before' && (
-                  <div className="mt-5 mx-auto flex items-stretch justify-center bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md divide-x divide-white/25">
-                    <div className="px-5 text-center">
-                      <b className="block text-[1.5rem] font-serif-display leading-none">{daysToGo}</b>
-                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">days to go</span>
+                  <div className="mt-5 mx-auto bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md">
+                    <div className="flex items-stretch justify-center divide-x divide-white/25">
+                      <div className="px-5 text-center">
+                        <b className="block text-[1.5rem] font-serif-display leading-none">12 Dec</b>
+                        <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">2026</span>
+                      </div>
+                      <div className="px-5 text-center">
+                        <b className="block text-[1.5rem] font-serif-display leading-none">Lagos</b>
+                        <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
+                      </div>
                     </div>
-                    <div className="px-5 text-center">
-                      <b className="block text-[1.5rem] font-serif-display leading-none">12 Dec</b>
-                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">2026</span>
-                    </div>
-                    <div className="px-5 text-center">
-                      <b className="block text-[1.5rem] font-serif-display leading-none">Lagos</b>
-                      <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
-                    </div>
+                    <CountdownRow date={WEDDING_DATE} time={WEDDING_TIME} />
                   </div>
                 )}
 
@@ -2031,13 +2034,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </div>
               )}
 
-              {DEMO && !sampleBannerGone && (
-                <div className="mx-3 mt-3 flex items-start gap-2.5 rounded-2xl border border-dashed border-[var(--ann-accent)] bg-[var(--ann-soft)] px-3.5 py-2.5">
+              {sampleMode && (
+                <div
+                  className="sticky z-[55] mx-3 mt-3 flex items-start gap-2.5 rounded-2xl border border-dashed border-[var(--ann-accent)] bg-[var(--ann-soft)] px-3.5 py-2.5"
+                  style={{ top: activeTab === 'feed' && feedSubTab === 'reels' ? '0px' : '61px' }}
+                >
                   <div className="flex-1 min-w-0">
                     <p className="text-[0.8rem] font-bold leading-snug">You're viewing sample content</p>
-                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">Everything here is placeholder data. As the admin, you'll replace it all from your dashboard.</p>
+                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">Everything here is placeholder data. As the admin, you'll replace it all from your dashboard. This notice stays until the first real post.</p>
                   </div>
-                  <button onClick={() => setSampleBannerGone(true)} aria-label="Dismiss sample notice" className="shrink-0 p-1 -m-1 text-[#5A6970] text-[15px] leading-none">&times;</button>
                 </div>
               )}
               {isPostsLoading ? (
@@ -2128,7 +2133,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                           authorUid={p.authorUid}
                           pending={p.pending}
                           onApprove={() => approvePost(p.id)}
-                          sample={DEMO}
+                          sample={sampleMode}
                         />
                       );
 
@@ -2151,6 +2156,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </div>
                             ) : (
                 <ReelsFeed
+                  bannerSpace={sampleMode ? 80 : 0}
                   onAvatarClick={(u: string) => setAvatarZoom(u)}
                   reels={(() => {
                     const filteredReels = posts.filter((p) => {
@@ -3719,7 +3725,7 @@ function PostAdCard({ ad, isDarkMode }: { ad: AdItem; isDarkMode: boolean; [key:
   );
 }
 
-function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick }: any) {
+function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick, bannerSpace }: any) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -3755,11 +3761,13 @@ function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete,
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="h-[calc(100dvh-150px)] min-h-[420px] w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar relative rounded-[20px]"
+      style={{ height: `calc(100dvh - ${150 + (bannerSpace || 0)}px)`, minHeight: 420 }}
+      className="w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar relative rounded-[20px]"
     >
       {reels.map((reel: any, idx: number) => (
         <ReelCard
           key={reel.id}
+          sample={sampleMode}
           reel={reel}
           isActive={idx === activeIndex}
           isAdmin={isAdmin}
@@ -5209,7 +5217,7 @@ function AdminDashboardModal({
                       </nav>
                       <button onClick={onClose} className="mt-6 pt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-white/60 hover:bg-white/10 hover:text-white text-left border-t border-white/10">
                         <Globe className="w-[18px] h-[18px] shrink-0" />
-                        <span>View website</span>
+                        <span>View app</span>
                       </button>
                     </div>
                   </div>
@@ -5276,7 +5284,7 @@ function AdminDashboardModal({
                 </nav>
                 <button onClick={onClose} className="mt-auto pt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9rem] font-bold text-white/60 hover:bg-white/10 hover:text-white text-left">
                   <Globe className="w-[18px] h-[18px] shrink-0" />
-                  <span>View website</span>
+                  <span>View app</span>
                 </button>
               </aside>
 
@@ -5527,7 +5535,7 @@ function AdminDashboardModal({
                       <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
                     </div>
                     {/* Saves everything, then opens the live website in a new tab. */}
-                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then opens the website in a new tab" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
+                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then opens the app in a new tab" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
                       {weddingBusy ? 'Saving…' : 'Preview site'}
                     </button>
                   </div>
@@ -5718,7 +5726,7 @@ function AdminDashboardModal({
                           </label>
                         )}
                       </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently on the website: remove any of them or add your own, and your list takes over the hero.'}</p>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
                     </div>
                   )}
 
@@ -6486,131 +6494,75 @@ interface FloatingPhotoCardProps {
   column: number;
   constraintsRef: React.RefObject<HTMLDivElement | null>;
   eventNames?: string[];
-  // Shared across the hero: true while any card is being dragged, so every
-  // conveyor holds still and cards can never ride up over each other.
-  hold: { current: boolean };
 }
 
 // Hero runs as a 2x2 grid: two cards in the upper half, two in the lower half, at all times.
 // Each column is a conveyor of four slots spaced half a screen apart; as the top card of a
-// column clears the banner it wraps to the bottom, so the grid never empties.
+// column clears the top it wraps to the bottom, so the grid never empties.
+// Cards are purely decorative: no drag and no tap handlers, so touching one can never move,
+// hide or dislodge it, and the page always scrolls normally over the hero.
 const HERO_TRAVERSE_SECONDS = 11; // Time for one card to travel one screen height
 
-const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset, slot, column, constraintsRef, eventNames, hold }) => {
+const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset, slot, column, constraintsRef, eventNames }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(1000);
-  const isHovered = useRef(false);
-  const isDragging = useRef(false);
-  const isTouching = useRef(false);
   const initialized = useRef(false);
+  const baseH = useRef(0);
   const pxPerSecond = useRef(0);
-  const snapping = useRef(false);
   const [imgIdx, setImgIdx] = useState(slot + imgOffset);
   const [shownImage, setShownImage] = useState<string>('');
   const prefersReducedMotion = typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 
-  const anyPaused = () => isHovered.current || isDragging.current || isTouching.current;
-
   useAnimationFrame((_, delta) => {
     if (!constraintsRef.current || !cardRef.current) return;
-
     const containerHeight = constraintsRef.current.offsetHeight;
-    const cardHeight = cardRef.current.offsetHeight || 220;
-    const margin = 60;
-    const halfStep = containerHeight / 2;
-    const cycleLength = halfStep * 4;
-
     if (containerHeight === 0) return;
+    const cardHeight = cardRef.current.offsetHeight || 220;
 
+    // Lane geometry is frozen from the first measured height. Live re-measuring
+    // (mobile URL bars resizing, tab switches, reflow) used to shift the lanes
+    // mid-flight and let cards pile onto each other; a frozen base keeps the
+    // formation exact no matter how far the page is scrolled.
     if (!initialized.current) {
+      baseH.current = containerHeight;
       pxPerSecond.current = (containerHeight + cardHeight) / HERO_TRAVERSE_SECONDS;
-      // Slot 0 sits in the upper half, slot 1 in the lower half; slots 2 and 3 wait below the fold
-      y.set(containerHeight * 0.12 + slot * halfStep);
+      y.set(baseH.current * 0.12 + slot * (baseH.current / 2));
       initialized.current = true;
     }
 
+    const halfStep = baseH.current / 2;
+    const cycleLength = halfStep * 4;
     const dt = Math.min(delta, 100) / 1000;
-
-    let speedMultiplier = 1.0;
-    if (prefersReducedMotion) speedMultiplier *= 0.05;
-    // Cards hold formation: no per-card pausing, and while any card is dragged
-    // the whole hero freezes, so followers never climb over a stopped card.
-    if (isDragging.current || hold.current || snapping.current) speedMultiplier = 0;
-
+    const speedMultiplier = prefersReducedMotion ? 0.05 : 1.0;
     let nextY = y.get() - (pxPerSecond.current * dt * speedMultiplier);
 
-    if (nextY < -(cardHeight + margin)) {
+    if (nextY < -(cardHeight + 60)) {
       nextY += cycleLength;
       x.set(0);
       setImgIdx((prev) => (prev + 4) % Math.max(1, images.length));
     }
 
-    if (!isDragging.current && !snapping.current) {
-      y.set(nextY);
-    }
+    y.set(nextY);
   });
 
   const currentImage = images.length > 0 ? images[imgIdx % images.length] : PLACEHOLDER_IMAGES[imgIdx % PLACEHOLDER_IMAGES.length];
   const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : (EVENTS_DATA.length > 0 ? EVENTS_DATA[(imgIdx + imgOffset) % EVENTS_DATA.length].name : undefined);
-  const isPausedState = isDragging.current;
 
   return (
     <motion.div
       ref={cardRef}
-      drag
-      dragMomentum={false}
-      dragElastic={0}
-      dragConstraints={constraintsRef}
-      onDragStart={() => { isDragging.current = true; hold.current = true; }}
-      onDragEnd={() => {
-        isDragging.current = false;
-        // Glide the card back into its conveyor slot so cards never overlap.
-        const box = constraintsRef.current;
-        if (!box || !cardRef.current) { hold.current = false; return; }
-        const H = box.offsetHeight;
-        const cardH = cardRef.current.offsetHeight || 220;
-        const halfStep = H / 2;
-        const cycle = halfStep * 4;
-        const y0 = H * 0.12 + slot * halfStep;
-        const k = Math.round((y.get() - y0) / cycle);
-        let cand = y0 + k * cycle;
-        while (cand < -(cardH + 60)) cand += cycle;
-        while (cand > H + cardH + 60) cand -= cycle;
-        snapping.current = true;
-        Promise.resolve(animate(y, cand, { duration: 0.45, ease: 'easeOut' })).then(() => {
-          snapping.current = false;
-          hold.current = false;
-        });
-        animate(x, 0, { duration: 0.45, ease: 'easeOut' });
-      }}
-      onPointerEnter={(e) => {
-        if (e.pointerType === 'mouse') {
-          isHovered.current = true;
-        }
-      }}
-      onPointerLeave={(e) => {
-        if (e.pointerType === 'mouse') {
-          isHovered.current = false;
-        }
-      }}
-      onPointerDown={() => { isTouching.current = true; }}
-      onPointerUp={() => { isTouching.current = false; }}
-      onPointerCancel={() => { isTouching.current = false; }}
       initial={{ rotate: column === 0 ? (slot % 2 === 0 ? -4 : 3) : (slot % 2 === 0 ? 3 : -4) }}
       style={{
         left: column === 0 ? '6%' : '54%',
-        width: 'clamp(150px, 42vw, 280px)',
+        width: 'clamp(140px, 46%, 280px)',
         position: 'absolute',
         x,
         y,
-        zIndex: isPausedState ? 100 : 10,
-        touchAction: 'none'
+        zIndex: 10
       }}
-      className="cursor-grab active:cursor-grabbing select-none"
-      whileHover={{ scale: 1.05, zIndex: 110 }}
     >
-      <div className={`bg-white p-2 pb-2 shadow-2xl rounded-sm ${isPausedState ? 'scale-110 shadow-black/40' : 'shadow-black/20'}`}>
+      <div className="bg-white p-2 pb-2 shadow-2xl shadow-black/20 rounded-sm">
         <div className="relative w-full h-[calc(32.5vh-80px)] sm:h-[calc(40vh-80px)] overflow-hidden pointer-events-none">
           {shownImage && shownImage !== currentImage && (
             <img src={shownImage} className="absolute inset-0 w-full h-full object-cover object-center" alt="" draggable={false} />
@@ -6631,13 +6583,44 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
   );
 }
 
+// Live countdown to the wedding day, ticking every second; shown under the
+// date and location inside the names banner.
+function CountdownRow({ date, time }: { date: string; time: string }) {
+  const target = new Date(`${date}T${time}:00`).getTime();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const left = Math.max(0, target - now);
+  const d = Math.floor(left / 86400000);
+  const h = Math.floor((left % 86400000) / 3600000);
+  const m = Math.floor((left % 3600000) / 60000);
+  const sec = Math.floor((left % 60000) / 1000);
+  const units: [string, string][] = [
+    [String(d), 'Days'],
+    [String(h).padStart(2, '0'), 'Hours'],
+    [String(m).padStart(2, '0'), 'Mins'],
+    [String(sec).padStart(2, '0'), 'Secs'],
+  ];
+  return (
+    <div className="mt-3 pt-3 border-t border-white/25 flex items-stretch justify-center divide-x divide-white/20">
+      {units.map(([v, l]) => (
+        <div key={l} className="px-3 sm:px-4 text-center min-w-[52px]">
+          <b className="block text-[1.05rem] font-serif-display leading-none tabular-nums">{v}</b>
+          <span className="block text-[0.6rem] uppercase tracking-wider opacity-75 mt-1">{l}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // URLs already pulled into the browser cache this session; lets a remounted
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
 
 function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: boolean, images: string[], eventNames?: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const holdRef = useRef(false);
   const [cardsReady, setCardsReady] = useState(false);
 
   const baseImages = images.length > 0 ? images : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
@@ -6688,7 +6671,6 @@ function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: b
               slot={slot}
               column={column}
               constraintsRef={containerRef}
-              hold={holdRef}
             />
           ))
         )}
