@@ -81,6 +81,11 @@
 
 /* ================= HALO ARC ================= */
 .tap-home.col { display: flex; flex-direction: column; align-items: center; }
+/* Centered column layouts (halo/hero/book): children keep full width so bars,
+   decks and rows span the column; only the halo pill button stays shrink-wrapped. */
+.tap-home.col > * { width: 100%; }
+.tap-home.col > .tap-artb, .tap-home.col > .tap-cta { width: max-content; }
+.tap-bd .tap-col { padding-bottom: 84px; }
 .tap-arwrap { position: relative; width: 100%; height: 46vh; min-height: 230px; overflow: hidden; }
 .tap-arfan { position: absolute; left: 50%; bottom: -52px; width: 0; height: 0; animation: tap-arcsway 12s ease-in-out infinite; }
 .tap-arfan i {
