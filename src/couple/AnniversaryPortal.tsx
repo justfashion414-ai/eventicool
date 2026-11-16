@@ -2156,6 +2156,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </div>
                             ) : (
                 <ReelsFeed
+                  sample={sampleMode}
                   bannerSpace={sampleMode ? 80 : 0}
                   onAvatarClick={(u: string) => setAvatarZoom(u)}
                   reels={(() => {
@@ -3725,7 +3726,7 @@ function PostAdCard({ ad, isDarkMode }: { ad: AdItem; isDarkMode: boolean; [key:
   );
 }
 
-function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick, bannerSpace }: any) {
+function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick, bannerSpace, sample }: any) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -3767,7 +3768,7 @@ function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete,
       {reels.map((reel: any, idx: number) => (
         <ReelCard
           key={reel.id}
-          sample={sampleMode}
+          sample={sample}
           reel={reel}
           isActive={idx === activeIndex}
           isAdmin={isAdmin}
