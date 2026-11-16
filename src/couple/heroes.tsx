@@ -74,7 +74,8 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
       <div className="hv2-fanstage" {...handlers} style={{ ['--spin' as any]: `${angle}deg` } as Img}>
         <div className="hv2-fan">
           {cards.map((c, i) => (
-            <div key={i} className="hv2-card" style={{ ['--a' as any]: `${c.base}deg`, backgroundImage: `url(${c.img})` } as Img}>
+            <div key={i} className="hv2-card" style={{ ['--a' as any]: `${c.base}deg` } as Img}>
+              <i className="hv2-img" style={{ backgroundImage: `url(${c.img})` }} />
               {c.tag ? <span className="hv2-tag">{c.tag}</span> : null}
             </div>
           ))}
