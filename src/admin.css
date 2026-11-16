@@ -87,13 +87,20 @@
 .evad .sw.on::after{left:23px}
 .evad .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 20px;border-radius:99px;z-index:80;font-size:14px}
 .evad :focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+/* Mobile: the sidebar becomes a collapsible drawer. A hamburger opens it and
+   every section stays listed; tapping a section closes it again. */
+.evad-burger{display:none}
+.evad-scrim{display:none}
 @media (max-width:900px){
   .evad{grid-template-columns:1fr}
-  .evad aside{position:sticky;height:auto;z-index:30;padding:8px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
-  .evad aside::-webkit-scrollbar{display:none}
-  .evad .br{display:none}
-  .evad aside button{width:auto;white-space:nowrap;padding:8px 12px;margin:0}
-  .evad aside svg{display:none}
+  .evad-burger{display:grid;place-items:center;position:sticky;top:10px;margin:12px 0 0 14px;width:42px;height:42px;border-radius:12px;background:var(--side);color:#fff;z-index:60;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .evad-scrim{display:block;position:fixed;inset:0;background:rgba(8,10,25,.55);z-index:65;opacity:0;pointer-events:none;transition:opacity .25s}
+  .evad-scrim.on{opacity:1;pointer-events:auto}
+  .evad aside{position:fixed;left:0;top:0;bottom:0;width:min(78vw,280px);height:100vh;z-index:70;padding:20px 12px calc(20px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:2px;overflow-y:auto;transform:translateX(-105%);transition:transform .28s ease;box-shadow:0 0 40px rgba(0,0,0,.45)}
+  .evad aside.open{transform:none}
+  .evad .br{display:flex}
+  .evad aside button{width:100%;white-space:normal;padding:11px 12px;margin:0 0 2px}
+  .evad aside svg{display:block}
   .evad .two,.evad .ob{grid-template-columns:1fr}
   .evad .pf{position:static}
   .evad .fg{grid-template-columns:1fr}

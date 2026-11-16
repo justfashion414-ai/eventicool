@@ -2923,9 +2923,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         </button>
         <button 
           onClick={() => {
-            if (DEMO) {
-              setIsComposeOpen(true);
-            } else if (activeTab === 'feed') {
+            if (activeTab !== 'feed') {
+              setActiveTab('feed');
+            } else if (DEMO) {
+              setIsComposeOpen(true); // Preview skips the profile check
+            } else {
               // Robust check for profile completion
               const isProfileComplete = displayName.trim() !== '' && avatar && !avatar.startsWith('blob:');
               const hasUnsavedAvatar = avatar && avatar.startsWith('blob:');
@@ -2935,8 +2937,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               } else {
                 setIsComposeOpen(true);
               }
-            } else {
-              setActiveTab('feed');
             }
           }}
           className="relative -top-[18px] flex flex-col items-center gap-[5px] border-0 bg-transparent text-[0.74rem]"

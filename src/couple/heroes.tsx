@@ -9,8 +9,9 @@ const scrollToJourney = () => {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-/* Drag-to-spin: horizontal drags rotate, vertical swipes keep scrolling the
-   page. Auto-rotates at a slow speed, pauses while dragging and briefly after. */
+/* Drag-to-spin for the deck: the ring follows the finger, horizontal drags
+   rotate it, vertical swipes keep scrolling the page. Auto-rotates slowly,
+   pauses while dragging and glides back to speed after. */
 function useSpin(autoDegPerSec: number) {
   const [angle, setAngle] = useState(0);
   const dragging = useRef(false);
@@ -47,7 +48,7 @@ function useSpin(autoDegPerSec: number) {
     if (axis.current === 'v') return;
     lastX.current = e.clientX;
     lastY.current = e.clientY;
-    if (dx !== 0) setAngle((a) => a - dx * 0.28);
+    if (dx !== 0) setAngle((a) => a + dx * 0.28);
   };
   const endDrag = () => {
     if (!dragging.current) return;
@@ -57,29 +58,105 @@ function useSpin(autoDegPerSec: number) {
   return { angle, handlers: { onPointerDown, onPointerMove, onPointerUp: endDrag, onPointerCancel: endDrag } };
 }
 
-/* HALO ARC: a tall fan of photos arcing up from below the fold. The whole fan
-   rotates slowly on its own and can be spun by dragging. Each photo carries
-   its event tag. */
+/* HALO ARC: photos flow along a fixed arch from the left edge to the right
+   edge; when one leaves on the right the next enters on the left, so any
+   number of photos keeps cycling. Dragging scrubs the flow in the finger's
+   direction, then it drifts back to its own slow pace. Each photo carries its
+   event tag. */
 export function HaloHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
-  const n = Math.min(imgs.length, 8);
-  const { angle, handlers } = useSpin(6.5);
-  const cards = imgs.slice(0, n).map((img, i) => ({
-    img,
-    tag: eventNames.length ? eventNames[i % eventNames.length] : '',
-    base: -100 + (200 * i) / Math.max(1, n - 1),
-  }));
+  const N = Math.max(6, Math.min(imgs.length, 8));
+  const stageRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const prevRaw = useRef<number[]>(Array(N).fill(-1));
+  const nextPhoto = useRef(N);
+  const flow = useRef(0);
+  const vel = useRef(34);
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+  const lastDX = useRef(0);
+  const [slotPhoto, setSlotPhoto] = useState<number[]>(() => Array.from({ length: N }, (_, i) => i % imgs.length));
+
+  useEffect(() => {
+    let raf = 0;
+    let prev = performance.now();
+    const BASE = 34;
+    const step = (t: number) => {
+      const dt = Math.min(0.05, (t - prev) / 1000);
+      prev = t;
+      const el = stageRef.current;
+      if (el) {
+        const W = el.clientWidth;
+        const H = el.clientHeight;
+        const cw = Math.max(74, Math.min(W * 0.23, 116));
+        const ch = cw * 1.55;
+        const gap = Math.max(12, W * 0.035);
+        const s = cw + gap;
+        const span = N * s;
+        if (!dragging.current) {
+          vel.current += (BASE - vel.current) * Math.min(1, dt * 1.6);
+          flow.current += vel.current * dt;
+        }
+        const mid = W / 2;
+        const amp = H * 0.15;
+        const sigma = W * 0.3;
+        for (let i = 0; i < N; i++) {
+          const raw = ((flow.current + i * s) % span + span) % span;
+          const x = raw - 1.2 * cw;
+          if (prevRaw.current[i] >= 0) {
+            if (raw < prevRaw.current[i] - span / 2 || raw > prevRaw.current[i] + span / 2) {
+              const p = nextPhoto.current++ % imgs.length;
+              setSlotPhoto((arr) => { const c = arr.slice(); c[i] = p; return c; });
+            }
+          }
+          prevRaw.current[i] = raw;
+          const node = cardRefs.current[i];
+          if (node) {
+            const d = Math.exp(-0.5 * ((x - mid) / sigma) ** 2);
+            const y = H * 0.52 - amp * d;
+            const rot = Math.max(-16, Math.min(16, ((x - mid) / W) * 30));
+            const sc = 0.9 + 0.14 * d;
+            node.style.width = `${cw}px`;
+            node.style.height = `${ch}px`;
+            node.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
+            node.style.zIndex = String(Math.round(200 - Math.abs(x - mid)));
+          }
+        }
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [N, imgs.length]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    dragging.current = true;
+    lastX.current = e.clientX;
+    lastDX.current = 0;
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - lastX.current;
+    lastX.current = e.clientX;
+    lastDX.current = dx;
+    flow.current += dx;
+  };
+  const endDrag = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    vel.current = Math.max(-520, Math.min(520, lastDX.current * 30));
+  };
+
   return (
     <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[88vh] sm:h-[86vh] overflow-hidden hv-halo mb-10">
-      <div className="hv2-fanstage" {...handlers} style={{ ['--spin' as any]: `${angle}deg` } as Img}>
-        <div className="hv2-fan">
-          {cards.map((c, i) => (
-            <div key={i} className="hv2-card" style={{ ['--a' as any]: `${c.base}deg` } as Img}>
-              <i className="hv2-img" style={{ backgroundImage: `url(${c.img})` }} />
-              {c.tag ? <span className="hv2-tag">{c.tag}</span> : null}
-            </div>
-          ))}
-        </div>
+      <div className="hv2-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
+        {Array.from({ length: N }, (_, i) => (
+          <div key={i} ref={(n) => { cardRefs.current[i] = n; }} className="hv2-card">
+            <i className="hv2-img" style={{ backgroundImage: `url(${imgs[slotPhoto[i] % imgs.length]})` }} />
+            {eventNames.length ? <span className="hv2-tag">{eventNames[slotPhoto[i] % eventNames.length]}</span> : null}
+          </div>
+        ))}
       </div>
       <div className="hv2-names">
         <h2>{names || DEMO_COUPLE.header}</h2>
@@ -90,9 +167,9 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
   );
 }
 
-/* HERO DECK: a 3D ring of tall portrait cards that turns on its own and can be
-   spun by dragging, with the couple's names across the top. */
-export function DeckHero({ images, names }: { images: string[]; names?: string }) {
+/* HERO DECK: a 3D ring of tall portrait cards, each tagged with its event,
+   that turns on its own and follows the finger when dragged. */
+export function DeckHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
   const n = Math.max(6, Math.min(imgs.length, 9));
   const { angle, handlers } = useSpin(11);
@@ -103,7 +180,9 @@ export function DeckHero({ images, names }: { images: string[]; names?: string }
       <div className="hv3-stage" {...handlers} style={{ ['--spin' as any]: `${angle}deg` } as Img}>
         <div className="hv3-ring">
           {imgs.slice(0, n).map((img, i) => (
-            <div key={i} className="hv3-card" style={{ ['--a' as any]: `${i * step}deg`, backgroundImage: `url(${img})` } as Img} />
+            <div key={i} className="hv3-card" style={{ ['--a' as any]: `${i * step}deg`, backgroundImage: `url(${img})` } as Img}>
+              {eventNames.length ? <span className="hv2-tag hv3-tag">{eventNames[i % eventNames.length]}</span> : null}
+            </div>
           ))}
         </div>
       </div>
@@ -241,7 +320,6 @@ export function BookHero({ images, bride, groom, dotDate, city, hashtag, eventNa
 
   return (
     <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[78vh] sm:h-[80vh] overflow-hidden hv-book mb-10">
-      <p className="hv5-hint">Tap a page or drag to turn</p>
       <div className="hv5-float">
         <div className="hv5-stage" {...bookHandlers} style={{ ['--shift' as any]: `${flipped === 0 ? -25 : flipped === L ? 25 : 0}%` } as Img}>
           <i className="hv5-bshadow" />

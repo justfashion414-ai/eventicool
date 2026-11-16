@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LogOut, LoaderCircle } from 'lucide-react'
+import { LogOut, LoaderCircle, Menu } from 'lucide-react'
 import '../admin.css'
 import { signOutEverywhere, type User } from '../auth'
 import { proxyCall } from '../firebase'
@@ -669,14 +669,18 @@ export default function AdminConsole({ user, onSignOut }: { user: User | null; o
     )
   }
 
+  const [navOpen, setNavOpen] = useState(false)
+
   const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
 
   return (
     <div className="evad">
-      <aside>
+      <button className="evad-burger" aria-label="Open menu" onClick={() => setNavOpen(true)}><Menu /></button>
+      <div className={`evad-scrim${navOpen ? ' on' : ''}`} onClick={() => setNavOpen(false)} />
+      <aside className={navOpen ? 'open' : ''}>
         <div className="br"><i /><div>Eventicor<small>PLATFORM ADMIN</small></div></div>
         {NAV.map((n) => (
-          <button key={n.id} className={sec === n.id ? 'on' : ''} onClick={() => go(n.id)}>
+          <button key={n.id} className={sec === n.id ? 'on' : ''} onClick={() => { go(n.id); setNavOpen(false); }}>
             <Icon id={n.id} />
             {n.label}
           </button>

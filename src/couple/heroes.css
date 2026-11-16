@@ -9,32 +9,23 @@
   --body: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
-/* ---------- HALO ARC: a tall fan of photos that rotates ---------- */
+/* ---------- HALO ARC: photos flow left to right along a fixed arch ---------- */
 .hv-halo {
   position: relative; overflow: hidden;
   background:
     radial-gradient(circle at 50% 120%, rgba(255,255,255,.14), transparent 55%),
     linear-gradient(180deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 78%, #000));
 }
-.hv2-fanstage {
+.hv2-stage {
   position: absolute; inset: 0; touch-action: pan-y; cursor: grab; user-select: none;
 }
-.hv2-fanstage:active { cursor: grabbing; }
-.hv2-fan {
-  --cw: clamp(76px, 22vw, 116px);
-  --ch: clamp(122px, 33vw, 180px);
-  --rad: clamp(180px, 50vw, 264px);
-  position: absolute; left: 50%; top: 60%; width: 0; height: 0;
-  transform: rotate(var(--spin, 0deg));
-}
+.hv2-stage:active { cursor: grabbing; }
 .hv2-card {
   position: absolute; left: 0; top: 0;
-  width: var(--cw); height: var(--ch);
-  margin: calc(var(--ch) / -2) 0 0 calc(var(--cw) / -2);
   border-radius: 20px;
   border: 4px solid rgba(255,255,255,.95);
   box-shadow: 0 16px 32px rgba(0,0,0,.45);
-  transform: rotate(var(--a, 0deg)) translateY(calc(var(--rad) * -1));
+  will-change: transform;
 }
 .hv2-img {
   position: absolute; inset: 0; display: block; border-radius: 16px;
@@ -102,6 +93,7 @@
   transform: rotateY(var(--a, 0deg)) translateZ(var(--dr));
   backface-visibility: hidden;
 }
+.hv3-tag { bottom: -9px; }
 
 /* ---------- OPEN BOOK: a hardback that flips its own pages ---------- */
 .hv-book {
@@ -110,18 +102,12 @@
   --u: 1;
 }
 @media (max-width: 480px) { .hv-book { --u: .88; } }
-.hv5-hint {
-  position: absolute; top: max(2.5vh, 14px); left: 0; right: 0; z-index: 5;
-  margin: 0; text-align: center;
-  font: 700 9.5px var(--body); letter-spacing: .22em; text-transform: uppercase;
-  color: rgba(60,48,32,.55);
-}
 .hv5-float { position: absolute; inset: 0; animation: hv5-bob 7s ease-in-out infinite; }
 @keyframes hv5-bob { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(6px); } }
 .hv5-stage {
-  --pw: clamp(122px, 44vw, 226px);
-  --ph: calc(var(--pw) * 1.42);
-  position: absolute; left: 50%; top: 52%;
+  --pw: clamp(128px, 46vw, 240px);
+  --ph: calc(var(--pw) * 1.58);
+  position: absolute; left: 50%; top: 50%;
   width: calc(var(--pw) * 2); height: var(--ph);
   transform: translate(-50%, -50%) translateX(var(--shift, 0%));
   transition: transform .95s cubic-bezier(.4,.05,.2,1);
