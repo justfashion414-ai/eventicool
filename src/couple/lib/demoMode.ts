@@ -77,3 +77,53 @@ export const DEMO_REELS = [
   { src: '/reels/r3.mp4', by: 'Bisi', cap: 'The bride, moments before the walk' },
   { src: '/reels/r4.mp4', by: 'Fola', cap: 'Two hearts, one celebration' },
 ];
+
+// Preview access code: the composer in a preview validates against this local
+// demo code, never the real couple's code from Firebase.
+export const DEMO_ACCESS_CODE = 'AMARA26';
+
+// Seeded demo feed: real-post shape so the feed renders through the normal
+// card path. Demo posts never touch Firebase or Cloudinary.
+export const DEMO_POSTS = (() => {
+  const evs = demoEvents();
+  const hrs = (h: number) => new Date(Date.now() - h * 3600_000);
+  const rows: any[] = [];
+  DEMO_CAPTIONS.forEach((cap, i) => {
+    rows.push({
+      id: `demo-seed-p${i}`,
+      localDemo: true,
+      authorUid: `demo-guest-${i}`,
+      authorName: DEMO_GUESTS[i % DEMO_GUESTS.length],
+      authorPhoto: null,
+      text: cap,
+      mediaUrls: [DEMO_PHOTOS[i % DEMO_PHOTOS.length]],
+      mediaTypes: ['image'],
+      eventId: evs[i % evs.length].id,
+      pending: false,
+      likeCount: 6 + ((i * 7) % 30),
+      loveCount: 3 + ((i * 5) % 17),
+      commentCount: i % 3,
+      timestamp: hrs(6 + i * 9),
+    });
+  });
+  DEMO_REELS.forEach((r, i) => {
+    rows.push({
+      id: `demo-seed-r${i}`,
+      localDemo: true,
+      authorUid: `demo-guest-r${i}`,
+      authorName: r.by,
+      authorPhoto: null,
+      text: r.cap,
+      mediaUrls: [r.src],
+      mediaTypes: ['video'],
+      videoOrientation: 'portrait',
+      eventId: evs[(i + 3) % evs.length].id,
+      pending: false,
+      likeCount: 11 + i * 6,
+      loveCount: 5 + i * 3,
+      commentCount: i % 2,
+      timestamp: hrs(10 + i * 12),
+    });
+  });
+  return rows;
+})();

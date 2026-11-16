@@ -9,119 +9,176 @@
   --body: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
-/* ---------- HALO ARC: a fan of photos arcing up from below ---------- */
+/* ---------- HALO ARC: a tall fan of photos that rotates ---------- */
 .hv-halo {
   position: relative; overflow: hidden;
   background:
     radial-gradient(circle at 50% 120%, rgba(255,255,255,.14), transparent 55%),
     linear-gradient(180deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 78%, #000));
 }
-.hv-fan {
-  position: absolute; left: 50%; bottom: -40px; width: 0; height: 0;
-  animation: hv-sway 12s ease-in-out infinite;
+.hv2-fanstage {
+  position: absolute; inset: 0; touch-action: pan-y; cursor: grab; user-select: none;
 }
-.hv-fan i {
-  position: absolute; left: -42px; bottom: 0; width: 84px; height: 112px; border-radius: 14px;
-  border: 4px solid rgba(255,255,255,.94); box-shadow: 0 10px 22px rgba(0,0,0,.4);
+.hv2-fanstage:active { cursor: grabbing; }
+.hv2-fan {
+  --cw: clamp(76px, 22vw, 116px);
+  --ch: clamp(122px, 33vw, 180px);
+  --rad: clamp(180px, 50vw, 264px);
+  position: absolute; left: 50%; top: 60%; width: 0; height: 0;
+  transform: rotate(var(--spin, 0deg));
+}
+.hv2-card {
+  position: absolute; left: 0; top: 0;
+  width: var(--cw); height: var(--ch);
+  margin: calc(var(--ch) / -2) 0 0 calc(var(--cw) / -2);
+  border-radius: 20px;
+  border: 4px solid rgba(255,255,255,.95);
+  box-shadow: 0 16px 32px rgba(0,0,0,.45);
   background-size: cover; background-position: center;
-  transform-origin: 50% 100%; transform: rotate(var(--r)) translateY(-104px);
+  transform: rotate(var(--a, 0deg)) translateY(calc(var(--rad) * -1));
+  overflow: hidden;
 }
-.hv-fan i::after {
-  content: ""; position: absolute; left: 50%; bottom: 8px; width: 22px; height: 2px;
-  transform: translateX(-50%); border-radius: 2px; background: rgba(0,0,0,.22);
+.hv2-tag {
+  position: absolute; left: 50%; bottom: 7px; transform: translateX(-50%);
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap; max-width: 92%;
+  overflow: hidden; text-overflow: ellipsis;
+  font: 700 8.5px/1.2 var(--body); letter-spacing: .09em; text-transform: uppercase;
+  background: rgba(8,10,16,.55); color: #fff; border: 1px solid rgba(255,255,255,.4);
+  backdrop-filter: blur(4px);
 }
-@keyframes hv-sway { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
-.hv-halo-sub {
-  position: absolute; left: 0; right: 0; bottom: 26px; text-align: center;
-  font: italic 500 15px var(--serif); color: var(--ann-soft); opacity: .85;
+.hv2-names {
+  position: absolute; left: 0; right: 0; bottom: 3.5vh; z-index: 5;
+  text-align: center; pointer-events: none; padding: 0 16px;
 }
+.hv2-names h2 {
+  margin: 0; font: italic 500 clamp(30px, 8.6vw, 46px)/1.06 var(--serif); color: #fff;
+  text-shadow: 0 2px 18px rgba(0,0,0,.45);
+}
+.hv2-names p { margin: 9px 0 0; font: 400 13.5px var(--body); color: rgba(255,255,255,.78); }
+.hv2-cta {
+  pointer-events: auto; margin-top: 16px; border: 0; cursor: pointer;
+  background: #fff; color: #12141c; font: 700 13px var(--body);
+  padding: 12px 24px; border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.4);
+  transition: transform .15s ease;
+  touch-action: manipulation;
+}
+.hv2-cta:active { transform: scale(.96); }
 
-/* ---------- HERO DECK: stacked cards cycling to the front ---------- */
+/* ---------- HERO DECK: a 3D ring of portrait cards ---------- */
 .hv-deck {
   position: relative; overflow: hidden;
   background:
-    radial-gradient(circle at 50% 30%, rgba(255,255,255,.1), transparent 55%),
+    radial-gradient(circle at 50% 40%, rgba(255,255,255,.1), transparent 55%),
     linear-gradient(180deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 76%, #000));
 }
-.hv-deck-stage { position: relative; max-width: 520px; height: 100%; margin: 0 auto; }
-.hv-dmeta {
-  position: absolute; top: 18px; left: 18px; right: 18px; z-index: 6;
-  display: flex; justify-content: space-between;
-  font: 700 10px var(--body); letter-spacing: .16em; color: var(--ann-soft);
-  text-transform: uppercase; opacity: .9;
+.hv3-names {
+  position: absolute; top: max(5.5vh, 30px); left: 0; right: 0; z-index: 5;
+  text-align: center; padding: 0 14px; pointer-events: none;
+  font: italic 500 clamp(30px, 8.4vw, 46px)/1.05 var(--serif); color: #fff;
+  text-shadow: 0 2px 18px rgba(0,0,0,.5);
 }
-.hv-dmeta b { color: var(--ann-soft); }
-.hv-stack { position: absolute; inset: 0; }
-.hv-cfc {
-  position: absolute; top: 12%; left: 22%; width: 56%; height: 74%;
-  border-radius: 16px; border: 4px solid rgba(255,255,255,.92);
-  box-shadow: 0 12px 26px rgba(0,0,0,.45);
+.hv3-stage {
+  position: absolute; inset: 0; perspective: 1300px;
+  touch-action: pan-y; cursor: grab; user-select: none;
+}
+.hv3-stage:active { cursor: grabbing; }
+.hv3-ring {
+  --dw: clamp(148px, 42vw, 236px);
+  --dh: calc(var(--dw) * 1.52);
+  --dr: clamp(190px, 52vw, 330px);
+  position: absolute; left: 50%; top: 56%;
+  width: 0; height: 0; transform-style: preserve-3d;
+  transform: rotateY(var(--spin, 0deg));
+}
+.hv3-card {
+  position: absolute; left: 0; top: 0;
+  width: var(--dw); height: var(--dh);
+  margin: calc(var(--dh) / -2) 0 0 calc(var(--dw) / -2);
+  border-radius: 26px; border: 5px solid rgba(255,255,255,.95);
+  box-shadow: 0 24px 48px rgba(0,0,0,.5);
   background-size: cover; background-position: center;
-  animation: hv-deckmove var(--dur, 15s) linear infinite;
-  animation-delay: var(--dl, 0s);
-}
-.hv-cfc:nth-child(2) { left: 62%; transform: scale(.8) rotate(9deg); opacity: .55; }
-.hv-cfc:nth-child(3) { left: 84%; transform: scale(.62) rotate(14deg); opacity: .3; }
-.hv-cfc:nth-child(4) { left: -14%; transform: scale(.62) rotate(-14deg); opacity: .3; }
-.hv-cfc:nth-child(5) { left: 0; transform: scale(.8) rotate(-9deg); opacity: .55; }
-@keyframes hv-deckmove {
-  0% { left: 22%; transform: scale(1) rotate(0); opacity: 1; z-index: 5; }
-  20% { left: 62%; transform: scale(.8) rotate(9deg); opacity: .55; z-index: 3; }
-  40% { left: 84%; transform: scale(.62) rotate(14deg); opacity: .3; z-index: 1; }
-  60% { left: -14%; transform: scale(.62) rotate(-14deg); opacity: .3; z-index: 1; }
-  80% { left: 0; transform: scale(.8) rotate(-9deg); opacity: .55; z-index: 3; }
-  100% { left: 22%; transform: scale(1) rotate(0); opacity: 1; z-index: 5; }
+  transform: rotateY(var(--a, 0deg)) translateZ(var(--dr));
+  backface-visibility: hidden;
 }
 
-/* ---------- OPEN BOOK: a flipping hardback ---------- */
+/* ---------- OPEN BOOK: a hardback that flips its own pages ---------- */
 .hv-book {
   position: relative; overflow: hidden;
-  background: radial-gradient(circle at 50% 32%, #f5eee1, #c9b9a0);
+  background: radial-gradient(circle at 50% 32%, #f7f1e4, #c9b89e);
   --u: 1;
 }
-@media (max-width: 480px) { .hv-book { --u: .82; } }
-.hv-book-stage {
-  position: absolute; left: 50%; top: 50%; perspective: 1300px;
-  transform: translate(calc(-94px * var(--u)), -50%);
+@media (max-width: 480px) { .hv-book { --u: .88; } }
+.hv5-hint {
+  position: absolute; top: max(2.5vh, 14px); left: 0; right: 0; z-index: 5;
+  margin: 0; text-align: center;
+  font: 700 9.5px var(--body); letter-spacing: .22em; text-transform: uppercase;
+  color: rgba(60,48,32,.55);
 }
-.hv-bshadow { position: absolute; border-radius: 50%; background: radial-gradient(rgba(0,0,0,.5), transparent 70%); filter: blur(7px); z-index: 0; }
-.hv-leaf {
-  position: absolute; left: 0; transform-origin: 0 50%; transform-style: preserve-3d;
-  border-radius: 2px 8px 8px 2px; transform: translateZ(calc((4 - var(--li)) * 1.5px));
-  animation: hv-turn 18s ease-in-out infinite;
+.hv5-float { position: absolute; inset: 0; animation: hv5-bob 7s ease-in-out infinite; }
+@keyframes hv5-bob { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(6px); } }
+.hv5-stage {
+  --pw: clamp(104px, 38vw, 194px);
+  --ph: calc(var(--pw) * 1.44);
+  position: absolute; left: 50%; top: 52%;
+  width: calc(var(--pw) * 2); height: var(--ph);
+  transform: translate(-50%, -50%) translateX(var(--shift, 0%));
+  transition: transform .95s cubic-bezier(.4,.05,.2,1);
+  perspective: 1600px; touch-action: pan-y; cursor: grab; user-select: none;
 }
-@keyframes hv-turn {
-  0% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(0deg); }
-  6% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(-180deg); }
-  88% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(-180deg); }
-  94%, 100% { transform: translateZ(calc((4 - var(--li)) * 1.5px)) rotateY(0deg); }
+.hv5-bshadow {
+  position: absolute; left: 50%; bottom: calc(var(--ph) * -0.09);
+  width: calc(var(--pw) * 2.3); height: calc(var(--ph) * 0.1);
+  transform: translateX(-50%);
+  border-radius: 50%; filter: blur(10px); z-index: 0;
+  background: radial-gradient(rgba(0,0,0,.45), transparent 70%);
 }
-.hv-face { position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden; border-radius: 2px 8px 8px 2px; box-shadow: 0 5px 12px rgba(0,0,0,.2); }
-.hv-face.bf { transform: rotateY(180deg); border-radius: 8px 2px 2px 8px; }
-.hv-face > i { position: absolute; inset: 0; display: block; pointer-events: none; }
-.hv-sp1 { background: linear-gradient(90deg, rgba(0,0,0,.35), transparent 18%); }
-.hv-sp2 { background: linear-gradient(270deg, rgba(0,0,0,.35), transparent 18%); }
-.hv-shade { opacity: .12; background: linear-gradient(90deg, transparent, rgba(0,0,0,.8)); }
-.hv-page {
-  position: absolute; inset: 0; background: linear-gradient(#fbf7ef, #f0e7d6);
-  padding: calc(10px * var(--u)); display: flex; flex-direction: column; color: #5b4a35;
+.hv5-leaf {
+  position: absolute; left: var(--pw); top: 0;
+  width: var(--pw); height: var(--ph);
+  transform-origin: 0 50%; transform-style: preserve-3d;
+  transition: transform .95s cubic-bezier(.4,.05,.2,1);
+  border-radius: 2px 10px 10px 2px;
 }
-.hv-page .hv-pimg { flex: 1; border: calc(4px * var(--u)) solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.25); border-radius: 2px; background-size: cover; background-position: center; }
-.hv-pcap { font: italic 500 calc(13px * var(--u)) var(--serif); text-align: center; margin-top: calc(8px * var(--u)); }
-.hv-pno { position: absolute; bottom: calc(3px * var(--u)); left: 0; right: 0; text-align: center; font-size: calc(9px * var(--u)); opacity: .5; }
-.hv-page.ktx { align-items: center; justify-content: center; text-align: center; gap: calc(6px * var(--u)); }
-.hv-page.ktx small { font-size: calc(8px * var(--u)); letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
-.hv-page.ktx b { font: 600 calc(21px * var(--u))/1.1 var(--serif); color: #2a2858; }
-.hv-page.ktx i { font: italic calc(10.5px * var(--u)) var(--serif); }
-.hv-page.ktx span { font-size: calc(10px * var(--u)); font-weight: 600; }
-.hv-star { color: #c8932a; font-size: calc(14px * var(--u)); }
-.hv-cover {
-  position: absolute; inset: 0; background: linear-gradient(135deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 60%, #000) 80%);
+.hv5-leaf.flipped { transform: rotateY(-180deg); }
+.hv5-face {
+  position: absolute; inset: 0; overflow: hidden; backface-visibility: hidden;
+  border-radius: 2px 10px 10px 2px;
+  box-shadow: 0 6px 14px rgba(0,0,0,.22);
+  background: linear-gradient(#fbf7ef, #f0e7d6);
+}
+.hv5-face.bf { transform: rotateY(180deg); border-radius: 10px 2px 2px 8px; }
+.hv5-face > i { position: absolute; inset: 0; display: block; pointer-events: none; }
+.hv5-sp1 { background: linear-gradient(90deg, rgba(0,0,0,.32), transparent 16%); }
+.hv5-sp2 { background: linear-gradient(270deg, rgba(0,0,0,.32), transparent 16%); }
+.hv5-page {
+  position: absolute; inset: 0; padding: calc(10px * var(--u));
+  display: flex; flex-direction: column; color: #5b4a35;
+}
+.hv5-pimg {
+  flex: 1; min-height: 0; border: calc(4px * var(--u)) solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25); border-radius: 3px;
+  background-size: cover; background-position: center;
+}
+.hv5-pcap { font: italic 500 calc(12.5px * var(--u)) var(--serif); text-align: center; margin-top: calc(7px * var(--u)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv5-pno { position: absolute; bottom: calc(3px * var(--u)); left: 0; right: 0; text-align: center; font-size: calc(8.5px * var(--u)); opacity: .5; }
+.hv5-page.ktx { align-items: center; justify-content: center; text-align: center; gap: calc(6px * var(--u)); }
+.hv5-page.ktx small { font-size: calc(7.5px * var(--u)); letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
+.hv5-page.ktx b { font: 600 calc(20px * var(--u))/1.12 var(--serif); color: var(--ann-hero, #2a2858); }
+.hv5-page.ktx i { font: italic calc(10px * var(--u)) var(--serif); }
+.hv5-page.ktx span { font-size: calc(9.5px * var(--u)); font-weight: 600; }
+.hv-star { color: #c8932a; }
+.hv5-cover {
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, var(--ann-hero), color-mix(in srgb, var(--ann-hero) 60%, #000) 85%);
   color: var(--ann-soft); display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; gap: calc(8px * var(--u));
+  text-align: center; gap: calc(7px * var(--u));
 }
-.hv-cover::before { content: ""; position: absolute; inset: calc(9px * var(--u)); border: 1px solid color-mix(in srgb, var(--ann-accent) 70%, transparent); border-radius: 4px; }
-.hv-cover small { font-size: calc(8px * var(--u)); letter-spacing: .24em; }
-.hv-cover b { font: 600 calc(25px * var(--u))/1.1 var(--serif); }
-.hv-cover span { font-size: calc(10px * var(--u)); letter-spacing: .14em; }
-.hv-cover.kbc b, .hv-cover.kbc span { font-size: calc(11px * var(--u)); }
+.hv5-cover::before {
+  content: ""; position: absolute; inset: calc(8px * var(--u));
+  border: 1.5px solid color-mix(in srgb, var(--ann-accent) 75%, transparent); border-radius: 4px;
+}
+.hv5-cover small { font-size: calc(7.5px * var(--u)); letter-spacing: .26em; color: color-mix(in srgb, var(--ann-accent) 80%, #fff); }
+.hv5-cover b { font: 600 calc(24px * var(--u))/1.12 var(--serif); color: color-mix(in srgb, var(--ann-accent) 82%, #fff); }
+.hv5-cover span { font-size: calc(9.5px * var(--u)); letter-spacing: .14em; }
+.hv5-cover.kbc b, .hv5-cover.kbc span { font-size: calc(10.5px * var(--u)); }

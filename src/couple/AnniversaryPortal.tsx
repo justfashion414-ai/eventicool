@@ -43,7 +43,7 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, demoEvents } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, demoEvents } from './lib/demoMode';
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
 import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
@@ -746,6 +746,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 1. Handle Auth & Session
   useEffect(() => {
+    if (DEMO) return; // Previews run fully offline: no anonymous sign-in, no Firebase
     const unsub = onAuthStateChanged(auth, async (currUser) => {
       if (currUser) {
         setUser(currUser);
@@ -866,6 +867,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // Handle Reactions Logic
   const handleToggleReaction = async (postId: string, type: 'like' | 'love') => {
+    if (DEMO) {
+      if (type === 'like') setUserLikes((prev) => ({ ...prev, [postId]: !prev[postId] }));
+      else setUserLoves((prev) => ({ ...prev, [postId]: !prev[postId] }));
+      return;
+    }
     if (!user) {
       showToast("Please wait while we connect you...", "error");
       return;
@@ -926,6 +932,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 2. Sync Global Config (Access Code)
   useEffect(() => {
+    if (DEMO) { setConfigLoaded(true); setActiveAccessCode(normalizeCode(DEMO_ACCESS_CODE)); return; }
     const unsub = onSnapshot(doc(db, 'app_config', 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -1001,6 +1008,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 2b. Initialize Config (Admin only)
   useEffect(() => {
+    if (DEMO) return;
     if (!isAdmin || !isAdminSessionValid) return;
     
     const initConfig = async () => {
@@ -1453,6 +1461,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 3. Handle Posts Sync
   useEffect(() => {
+    if (DEMO) { setPosts(DEMO_POSTS as any); setIsPostsLoading(false); return; } // Previews read seeded demo posts only
     const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snapshot) => {
       const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1534,6 +1543,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // Handle profile save to Firestore
   const saveProfile = async () => {
+    if (DEMO) { showToast('Profile saved for this preview.'); return; }
     if (!user) return;
     setIsSavingProfile(true);
     try {
@@ -1705,9 +1715,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
            {heroTemplate === 'classic' && (
               <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
             )}
-            {heroTemplate === 'halo' && <HaloHero images={heroImages} />}
-            {heroTemplate === 'hero' && <DeckHero images={heroImages} dateShort={heroDateShort} city={DEMO_COUPLE.city} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={DEMO_COUPLE.bride} groom={DEMO_COUPLE.groom} dotDate={heroDotDate} city={DEMO_COUPLE.city} hashtag={DETAILS.hashtag} />}
+            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={DEMO_COUPLE.header} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={DEMO_COUPLE.header} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={DEMO_COUPLE.bride} groom={DEMO_COUPLE.groom} dotDate={heroDotDate} city={DEMO_COUPLE.city} hashtag={DETAILS.hashtag} eventNames={EVENTS.map((e) => e.name)} />}
         </div>
 
         {/* TOAST NOTIFICATION */}
@@ -1816,7 +1826,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </button>
               </div>
 
-              {!isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
+              {!DEMO && !isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
                 <div className={`rounded-[20px] p-[18px] mt-4 border flex items-center gap-3 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                   <div className="w-10 h-10 rounded-full bg-[#C8932A]/20 text-[#C8932A] grid place-items-center shrink-0"><User className="w-5 h-5" /></div>
                   <div className="flex-1 min-w-0">
@@ -1833,20 +1843,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 <p className={`text-[0.95rem] leading-relaxed m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                   {STORY}
                 </p>
-                <div className={`p-[16px_18px] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                  <strong className="block mb-0.5 text-[0.93rem]">How to share</strong>
-                  <p className={`m-0 text-[0.93rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                    Tap Feed to browse, then tap Send to post a photo, video, reel or written wish. No email or password needed.
-                  </p>
-                </div>
               </section>
 
               {/* THE JOURNEY */}
-              <section className="mt-8">
+              <section id="journey" className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap any event to see its memories.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
-                  {EVENTS.map((e) => {
+                  {EVENTS.map((e, ji) => {
                     const st = e.status || 'up';
                     const cnt = posts.filter((p: any) => p?.eventId === e.id).length;
                     const tagCls = st === 'done'
@@ -1860,7 +1864,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                         ? 'bg-[#C8932A] border-[#C8932A] shadow-[0_0_0_5px_rgba(200,147,42,0.18)]'
                         : (isDarkMode ? 'bg-[#0B171C] border-[#93A4AB]' : 'bg-[#EEEDF3] border-[#5A6970]');
                     return (
-                      <button key={e.id} onClick={() => setActiveTab('feed')} className="relative block w-full text-left border-0 bg-transparent p-0 group">
+                      <motion.button key={e.id} initial={{ opacity: 0, x: -26 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, amount: 0.35 }} transition={{ duration: 0.55, delay: ji * 0.07, ease: 'easeOut' }} onClick={() => setActiveTab('feed')} className="relative block w-full text-left border-0 bg-transparent p-0 group">
                         <span className={`absolute -left-[30px] top-[20px] w-[14px] h-[14px] rounded-full border-[3px] ${dotCls}`} />
                         <div className={`rounded-[18px] border p-[14px_16px] transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E] group-hover:border-[#2FB3BF]/50' : 'bg-white border-[#DAD8E3] group-hover:border-[var(--ann-accent)]/40'}`}>
                           <div className="flex items-center justify-between gap-2">
@@ -1875,7 +1879,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                             {cnt > 0 ? `See ${cnt} ${cnt === 1 ? 'memory' : 'memories'}` : 'Be the first to share'}
                           </small>
                         </div>
-                      </button>
+                      </motion.button>
                     );
                   })}
                 </div>
@@ -2040,7 +2044,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   {(() => {
                     const regularPosts = posts.filter((p) => {
                       if (p.id === 'jubilee_documentary') return false;
-                      if (p.pending && !(isAdmin || p.authorUid === user?.uid)) return false;
+                      if (p.pending && !(isAdmin || p.authorUid === user?.uid || (DEMO && p.localDemo))) return false;
                       const media: string[] = p.mediaUrls || (p.mediaUrl ? [p.mediaUrl] : []);
                       const hasVideo = media.some((u, idx) =>
                         p.mediaTypes?.[idx] === 'video' ||
@@ -2140,7 +2144,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   reels={(() => {
                     const filteredReels = posts.filter((p) => {
                       if (p.id === 'jubilee_documentary') return false;
-                      if (p.pending && !(isAdmin || p.authorUid === user?.uid)) return false;
+                      if (p.pending && !(isAdmin || p.authorUid === user?.uid || (DEMO && p.localDemo))) return false;
                       const media: string[] = p.mediaUrls || (p.mediaUrl ? [p.mediaUrl] : []);
                       const hasVideo = media.some((u, idx) =>
                         p.mediaTypes?.[idx] === 'video' ||
@@ -2588,6 +2592,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 {configLoaded && !activeAccessCode && (
                   <p className="text-[0.7rem] text-center mt-2 text-red-500 font-bold uppercase tracking-wider">Posting is temporarily unavailable</p>
                 )}
+                {DEMO && configLoaded && activeAccessCode && (
+                  <p className="text-[0.7rem] text-center mt-2 opacity-60 font-bold uppercase tracking-wider">Preview access code: {DEMO_ACCESS_CODE}</p>
+                )}
               </div>
 
 
@@ -2689,6 +2696,36 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                     if (!newPostEvent) { showToast('Select the part of the celebration first.', 'error'); return; }
                     if (!accessCode.trim()) { showToast('Enter the access code before posting.', 'error'); return; }
                     if (normalizeCode(accessCode) === normalizeCode(activeAccessCode ?? '')) {
+                      if (DEMO) {
+                        // Preview: the memory lives in this page only. Nothing is
+                        // uploaded and nothing reaches the real couple's database.
+                        const demoPost = {
+                          id: `demo_${Date.now()}`,
+                          localDemo: true,
+                          authorUid: 'demo-self',
+                          authorName: displayName || 'Guest',
+                          authorPhoto: avatar && !avatar.startsWith('blob:') ? avatar : null,
+                          text: newPostText,
+                          mediaUrls: attachedMedia.map((m) => m.url),
+                          mediaTypes: attachedMedia.map((m) => m.type || 'image'),
+                          ...(attachedMedia.length === 1 && attachedMedia[0].type === 'video' && attachedMedia[0].orientation === 'portrait' ? { videoOrientation: 'portrait' } : {}),
+                          ...(newPostEvent ? { eventId: newPostEvent } : {}),
+                          pending: true,
+                          likeCount: 0,
+                          loveCount: 0,
+                          commentCount: 0,
+                          timestamp: new Date(),
+                        };
+                        setPosts((prev: any[]) => [demoPost, ...prev]);
+                        setFeedSubTab(attachedMedia.length === 1 && attachedMedia[0].type === 'video' && attachedMedia[0].orientation === 'portrait' ? 'reels' : 'post');
+                        setIsComposeOpen(false);
+                        setNewPostText('');
+                        setAccessCode('');
+                        setNewPostEvent('');
+                        setAttachedMedia([]);
+                        showToast('Shared. Waiting for the couple to approve');
+                        return;
+                      }
                       setIsPosting(true);
                       try {
                         let finalMediaUrls: string[] = [];
@@ -2886,7 +2923,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         </button>
         <button 
           onClick={() => {
-            if (activeTab === 'feed') {
+            if (DEMO) {
+              setIsComposeOpen(true);
+            } else if (activeTab === 'feed') {
               // Robust check for profile completion
               const isProfileComplete = displayName.trim() !== '' && avatar && !avatar.startsWith('blob:');
               const hasUnsavedAvatar = avatar && avatar.startsWith('blob:');
@@ -4115,7 +4154,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    if (isSample || !post?.id) return;
+    if (isSample || DEMO || !post?.id) return;
     const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -4128,7 +4167,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
     if (!body || sending) return;
     setSending(true);
     try {
-      if (isSample) {
+      if (isSample || DEMO) {
         setComments((prev) => [...prev, { authorName: displayName || 'Guest', text: body, timeAgo: 'Just now' }]);
       } else {
         await addDoc(collection(db, 'posts', post.id, 'comments'), {
