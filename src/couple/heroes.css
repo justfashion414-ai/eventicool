@@ -80,15 +80,15 @@
   text-shadow: 0 2px 18px rgba(0,0,0,.5);
 }
 .hv3-stage {
-  position: absolute; inset: 0; perspective: 1050px;
+  position: absolute; inset: 0; perspective: 900px;
   touch-action: pan-y; cursor: grab; user-select: none;
 }
 .hv3-stage:active { cursor: grabbing; }
 .hv3-ring {
-  --dw: clamp(164px, 47vw, 258px);
-  --dh: calc(var(--dw) * 1.54);
-  --dr: clamp(210px, 56vw, 352px);
-  position: absolute; left: 50%; top: 58%;
+  --dw: clamp(178px, 52vw, 268px);
+  --dh: calc(var(--dw) * 1.52);
+  --dr: clamp(216px, 58vw, 360px);
+  position: absolute; left: 50%; top: 53%;
   width: 0; height: 0; transform-style: preserve-3d;
   transform: rotateY(var(--spin, 0deg));
 }
