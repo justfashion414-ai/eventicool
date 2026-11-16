@@ -31,13 +31,13 @@ export const DEMO_DETAILS = {
 };
 
 export const DEMO_PHOTOS = [
-  'https://images.pexels.com/photos/29083272/pexels-photo-29083272.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083275/pexels-photo-29083275.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083279/pexels-photo-29083279.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083281/pexels-photo-29083281.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083283/pexels-photo-29083283.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083284/pexels-photo-29083284.jpeg?auto=compress&cs=tinysrgb&w=800',
-  'https://images.pexels.com/photos/29083285/pexels-photo-29083285.jpeg?auto=compress&cs=tinysrgb&w=800',
+  '/demo/photo1.jpg',
+  '/demo/photo2.jpg',
+  '/demo/photo3.jpg',
+  '/demo/photo4.jpg',
+  '/demo/photo5.jpg',
+  '/demo/photo6.jpg',
+  '/demo/photo7.jpg',
 ];
 
 export function demoEvents(): any[] {
