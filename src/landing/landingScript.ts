@@ -263,7 +263,7 @@ function hlRun(el,live){var W=el.clientWidth,H=el.clientHeight;if(!W||!H)return 
     if(live)requestAnimationFrame(frame);
   }
   frame();return live?st:null}
-function hlvSync(){var els=document.querySelectorAll('[data-hl]');HL=HL.filter(function(st){if(!st.el.isConnected){st.dead=1;return false}return true});
+function hlvSync(){HL=HL||[];var els=document.querySelectorAll('[data-hl]');HL=HL.filter(function(st){if(!st.el.isConnected){st.dead=1;return false}return true});
   for(var i=0;i<els.length;i++){var el=els[i];if(el._hl)continue;el._hl=hlRun(el,el.getAttribute('data-hl')==='1');if(el._hl)HL.push(el._hl)}}
 function rvsetup(){hlvSync();var vs=document.querySelectorAll('#pv .frl video');if(rvsetup.io)rvsetup.io.disconnect();if(!vs.length)return;vs.forEach(function(v){rsunm(v)});var io=rvsetup.io=new IntersectionObserver(function(es){es.forEach(function(en){var v=en.target;if(en.isIntersecting){var p=v.play();if(p&&p.catch)p.catch(function(){})}else{v.pause()}})},{threshold:.55});for(var i=0;i<vs.length;i++)io.observe(vs[i])}
 function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r=w.getBoundingClientRect();var vh=innerHeight||800;var total=r.height-vh;if(innerWidth<=900||total<=0){SGT=0;sgmove();return}var p=-r.top/total;p=p<0?0:(p>1?1:p);SGT=p*(SG5.length-1);sgmove()}var sgq=false,_fonsc=function(){if(sgq)return;sgq=true;requestAnimationFrame(function(){sgq=false;try{apscroll();secscroll()}catch(e){}})};addEventListener('scroll',_fonsc,{passive:true});addEventListener('resize',_fonsc);_fonsc();
