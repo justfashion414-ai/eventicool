@@ -30,18 +30,17 @@ export default async (req) => {
   let name = 'Eventicor'
   let short = 'Eventicor'
   let icon = null
-  let dbg = null
   if (leadId) {
     try {
       init()
       const doc = await getFirestore().collection('leads').doc(leadId).get()
-      if (doc.exists()) {
+      if (doc.exists) {
         const d = doc.data()
         name = `${d.bride || 'Our'} & ${d.groom || 'Event'}`
         short = `${d.bride || 'Our'} & ${(d.groom || '').slice(0, 1)}.`
         icon = Array.isArray(d.heroImages) && d.heroImages[0] ? String(d.heroImages[0]) : null
       }
-    } catch (e) { dbg = String(e && e.message || e) }
+    } catch { /* fall through to the generic manifest */ }
   }
 
   const params = new URLSearchParams()
@@ -74,7 +73,6 @@ export default async (req) => {
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
-    dbg,
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,
