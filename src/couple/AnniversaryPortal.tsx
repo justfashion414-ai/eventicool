@@ -281,14 +281,16 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
 
   const signatureEndpoints = [
     `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
+    // Interim signer while this site's Cloudinary env is pending (same account).
+    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
   for (const sigEndpoint of signatureEndpoints) {
     try {
       const sigRes = await fetch(sigEndpoint, {
         method: 'GET',
-        credentials: 'include',
+        credentials: sigEndpoint.startsWith('http') ? 'omit' : 'include',
         headers: {
           'Accept': 'application/json',
           ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
@@ -349,14 +351,16 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   // Strategy 1: Direct signed upload to Cloudinary API (works on both Express /api/upload-signature and Netlify /.netlify/functions/upload-signature)
   const signatureEndpoints = [
     `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
+    // Interim signer while this site's Cloudinary env is pending (same account).
+    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
   for (const sigEndpoint of signatureEndpoints) {
     try {
       const sigRes = await fetch(sigEndpoint, {
         method: 'GET',
-        credentials: 'include',
+        credentials: sigEndpoint.startsWith('http') ? 'omit' : 'include',
         headers: {
           'Accept': 'application/json',
           ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})

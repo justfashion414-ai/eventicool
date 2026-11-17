@@ -120,9 +120,13 @@ async function shrinkToDataUrl(file: File): Promise<string> {
 
 async function uploadOneLead(file: File, kind: string): Promise<string> {
   const folder = `eventicor-leads-${kind}`
-  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`]) {
+  // Interim signer: this site's Cloudinary env is still pending, so the signed
+  // route falls back to the wedding-gallery signer (same Cloudinary account).
+  // Drop this entry once CLOUDINARY_* env vars are set here.
+  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`, `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`]) {
     try {
-      const res = await fetch(ep, { credentials: 'include' })
+      // The interim signer is cross-origin and sends no cookies, so omit credentials there.
+      const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
       if (!res.ok) continue
       const sig = await res.json()
       if (!sig?.signature || !sig?.cloudName || !sig?.apiKey) continue
@@ -541,6 +545,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                     </span>
                     <span className="row" style={{ gap: 6 }}>
                       <a className="btn g s" href={leadLink(l.template || 'classic', l.accent || 'midnight', expSec, l.id)} target="_blank" rel="noreferrer">Open</a>
+                      <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadLink(l.template || 'classic', l.accent || 'midnight', expSec, l.id)); say('Link copied') }}>Copy link</button>
                       <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadMsg(leadName(l), l.template || 'classic', l.accent || 'midnight', expSec, l.id)); say('Message copied') }}>Copy message</button>
                       <button className="btn g s" onClick={() => deleteLead(l.id)}>{delLeadId === l.id ? 'Sure?' : 'Delete'}</button>
                     </span>
