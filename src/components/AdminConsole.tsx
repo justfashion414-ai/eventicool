@@ -30,6 +30,7 @@ const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
 const NAV = [
   { id: 'over', label: 'Overview' },
   { id: 'pipe', label: 'Pipeline' },
+  { id: 'leads', label: 'Leads' },
   { id: 'onb', label: 'Onboard a couple' },
   { id: 'sites', label: 'Apps' },
   { id: 'ord', label: 'Orders' },
@@ -67,6 +68,7 @@ interface Site {
   tpl?: string
   since: string
 }
+interface LeadDoc { id: string; title?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -86,6 +88,7 @@ function fmtDate(ev?: { seconds?: number }) {
 const ICONS: Record<SecId, string> = {
   over: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
+  leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
   onb: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
@@ -108,6 +111,14 @@ const DEMO_EVENTS: EvDoc[] = [
   { id: 'demo-3', title: 'Ifeoma & Kunle', slug: 'ifeoma-kunle', template: 'book', plan: 'legacy', status: 'suspended', city: 'Enugu', weddingDate: '2026-11-28', accessCode: 'DEMO56', createdAt: { seconds: 1759900000 } },
 ]
 
+/* Demo leads: sample apps an admin builds for outbound marketing. They carry
+   no email and never count as couples' apps, customers or revenue. */
+const DEMO_LEADS: LeadDoc[] = [
+  { id: 'lead-d1', title: 'Ada & Obinna', city: 'Lagos', template: 'halo', accent: 'blush', createdAt: Date.now() - 864e5, expiresAt: Date.now() + 2 * 864e5 },
+  { id: 'lead-d2', title: 'Ngozi & Chike', city: 'Abuja', template: 'book', accent: 'royal', createdAt: Date.now() - 6 * 864e5, expiresAt: Date.now() - 36e5 },
+  { id: 'lead-d3', title: 'Amara & Ifeanyi', city: 'Enugu', template: 'hero', accent: 'sunset', createdAt: Date.now() - 36e5, expiresAt: Date.now() + 2.9 * 864e5 },
+]
+
 export default function AdminConsole({ user, onSignOut, initialNavOpen = false }: { user: User | null; onSignOut: () => void; initialNavOpen?: boolean }) {
   const [sec, setSec] = useState<SecId>(() => {
     const saved = localStorage.getItem(KEY)
@@ -127,6 +138,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [prov, setProv] = useState<{ step: number; done: boolean; error?: string; slug?: string; code?: string } | null>(null)
 
   // sites filters
+  const [leads, setLeads] = useState<LeadDoc[] | null>(null)
+  const [ld, setLd] = useState({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
+  const [lf, setLf] = useState<'all' | 'live' | 'expired'>('all')
+  const [delLeadId, setDelLeadId] = useState<string | null>(null)
   const [sf, setSf] = useState<'all' | 'live' | 'draft' | 'suspended'>('all')
   const [sq, setSq] = useState('')
   // orders filter
@@ -169,10 +184,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }, [menuOpen])
   useEffect(() => {
     let alive = true
-    if (user?.uid === 'demo') { setEvents(DEMO_EVENTS); return () => { alive = false } }
+    if (user?.uid === 'demo') { setEvents(DEMO_EVENTS); setLeads(DEMO_LEADS); return () => { alive = false } }
     proxyCall('list', { collection: 'events', limit: 50 })
       .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
       .catch(() => { if (alive) setEvents([]) })
+    proxyCall('list', { collection: 'leads', limit: 50 })
+      .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))) })
+      .catch(() => { if (alive) setLeads([]) })
     proxyCall('list', { collection: 'platform_audit', limit: 20 })
       .then((res) => {
         if (!alive) return
@@ -271,6 +289,131 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     say('Link and access code copied')
   }
 
+  /* ---- leads: sample apps built for outbound marketing ---- */
+  // A sample app carries its own 3-day expiry in the link (?exp=unix seconds),
+  // so a lead needs no email: the link opens on its own, and after 3 days it
+  // points back to the Eventicor landing page to create their own app. Leads
+  // live in their own collection and never count as couples' apps or revenue.
+  const leadLink = (t: string, a: string, exp: number) =>
+    `${window.location.origin}/app?tpl=${t}&acc=${a}&exp=${exp}`
+  const leadMsg = (title: string, t: string, a: string, exp: number) =>
+    `Hi ${title || 'there'}! Here's a sample of what your event app could look like: ${leadLink(t, a, exp)} This one is just a sample and stays live for 3 days. To create your own app, go to https://eventicor.name.ng`
+  async function createLead() {
+    if (!ld.title.trim()) { say('Give the lead a name, e.g. Tolu & Kunle'); return }
+    const exp = Math.floor(Date.now() / 1000) + 3 * 86400
+    const row: LeadDoc = { id: `lead-${Date.now()}`, title: ld.title.trim(), city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000 }
+    if (user?.uid === 'demo') {
+      setLeads((l) => [row, ...(l || [])])
+      try { navigator.clipboard?.writeText(leadMsg(row.title || '', row.template || 'classic', row.accent || 'midnight', exp)) } catch {}
+      say('Demo console: sample app created, nothing is saved. Message copied')
+      setLd({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
+      return
+    }
+    setBusy(true)
+    try {
+      await proxyCall('add', { collection: 'leads', data: { title: row.title, city: row.city, template: row.template, accent: row.accent, createdAt: row.createdAt, expiresAt: row.expiresAt } })
+      setLeads((l) => [row, ...(l || [])])
+      logAudit(`Created sample app for lead ${row.title} (${TP[row.template || 'classic'].name})`)
+      try { navigator.clipboard?.writeText(leadMsg(row.title || '', row.template || 'classic', row.accent || 'midnight', exp)) } catch {}
+      say('Sample app created. Message copied — paste it in WhatsApp')
+    } catch { say('Could not save the lead. Try again'); setBusy(false); return }
+    setBusy(false)
+    setLd({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
+  }
+  async function deleteLead(id: string) {
+    if (delLeadId !== id) { setDelLeadId(id); say('Tap again to delete this lead'); return }
+    setDelLeadId(null)
+    if (user?.uid === 'demo') { setLeads((l) => (l || []).filter((x) => x.id !== id)); say('Demo console: nothing is saved'); return }
+    setBusy(true)
+    try {
+      await proxyCall('delete', { collection: 'leads', id })
+      setLeads((l) => (l || []).filter((x) => x.id !== id))
+      logAudit('Deleted a sample app lead')
+      say('Lead deleted')
+    } catch { say('Could not delete. Try again') }
+    setBusy(false)
+  }
+  function leadsSection() {
+    const now = Date.now()
+    const liveN = (leads || []).filter((l) => (l.expiresAt || 0) > now).length
+    const rows = (leads || [])
+      .map((l) => ({ ...l, live: (l.expiresAt || 0) > now }))
+      .filter((l) => (lf === 'all' ? true : lf === 'live' ? l.live : !l.live))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    return (
+      <>
+        {head('Leads', 'Sample apps you market with. A lead needs no email and never counts as a couple’s app or as revenue.')}
+        <div className="card">
+          <h3>Create a sample app</h3>
+          <div className="two" style={{ marginTop: 8 }}>
+            <div>
+              <div className="row">
+                <div style={{ flex: 1 }}>
+                  <label>Event name</label>
+                  <input value={ld.title} onChange={(e) => setLd({ ...ld, title: e.target.value })} placeholder="e.g. Tolu & Kunle" />
+                </div>
+                <div style={{ width: 150 }}>
+                  <label>City</label>
+                  <input value={ld.city} onChange={(e) => setLd({ ...ld, city: e.target.value })} />
+                </div>
+              </div>
+              <label style={{ marginTop: 10 }}>Template</label>
+              <div className="row">
+                {Object.entries(TP).map(([k, t]) => (
+                  <button key={k} className={`chip${ld.tpl === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, tpl: k, acc: DEF_ACC[k] })}>{t.name}</button>
+                ))}
+              </div>
+              <label style={{ marginTop: 10 }}>Accent</label>
+              <div className="row">
+                {Object.entries(ACC6).map(([k]) => (
+                  <button key={k} className={`chip${ld.acc === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, acc: k })}>{k[0].toUpperCase() + k.slice(1)}</button>
+                ))}
+              </div>
+              <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The sample link expires after 3 days, and the message you send says the app is just a sample and points them to the Eventicor landing page to create their own.</p>
+            </div>
+            <div>
+              <button className="btn" onClick={createLead} disabled={busy}>Create sample app</button>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ margin: 0 }}>Sample apps ({liveN} live)</h3>
+            <div className="row" style={{ gap: 6 }}>
+              {(['all', 'live', 'expired'] as const).map((f) => (
+                <button key={f} className={`chip${lf === f ? ' on' : ''}`} onClick={() => setLf(f)}>{f[0].toUpperCase() + f.slice(1)}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            {leads === null ? (
+              <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
+            ) : rows.length === 0 ? (
+              <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No sample apps here yet.</p>
+            ) : (
+              rows.map((l) => {
+                const expSec = Math.floor((l.expiresAt || 0) / 1000)
+                const daysLeft = Math.ceil(((l.expiresAt || 0) - Date.now()) / 864e5)
+                return (
+                  <div className="att" key={l.id} style={{ flexWrap: 'wrap' }}>
+                    <span><b>{l.title}</b> · {l.city} · {TP[l.template || 'classic'].name}{' '}
+                      <span className={`pl ${l.live ? 'live' : 'suspended'}`}>{l.live ? (daysLeft <= 1 ? 'Ends today' : `${daysLeft} days left`) : 'Expired'}</span>
+                    </span>
+                    <span className="row" style={{ gap: 6 }}>
+                      <a className="btn g s" href={leadLink(l.template || 'classic', l.accent || 'midnight', expSec)} target="_blank" rel="noreferrer">Open</a>
+                      <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadMsg(l.title || '', l.template || 'classic', l.accent || 'midnight', expSec)); say('Message copied') }}>Copy message</button>
+                      <button className="btn g s" onClick={() => deleteLead(l.id)}>{delLeadId === l.id ? 'Sure?' : 'Delete'}</button>
+                    </span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
+
   /* ---- site drawer actions ---- */
   const drawer = drawerId ? sites.find((s) => s.id === drawerId) : null
   const drawerDoc = drawerId ? (events || []).find((e) => e.id === drawerId) : null
@@ -356,7 +499,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div className="k"><small>Couples’ apps</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
           <div className="k"><small>Orders paid</small><b>₦0</b><span>No orders yet</span></div>
           <div className="k"><small>Templates available</small><b>{cat ? Object.values(cat.templates).filter(Boolean).length : '…'}</b><span>of {Object.keys(TP).length}</span></div>
-          <div className="k"><small>Guest posts pending</small><b>—</b><span>Appears with the first event</span></div>
+          <div className="k"><small>Leads</small><b>{leads === null ? '…' : (leads || []).filter((l) => (l.expiresAt || 0) > Date.now()).length}</b><span>Sample apps live</span></div>
         </div>
         <div className="two">
           <div className="card">
@@ -686,7 +829,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   const [navOpen, setNavOpen] = useState(initialNavOpen)
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
 
   return (
     <div className="evad">

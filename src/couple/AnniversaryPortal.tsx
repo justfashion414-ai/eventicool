@@ -1652,7 +1652,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     }
     return imgs;
   }, [posts]);
-  // The giant footer always shows 24 tiles. Couples' uploads win, then the
+  // The giant footer always shows 30 tiles. Couples' uploads win, then the
   // newest images from the feed (guests and couple alike) fill the grid and
   // roll forward as new posts arrive, then demo/placeholder photos fill the rest.
   const footerPool = useMemo(
@@ -1667,7 +1667,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
           return tb - ta;
         });
         for (const p of newestFirst) {
-          if (base.length >= 24) break;
+          if (base.length >= 30) break;
           if (p.pending) continue;
           const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
           urls.forEach((u: string, i: number) => {
@@ -1677,7 +1677,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       }
       const fill = base.length > 0 ? base : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
       const out: string[] = [];
-      for (let i = 0; out.length < 24; i++) out.push(fill[i % fill.length]);
+      for (let i = 0; out.length < 30; i++) out.push(fill[i % fill.length]);
       return out;
     },
     [postFeedImages, footerImages]
@@ -2622,7 +2622,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         }}
         footerImages={footerImages}
         onUpdateFooterImages={async (urls: string[]) => {
-          const capped = urls.slice(0, 24);
+          const capped = urls.slice(0, 30);
           setFooterImages(capped);
           try {
             localStorage.setItem('ann-footer-images', JSON.stringify(capped));
@@ -4506,7 +4506,7 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
       <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[6px] py-2">
         {gridRows.map((row, r) => (
-          <div key={r} className="grid grid-cols-4 gap-[6px]">
+          <div key={r} className="grid grid-cols-5 gap-[6px]">
             {row.map((src, i) => (
               <button key={i} type="button" onClick={() => onTap && onTap(src)} className={`ev-fw-tile${r === activeRow ? ' ev-fw-lit' : Math.abs(r - activeRow) === 1 ? ' ev-fw-warm' : ''}`}>
                 <img src={src} alt="" loading="lazy" />
@@ -6089,7 +6089,7 @@ function AdminDashboardModal({
                     </div>
                     <div className="flex items-center justify-between mb-3">
                         <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Giant Footer Images ({footerImages.length} / 24)
+                          Giant Footer Images ({footerImages.length} / 30)
                         </label>
                         {footerImages.length > 0 && (
                           <button
@@ -6102,7 +6102,7 @@ function AdminDashboardModal({
                         )}
                       </div>
                       <div className="grid grid-cols-4 gap-2 mb-4">
-                        {footerImages.slice(0, 24).map((img: string, idx: number) => (
+                        {footerImages.slice(0, 30).map((img: string, idx: number) => (
                           <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
                             <img src={img} className="w-full h-full object-cover" alt="" />
                             <button
@@ -6115,7 +6115,7 @@ function AdminDashboardModal({
                             </button>
                           </div>
                         ))}
-                        {footerImages.length < 24 && (
+                        {footerImages.length < 30 && (
                           <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
                             <input 
                               type="file" 
@@ -6127,7 +6127,7 @@ function AdminDashboardModal({
                                 const files = Array.from(e.target.files || []);
                                 if (files.length === 0) return;
 
-                                const remainingSlots = 24 - footerImages.length;
+                                const remainingSlots = 30 - footerImages.length;
                                 const filesToUpload = files.slice(0, remainingSlots);
                                 if (files.length > remainingSlots) {
                                   showToast(`Maximum 24 footer images allowed. Uploading first ${remainingSlots}.`, 'info');
@@ -6144,7 +6144,7 @@ function AdminDashboardModal({
                                   }
                                   
                                   if (uploadedUrls.length > 0) {
-                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 24));
+                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 30));
                                   }
                                 } catch (err: any) {
                                   console.error("Bulk upload error:", err);
@@ -6160,13 +6160,13 @@ function AdminDashboardModal({
                             ) : (
                               <>
                                 <ImageIcon className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({24 - footerImages.length})</span>
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({30 - footerImages.length})</span>
                               </>
                             )}
                           </label>
                         )}
                       </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 24 images for the giant footer photo grid (tapping a tile opens it full-screen).</p>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 30 images for the giant footer photo grid (tapping a tile opens it full-screen).</p>
                     </div>
                   )}
                   </div>
