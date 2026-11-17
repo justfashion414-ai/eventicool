@@ -1912,7 +1912,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
             )}
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
             {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={DETAILS.hashtag} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag=demoText(DETAILS.hashtag) eventNames={EVENTS.map((e) => e.name)} />}
         </div>
 
         {/* TOAST NOTIFICATION */}
@@ -2122,7 +2122,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <div>
                     <strong className="block text-[0.93rem]">Aso-ebi: {DETAILS.asoEbi}</strong>
-                    <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{DETAILS.hashtag}</span></p>
+                    <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">demoText(DETAILS.hashtag)</span></p>
                   </div>
                 </div>
               </section>
