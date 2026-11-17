@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   Menu,
   ChevronRight,
+  ChevronDown,
   ExternalLink,
   MessageSquare,
   Sparkles,
@@ -156,6 +157,7 @@ interface WeddingEvent {
   desc: string;
   venue?: string;
   status?: 'done' | 'next' | 'up';
+  images?: string[]; // up to 2 photos the couple attaches to this journey step
 }
 
 const WEDDING_DATE = DEMO ? DEMO_WEDDING_DATE : '2026-12-12';
@@ -239,6 +241,34 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
     reader.readAsDataURL(blob);
   });
 };
+
+// Demo previews have no upload backend: downscale to a data URL so journey
+// step photos survive a refresh inside the preview itself.
+const demoImageDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error('Could not read the photo.'));
+  reader.onload = () => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const max = 900;
+          const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * scale));
+          c.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = c.getContext('2d');
+          if (!ctx) { resolve(String(reader.result)); return; }
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          resolve(c.toDataURL('image/jpeg', 0.82));
+        } catch { resolve(String(reader.result)); }
+      };
+      img.onerror = () => resolve(String(reader.result));
+      img.src = String(reader.result);
+    } catch (e) { reject(e); }
+  };
+  reader.readAsDataURL(file);
+});
 
 // Helper for centralized file uploads (Direct signed Cloudinary upload + Server proxy + Fallback)
 // Same signed Cloudinary upload as uploadToCloudinary, but reports live
@@ -451,6 +481,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     }
   });
   const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
+  // Journey dropdown: which event card is expanded (one at a time).
+  const [openEventId, setOpenEventId] = useState<string | null>(null);
+  const [evImgBusy, setEvImgBusy] = useState<string | null>(null);
+  // Giant footer look, chosen by the couple in the dashboard.
+  const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee'>(() => {
+    try { return localStorage.getItem('ann-footer-style') === 'marquee' ? 'marquee' : 'wall'; } catch { return 'wall'; }
+  });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [newPostText, setNewPostText] = useState('');
@@ -622,7 +659,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     } catch {}
   }, [isAdminModalOpen]);
   useEffect(() => {
-    if (route === '/admin' && user && !user.isAnonymous && isAdmin) setIsAdminDashboardOpen(true);
+    if (DEMO && route === '/admin') setIsAdminDashboardOpen(true);
+    else if (route === '/admin' && user && !user.isAnonymous && isAdmin) setIsAdminDashboardOpen(true);
   }, [route, user, isAdmin]);
 
   useEffect(() => {
@@ -947,7 +985,21 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 2. Sync Global Config (Access Code)
   useEffect(() => {
-    if (DEMO) { setConfigLoaded(true); setActiveAccessCode(normalizeCode(DEMO_ACCESS_CODE)); return; }
+    if (DEMO) {
+      // Previews run offline: hydrate anything saved in this preview session.
+      try {
+        const saved = JSON.parse(localStorage.getItem('ann-demo-cfg') || 'null');
+        if (saved && Array.isArray(saved.events) && saved.events.length) setCfgEvents(saved.events);
+        if (saved && typeof saved.story === 'string' && saved.story.trim()) setCfgStory(saved.story);
+        if (saved && saved.weddingDetails && typeof saved.weddingDetails === 'object') setCfgDetails(saved.weddingDetails);
+      } catch {}
+      try {
+        const demoCode = localStorage.getItem('ann-demo-code');
+        setActiveAccessCode(normalizeCode(demoCode || DEMO_ACCESS_CODE));
+      } catch { setActiveAccessCode(normalizeCode(DEMO_ACCESS_CODE)); }
+      setConfigLoaded(true);
+      return;
+    }
     const unsub = onSnapshot(doc(db, 'app_config', 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -969,6 +1021,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
           } catch {
             // Ignore storage quota error
           }
+        }
+        if (data.footerStyle === 'wall' || data.footerStyle === 'marquee') {
+          setFooterStyle(data.footerStyle);
+          try { localStorage.setItem('ann-footer-style', data.footerStyle); } catch {}
         }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
@@ -1187,6 +1243,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   const vendorRequests = residents.filter((r: any) => r?.vendorRequest && r.vendorRequest.status === 'pending');
 
   const updateAccessCode = async (newCode: string) => {
+    if (DEMO) {
+      const normalizedDemo = normalizeCode(newCode);
+      if (!normalizedDemo || normalizedDemo.length < 4) return;
+      setActiveAccessCode(normalizedDemo);
+      try { localStorage.setItem('ann-demo-code', normalizedDemo); } catch {}
+      showToast('Access code saved for this preview.');
+      return;
+    }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) return;
     const normalized = normalizeCode(newCode);
     if (!normalized || normalized.length < 4) return;
@@ -1206,6 +1270,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   };
 
   const updateWedding = async (events: WeddingEvent[], story: string, details: any) => {
+    if (DEMO) {
+      try { localStorage.setItem('ann-demo-cfg', JSON.stringify({ events, story, weddingDetails: details })); } catch {}
+      setCfgEvents(events); setCfgStory(story); setCfgDetails(details);
+      showToast('Saved for this preview.');
+      return;
+    }
     if (!isAdmin || !isAdminSessionValid) return;
     try {
       await setDoc(doc(db, 'app_config', 'main'), {
@@ -1253,6 +1323,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   };
 
   const updateAppConfigFlags = async (patch: Record<string, any>, okMsg = 'Setting saved.') => {
+    if (DEMO) { showToast('Saved for this preview.'); return; }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
       await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
@@ -1277,6 +1348,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   // Saves one section of the wedding details (story, details or events) on its
   // own, used by the per-section Save buttons in the console's Events & details tab.
   const updateWeddingSection = async (patch: Record<string, any>) => {
+    if (DEMO) {
+      try {
+        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
+        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, ...patch }));
+      } catch {}
+      if ('events' in patch) setCfgEvents(patch.events);
+      if ('story' in patch) setCfgStory(patch.story);
+      if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
+      showToast('Saved for this preview.');
+      return;
+    }
     if (!isAdmin || !isAdminSessionValid) return;
     try {
       await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
@@ -1288,6 +1370,72 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save. Please try again.', 'error');
     }
+  };
+
+  // Giant footer style (dashboard setting; couples pick the look).
+  const updateFooterStyle = async (style: 'wall' | 'marquee') => {
+    setFooterStyle(style);
+    try { localStorage.setItem('ann-footer-style', style); } catch {}
+    if (DEMO) { showToast('Giant footer style saved for this preview.'); return; }
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
+      showToast('Giant footer style saved.');
+    } catch (err) {
+      console.error('Update footer style error:', err);
+      showToast('Failed to save the footer style.', 'error');
+    }
+  };
+
+  // Journey step photos: the couple attaches up to 2 photos per event step,
+  // from the dropdown on Home or from the dashboard journey settings.
+  const saveEventStepPhotos = async (eventId: string, images: string[]) => {
+    const next = (EVENTS as any[]).map((e: any) => (e.id === eventId ? { ...e, images } : e));
+    setCfgEvents(next as any);
+    if (DEMO) {
+      try {
+        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
+        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, events: next }));
+      } catch {}
+      showToast('Saved for this preview.');
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'app_config', 'main'), { events: next, lastUpdated: serverTimestamp() }, { merge: true });
+      showToast('Event photos saved.');
+    } catch (err) {
+      console.error('Update event photos error:', err);
+      showToast('Failed to save the event photos.', 'error');
+    }
+  };
+
+  const addEventPhotos = async (eventId: string, files: File[]) => {
+    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
+    const existing: string[] = ev?.images || [];
+    const room = 2 - existing.length;
+    if (room <= 0) { showToast('Each step holds 2 photos. Remove one first.', 'info'); return; }
+    const use = files.slice(0, room);
+    if (files.length > room) showToast(`Only ${room} slot${room === 1 ? '' : 's'} left on this step.`, 'info');
+    if (!use.length) return;
+    setEvImgBusy(eventId);
+    try {
+      const urls: string[] = [];
+      for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
+      await saveEventStepPhotos(eventId, [...existing, ...urls].slice(0, 2));
+    } catch (err: any) {
+      console.error('Event photo upload error:', err);
+      showToast(err?.message || 'Photo upload failed.', 'error');
+    } finally {
+      setEvImgBusy(null);
+    }
+  };
+
+  const removeEventPhoto = async (eventId: string, idx: number) => {
+    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
+    const imgs = [...((ev?.images || []) as string[])];
+    if (idx < 0 || idx >= imgs.length) return;
+    imgs.splice(idx, 1);
+    await saveEventStepPhotos(eventId, imgs);
   };
 
   const approvePost = async (postId: string) => {
@@ -1846,14 +1994,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </p>
               </section>
 
-              {/* THE JOURNEY */}
+              {/* THE JOURNEY — expandable dropdowns, one open at a time */}
               <section id="journey" className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
-                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap any event to see its memories.</p>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
                   {EVENTS.map((e, ji) => {
                     const st = e.status || 'up';
-                    const cnt = posts.filter((p: any) => p?.eventId === e.id).length;
+                    const open = openEventId === e.id;
+                    const stepImgs: string[] = ((e as any).images || []);
+                    const daysTo = Math.ceil((new Date(`${e.date}T${e.time || '12:00'}:00`).getTime() - Date.now()) / 86400000);
+                    const canManagePhotos = DEMO || isAdmin;
                     const tagCls = st === 'done'
                       ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
                       : st === 'next'
@@ -1865,28 +2016,64 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                         ? 'bg-[#C8932A] border-[#C8932A] shadow-[0_0_0_5px_rgba(200,147,42,0.18)]'
                         : (isDarkMode ? 'bg-[#0B171C] border-[#93A4AB]' : 'bg-[#EEEDF3] border-[#5A6970]');
                     return (
-                      <motion.button key={e.id} initial={{ opacity: 0, x: -26 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, amount: 0.35 }} transition={{ duration: 0.55, delay: ji * 0.07, ease: 'easeOut' }} onClick={() => setActiveTab('feed')} className="relative block w-full text-left border-0 bg-transparent p-0 group">
+                      <motion.div key={e.id} initial={{ opacity: 0, x: -26 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, amount: 0.35 }} transition={{ duration: 0.55, delay: Math.min(ji * 0.07, 0.35), ease: 'easeOut' }} className="relative">
                         <span className={`absolute -left-[30px] top-[20px] w-[14px] h-[14px] rounded-full border-[3px] ${dotCls}`} />
-                        <div className={`rounded-[18px] border p-[14px_16px] transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E] group-hover:border-[#2FB3BF]/50' : 'bg-white border-[#DAD8E3] group-hover:border-[var(--ann-accent)]/40'}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <b className="text-[1rem] font-serif-display leading-tight">{e.name}</b>
-                            <span className={`flex-shrink-0 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tagCls}`}>
-                              {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
-                            </span>
-                          </div>
-                          <small className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.type ? `${e.type} · ` : ''}{fmtEventDate(e)}</small>
-                          <p className={`text-[0.9rem] m-0 mt-1.5 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.desc}</p>
-                          <small className={`block text-[0.72rem] font-bold uppercase tracking-wider mt-2 ${st === 'next' ? 'text-[#C8932A]' : 'text-[var(--ann-accent)]'}`}>
-                            {cnt > 0 ? `See ${cnt} ${cnt === 1 ? 'memory' : 'memories'}` : 'Be the first to share'}
-                          </small>
+                        <div className={`rounded-[18px] border overflow-hidden transition-colors ${st === 'next' ? 'border-[#C8932A]/60 ring-1 ring-[#C8932A]/15' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'} ${isDarkMode ? 'bg-[#13232A]' : 'bg-white'}`}>
+                          <button type="button" onClick={() => setOpenEventId(open ? null : e.id)} className="w-full text-left border-0 bg-transparent p-[14px_16px] flex items-start justify-between gap-2 cursor-pointer">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <b className="text-[1rem] font-serif-display leading-tight">{e.name}</b>
+                                <span className={`flex-shrink-0 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tagCls}`}>
+                                  {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
+                                </span>
+                              </div>
+                              <small className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.type ? `${e.type} · ` : ''}{fmtEventDate(e)}</small>
+                            </div>
+                            <ChevronDown className={`w-4 h-4 flex-shrink-0 mt-1 opacity-60 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} />
+                          </button>
+                          {open && (
+                            <div className={`px-[16px] pb-[16px] pt-3 border-t space-y-2.5 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                              <p className={`text-[0.9rem] m-0 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{e.desc}</p>
+                              <div className="flex gap-2 flex-wrap">
+                                <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${isDarkMode ? 'bg-white/5 text-[#93A4AB] border border-[#22363E]' : 'bg-[#EEEDF3] text-[#5A6970] border border-[#DAD8E3]'}`}>{fmtEventDate(e)}</span>
+                                <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${isDarkMode ? 'bg-white/5 text-[#93A4AB] border border-[#22363E]' : 'bg-[#EEEDF3] text-[#5A6970] border border-[#DAD8E3]'}`}>{e.venue ? e.venue : 'Venue to be announced'}</span>
+                              </div>
+                              {st === 'next' && daysTo >= 0 && (
+                                <div className="rounded-[10px] bg-[#C8932A]/15 border border-[#C8932A]/30 px-3 py-2 text-[0.78rem] font-black uppercase tracking-wider text-[#C8932A]">
+                                  {daysTo === 0 ? 'Happening today' : `In ${daysTo} day${daysTo === 1 ? '' : 's'}`}
+                                </div>
+                              )}
+                              {stepImgs.length > 0 && (
+                                <div className="flex gap-2 flex-wrap pt-0.5">
+                                  {stepImgs.map((u, ii) => (
+                                    <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
+                                      <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={() => setFooterLightbox(u)} className="w-full h-full object-cover cursor-zoom-in" />
+                                      {canManagePhotos && (
+                                        <button type="button" onClick={(ev) => { ev.stopPropagation(); removeEventPhoto(e.id, ii); }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove photo">×</button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {canManagePhotos && stepImgs.length < 2 && (
+                                <div>
+                                  <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest cursor-pointer">
+                                    <input type="file" accept="image/*" multiple hidden disabled={evImgBusy === e.id} onChange={(ev) => { const fs = Array.from((ev.target as HTMLInputElement).files || []); (ev.target as HTMLInputElement).value = ''; addEventPhotos(e.id, fs); }} />
+                                    {evImgBusy === e.id ? 'Uploading…' : stepImgs.length ? '+ Add photo' : '+ Add photos (up to 2)'}
+                                  </label>
+                                  <p className={`text-[0.7rem] mt-1.5 opacity-60 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photos you add here show for every guest who opens this event.</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </motion.button>
+                      </motion.div>
                     );
                   })}
                 </div>
               </section>
 
-              {/* WEDDING DAY DETAILS */}
+                            {/* WEDDING DAY DETAILS */}
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
@@ -1935,52 +2122,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 </button>
               </section>
 
-              {/* GIANT FOOTER WITH INTERACTIVE PHOTO GRID (placeholders until photos arrive) */}
-              <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[700px] sm:min-h-[850px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
-                <div className="absolute inset-0 z-0 grid grid-cols-10 auto-rows-fr opacity-60">
-                  <GridScanner isDarkMode={isDarkMode} images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
-                </div>
+              {/* GIANT FOOTER — the couple picks the style in the dashboard */}
+              {footerStyle === 'marquee' ? (
+                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+              ) : (
+                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+              )}
 
-                <motion.div
-                  initial="initial"
-                  whileInView="animate"
-                  viewport={{ once: false, amount: 0.4 }}
-                  className="relative z-10 flex flex-col items-center max-w-full px-4 text-center pointer-events-none"
-                >
-                  <motion.div
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    whileInView={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.8, ease: "circOut" }}
-                  >
-                    <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase mb-0 text-[var(--ann-accent)] drop-shadow-sm">
-                      {DEMO ? 'Amara' : 'Dara'}
-                    </h2>
-                    <h2 className="text-[clamp(4rem,18vw,12rem)] font-black font-display tracking-[-0.08em] leading-[0.75] uppercase flex items-center justify-center gap-[0.05em] text-[var(--ann-accent)] drop-shadow-sm">
-                      <span>&amp; {DEMO ? 'Daniel' : 'Femi'}</span>
-                      <motion.div
-                        animate={{ scale: [1, 1.2, 1], rotate: [0, 12, 0] }}
-                        transition={{ repeat: Infinity, duration: 4 }}
-                        className="w-[0.3em] h-[0.3em] rounded-full bg-[#C8932A] opacity-80"
-                      />
-                    </h2>
-                  </motion.div>
-
-                  <motion.div
-                    initial={{ opacity: 0, width: 0 }}
-                    whileInView={{ opacity: 1, width: '100%' }}
-                    transition={{ delay: 0.4, duration: 1 }}
-                    className="flex items-center gap-4 mt-12 w-full max-w-md mx-auto"
-                  >
-                    <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
-                    <p className="text-[clamp(0.8rem,3vw,1.5rem)] font-display font-black tracking-[0.4em] uppercase whitespace-nowrap opacity-60 text-[var(--ann-accent)]">
-                      {WED_DOT}, Lagos
-                    </p>
-                    <div className="h-[2px] flex-1 bg-[var(--ann-accent)] opacity-20" />
-                  </motion.div>
-                </motion.div>
-              </section>
-
-              <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
+                            <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{DEMO_COUPLE.header}</h4>
@@ -2351,6 +2500,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
                   <span
                     onClick={() => {
+                      if (DEMO) {
+                        // Template previews open the dashboard straight away so
+                        // any setting can be tried without signing in.
+                        goAdminPage();
+                        return;
+                      }
                       const newCount = aboutClickCount + 1;
                       if (newCount >= 3) {
                         setAuthScreen('signin');
@@ -2381,7 +2536,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       )}
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
-      {isAdminModalOpen && user && !user.isAnonymous && isAdmin && (
+      {isAdminModalOpen && (DEMO || (user && !user.isAnonymous && isAdmin)) && (
       <AdminDashboardModal 
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
@@ -2416,6 +2571,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         heroImageLabels={heroImageLabels}
         onUpdateHeroLabels={updateHeroLabels}
         onSaveWeddingSection={updateWeddingSection}
+        onUpdateFooterStyle={updateFooterStyle}
+        footerStyle={footerStyle}
         onUpdateHeroImages={async (urls: string[]) => {
           const capped = urls.slice(0, 14);
           setHeroImages(capped);
@@ -2459,8 +2616,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         deletedPosts={deletedPosts}
         onRestorePost={handleRestorePost}
         onPermanentDelete={handlePermanentDelete}
-        currentUserEmail={user?.email}
-        adminPermissions={adminPermissions}
+        currentUserEmail={DEMO ? 'preview@eventicor.name.ng' : user?.email}
+        adminPermissions={DEMO ? { canUploadImages: true, canDeletePosts: true, canSetAccessCode: true } : adminPermissions}
         showToast={showToast}
         onBackToMain={onBackToMain}
         postAds={postAds}
@@ -2493,7 +2650,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       )}
 
       {/* /admin sign-in screen for signed-out visitors */}
-      {route === '/admin' && !(user && !user.isAnonymous && isAdmin) && (
+      {route === '/admin' && !DEMO && !(user && !user.isAnonymous && isAdmin) && (
         <AuthScreen
           screen={authScreen ?? 'signin'}
           setScreen={setAuthScreen}
@@ -4279,6 +4436,81 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
   );
 }
 
+// Giant footer helpers: the couple picks the footer look in the dashboard
+// (Style 1 · Photo wall, Style 2 · Marquee). Rows scroll as a seamless loop,
+// so every row's content is duplicated once and the keyframes move -50%.
+const footerRows = (images: string[], rows: number): string[][] => {
+  const src = images.length > 0 ? images : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
+  const out: string[][] = [];
+  const n = Math.max(1, src.length);
+  const per = Math.max(5, Math.ceil(n / rows) + 2);
+  for (let r = 0; r < rows; r++) {
+    const off = r % n;
+    const rotated = [...src.slice(off), ...src.slice(0, off)];
+    const row: string[] = [];
+    while (row.length < per) row.push(...rotated);
+    out.push(row.slice(0, per));
+  }
+  return out;
+};
+
+// Style 1 · Photo wall: rows of photos drifting sideways under the couple's
+// serif names, the arrangement adopted from the reference video.
+function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void }) {
+  const rows = footerRows(images, 5);
+  return (
+    <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
+      <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[6px]">
+        {rows.map((row, r) => (
+          <div key={r} className={`ev-fw-row ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${58 + r * 11}s` }}>
+            {[...row, ...row].map((src, i) => (
+              <button key={i} type="button" onClick={() => onTap && onTap(src)} className="ev-fw-cell">
+                <img src={src} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        ))}
+        <div className={`absolute inset-0 pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/40' : 'bg-white/35'}`} />
+      </div>
+      <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
+        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? 'Amara' : 'Dara'}</h2>
+        <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
+        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
+          <span>{DEMO ? 'Daniel' : 'Femi'}</span>
+          <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
+        </h2>
+        <p className="mt-6 text-[clamp(0.7rem,2.6vw,1rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-80 m-0">{WED_DOT}</p>
+      </div>
+    </section>
+  );
+}
+
+// Style 2 · Marquee: dark navy wall, accent bar on top, rounded photo rows
+// drifting at different speeds, and a small photo-count chip.
+function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void }) {
+  const rows = footerRows(images, 4);
+  const count = images.length > 0 ? images.length : (DEMO ? DEMO_PHOTOS.length : PLACEHOLDER_IMAGES.length);
+  return (
+    <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
+      <div className="h-[12px] bg-[var(--ann-accent)]" />
+      <div className="flex flex-col gap-[10px] py-[16px]">
+        {rows.map((row, r) => (
+          <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s` }}>
+            {[...row, ...row].map((src, i) => (
+              <button key={i} type="button" onClick={() => onTap && onTap(src)} className="ev-fw-cell-lg">
+                <img src={src} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-start px-4 pb-4">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 text-white text-[0.72rem] font-bold">{count} · Photo Wall</span>
+      </div>
+    </section>
+  );
+}
+
 function GridScanner({ isDarkMode, images = [], onTap }: { isDarkMode: boolean; images?: string[]; onTap?: (src: string) => void }) {
   const [activeRow, setActiveRow] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -4694,6 +4926,8 @@ function AdminDashboardModal({
   onUpdateHeroImages,
   footerImages,
   onUpdateFooterImages,
+  onUpdateFooterStyle,
+  footerStyle,
   allAdmins,
   deletedPosts,
   onRestorePost,
@@ -4983,6 +5217,38 @@ function AdminDashboardModal({
   const saveStory = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ story: storyDraft }); } finally { setWeddingBusy(false); } };
   const saveDetails = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ weddingDetails: detDraft }); } finally { setWeddingBusy(false); } };
   const saveEvents = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ events: evDraft }); } finally { setWeddingBusy(false); } };
+  // Journey step photos (dashboard): up to 2 images per event step, uploaded
+  // two at a time, saved with the rest of the journey.
+  const [evUpBusy, setEvUpBusy] = useState<string | null>(null);
+  const uploadEventStepPhotos = async (eid: string, files: File[]) => {
+    const ev = evDraft.find((x) => x.id === eid) as any;
+    const existing: string[] = ev?.images || [];
+    const room = 2 - existing.length;
+    if (room <= 0) { showToast('Each step holds 2 photos. Remove one first.', 'info'); return; }
+    const use = files.slice(0, room);
+    if (files.length > room) showToast(`Only ${room} slot${room === 1 ? '' : 's'} left on this step.`, 'info');
+    if (!use.length) return;
+    setEvUpBusy(eid);
+    try {
+      const urls: string[] = [];
+      for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
+      const next = evDraft.map((x) => (x.id === eid ? { ...x, images: [...existing, ...urls].slice(0, 2) } : x)) as WeddingEvent[];
+      setEvDraft(next);
+      setWeddingBusy(true);
+      try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
+    } catch (err: any) {
+      console.error('Event step photo upload error:', err);
+      showToast(err?.message || 'Photo upload failed.', 'error');
+    } finally {
+      setEvUpBusy(null);
+    }
+  };
+  const removeEventStepPhoto = async (eid: string, idx: number) => {
+    const next = evDraft.map((x) => (x.id === eid ? { ...x, images: (((x as any).images || []) as string[]).filter((_: string, i: number) => i !== idx) } : x)) as WeddingEvent[];
+    setEvDraft(next);
+    setWeddingBusy(true);
+    try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
+  };
   const previewSite = async () => {
     setWeddingBusy(true);
     try { await onSaveWedding(evDraft, storyDraft, detDraft); } finally { setWeddingBusy(false); }
@@ -5581,6 +5847,24 @@ function AdminDashboardModal({
                               <input value={e.desc} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, desc: ev.target.value } : x))} className={inputCls} />
                             </label>
                           </div>
+                          <div className="mt-3">
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Step photos (up to 2 at a time)</span>
+                            <div className="flex gap-2 flex-wrap items-center">
+                              {(((e as any).images || []) as string[]).map((u: string, ii: number) => (
+                                <div key={ii} className="relative w-[64px] h-[64px] rounded-[10px] overflow-hidden">
+                                  <img src={u} alt="" className="w-full h-full object-cover" />
+                                  <button type="button" onClick={() => removeEventStepPhoto(e.id, ii)} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove">×</button>
+                                </div>
+                              ))}
+                              {(((e as any).images || []) as string[]).length < 2 && (
+                                <label className="w-[64px] h-[64px] rounded-[10px] border-2 border-dashed border-[var(--ann-accent)]/40 flex flex-col items-center justify-center cursor-pointer text-[var(--ann-accent)] hover:bg-[var(--ann-accent)]/5">
+                                  <input type="file" accept="image/*" multiple hidden disabled={evUpBusy === e.id} onChange={async (ev) => { const fs = Array.from((ev.target as HTMLInputElement).files || []); (ev.target as HTMLInputElement).value = ''; await uploadEventStepPhotos(e.id, fs); }} />
+                                  <span className="text-[0.6rem] font-black text-center leading-tight px-1">{evUpBusy === e.id ? '…' : '+ Add'}</span>
+                                </label>
+                              )}
+                            </div>
+                            <p className="text-[0.7rem] opacity-50 mt-1">Guests see these when the event opens in the journey dropdown.</p>
+                          </div>
                           <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                             <div>
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Status shown to guests</span>
@@ -5690,7 +5974,7 @@ function AdminDashboardModal({
                                 
                                 try {
                                   for (const file of filesToUpload) {
-                                    const url = await uploadToCloudinary(file as any, 'hero');
+                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'hero');
                                     uploadedUrls.push(url);
                                     await new Promise(resolve => setTimeout(resolve, 100));
                                   }
@@ -5730,7 +6014,19 @@ function AdminDashboardModal({
 
                   {adminPermissions?.canUploadImages && (
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div>
+                      <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
+                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {(['wall', 'marquee'] as const).map((st) => (
+                          <button key={st} type="button" onClick={() => onUpdateFooterStyle && onUpdateFooterStyle(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyle === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                            {st === 'wall' ? 'Style 1 · Photo wall' : 'Style 2 · Marquee'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · names over a drifting photo wall · Style 2 · dark wall with rounded rows</p>
+                    </div>
+                    <div className="flex items-center justify-between mb-3">
                         <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
                           Giant Footer Images ({footerImages.length} / 24)
                         </label>
@@ -5781,7 +6077,7 @@ function AdminDashboardModal({
                                 
                                 try {
                                   for (const file of filesToUpload) {
-                                    const url = await uploadToCloudinary(file as any, 'programme');
+                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'programme');
                                     uploadedUrls.push(url);
                                     await new Promise(resolve => setTimeout(resolve, 100));
                                   }

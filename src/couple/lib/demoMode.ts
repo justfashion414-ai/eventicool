@@ -47,14 +47,14 @@ export function demoEvents(): any[] {
     return d.toISOString().slice(0, 10);
   };
   return [
-    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: 'Both families meet, gifts are exchanged and the journey becomes official.', status: 'done' },
-    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: 'The ring, the yes and the first big celebration together.', status: 'done' },
-    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: 'Signing the register with our closest people.', status: 'done' },
-    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: 'An afternoon of games, gifts and girls with the bride.', status: 'next' },
-    { id: 'stag', name: "Groom's Party", type: "The groom's party", date: rel(4), desc: 'The groomsmen send Daniel off in style.', status: 'up' },
-    { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: DEMO_WEDDING_DATE, time: '10:00', desc: 'Vows before God, family and friends.', status: 'up' },
-    { id: 'reception', name: 'Reception', type: 'Hall celebration', date: DEMO_WEDDING_DATE, time: '15:00', desc: 'Food, music, aso-ebi and the first dance.', status: 'up' },
-    { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: rel(-1), desc: 'We close the weekend giving thanks together.', status: 'up' },
+    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: 'Both families meet, gifts are exchanged and the journey becomes official.', status: 'done', images: ['/demo/photo2.jpg', '/demo/photo3.jpg'] },
+    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: 'The ring, the yes and the first big celebration together.', status: 'done', images: ['/demo/photo4.jpg', '/demo/photo5.jpg'] },
+    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: 'Signing the register with our closest people.', status: 'done', images: ['/demo/photo6.jpg', '/demo/photo1.jpg'] },
+    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: 'An afternoon of games, gifts and girls with the bride.', status: 'next', images: ['/demo/photo7.jpg', '/demo/photo2.jpg'] },
+    { id: 'stag', name: "Groom's Party", type: "The groom's party", date: rel(4), desc: 'The groomsmen send Daniel off in style.', status: 'up', images: [] },
+    { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: DEMO_WEDDING_DATE, time: '10:00', desc: 'Vows before God, family and friends.', status: 'up', images: [] },
+    { id: 'reception', name: 'Reception', type: 'Hall celebration', date: DEMO_WEDDING_DATE, time: '15:00', desc: 'Food, music, aso-ebi and the first dance.', status: 'up', images: [] },
+    { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: rel(-1), desc: 'We close the weekend giving thanks together.', status: 'up', images: [] },
   ];
 }
 

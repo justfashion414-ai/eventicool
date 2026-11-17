@@ -233,3 +233,13 @@
 @keyframes cntIn{from{transform:translateY(-105%);opacity:0}55%{opacity:1}to{transform:translateY(0);opacity:1}}
 @keyframes cntOut{from{transform:translateY(0);opacity:1}to{transform:translateY(105%);opacity:0}}
 @media (prefers-reduced-motion:reduce){.cnt-in,.cnt-out{animation:none}}
+
+/* Giant footer photo-wall (the couple picks the style in the dashboard) */
+.ev-fw-row { display: flex; gap: 6px; width: max-content; animation: ev-fw-scroll 60s linear infinite; will-change: transform; }
+.ev-fw-row-rev { animation-direction: reverse; }
+.ev-fw-cell { border: 0; background: none; padding: 0; cursor: zoom-in; flex: 0 0 auto; }
+.ev-fw-cell img { display: block; height: 116px; width: auto; aspect-ratio: 0.92 / 1; object-fit: cover; filter: saturate(0.45); }
+.ev-fw-row-lg { gap: 10px; }
+.ev-fw-cell-lg { border: 0; background: none; padding: 0; cursor: zoom-in; flex: 0 0 auto; }
+.ev-fw-cell-lg img { display: block; height: 148px; width: auto; aspect-ratio: 1.05 / 1; object-fit: cover; border-radius: 14px; }
+@keyframes ev-fw-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
