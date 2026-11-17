@@ -48,10 +48,10 @@ export function demoEvents(): any[] {
     return d.toISOString().slice(0, 10);
   };
   return [
-    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: T('Both families meet, gifts are exchanged and the journey becomes official.'), status: 'done', images: ['/demo/photo2.jpg', '/demo/photo3.jpg'] },
-    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: T('The ring, the yes and the first big celebration together.'), status: 'done', images: ['/demo/photo4.jpg', '/demo/photo5.jpg'] },
-    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: T('Signing the register with our closest people.'), status: 'done', images: ['/demo/photo6.jpg', '/demo/photo1.jpg'] },
-    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: T('An afternoon of games, gifts and girls with the bride.'), status: 'next', images: ['/demo/photo7.jpg', '/demo/photo2.jpg'] },
+    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: T('Both families meet, gifts are exchanged and the journey becomes official.'), status: 'done', images: demoStageImages(0) },
+    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: T('The ring, the yes and the first big celebration together.'), status: 'done', images: demoStageImages(1) },
+    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: T('Signing the register with our closest people.'), status: 'done', images: demoStageImages(2) },
+    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: T('An afternoon of games, gifts and girls with the bride.'), status: 'next', images: demoStageImages(3) },
     { id: 'stag', name: "Groom's Party", type: "The groom's party", date: rel(4), desc: T("The groomsmen send the groom off in style."), status: 'up', images: [] },
     { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: DEMO_WEDDING_DATE, time: '10:00', desc: T('Vows before God, family and friends.'), status: 'up', images: [] },
     { id: 'reception', name: 'Reception', type: 'Hall celebration', date: DEMO_WEDDING_DATE, time: '15:00', desc: T('Food, music, aso-ebi and the first dance.'), status: 'up', images: [] },
@@ -85,18 +85,17 @@ export const DEMO_ACCESS_CODE = 'AMARA26';
 
 // ---- Lead sample override -------------------------------------------------
 // A lead sample is a marketing app an admin builds in the console. Its link
-// (?lead=<id>) carries the admin's chosen names and uploaded placeholder
-// images; CoupleApp resolves the lead before AnniversaryPortal renders, and
-// the generic demo content then uses the lead's data wherever it appears:
-// hero section, giant footer wall, feed photo posts and the names shown.
-// The journey keeps the seeded demo events and reels keep the demo videos.
+// (?lead=<id>) carries the admin's chosen names and hero uploads; CoupleApp
+// resolves the lead before AnniversaryPortal renders, and the hero photos are
+// then the ONLY uploaded placeholders: the giant footer wall, the feed photo
+// posts and the journey stage photos all repeat them. Reels keep the demo
+// TikTok clips. When the lead is ready they create their own app and upload
+// everything properly.
 export interface LeadOverride {
   bride: string;
   groom: string;
   city?: string;
   heroImages?: string[];
-  footerImages?: string[];
-  feedImages?: string[];
 }
 let LEAD: LeadOverride | null = null;
 export function setLeadOverride(l: LeadOverride | null) { LEAD = l; }
@@ -115,11 +114,26 @@ export function demoText(t: string): string {
 export function demoHeroImages(): string[] {
   return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? LEAD.heroImages : DEMO_PHOTOS;
 }
+// The hero uploads are the sample's only placeholders: everything else repeats
+// them. Cycle n picks from the hero set so no slot is ever empty.
+function cycleFromHero(n: number): string[] {
+  const hero = demoHeroImages();
+  const out: string[] = [];
+  for (let i = 0; out.length < n; i++) out.push(hero[i % hero.length]);
+  return out;
+}
 export function demoFooterImages(): string[] {
-  return LEAD && LEAD.footerImages && LEAD.footerImages.length > 0 ? [...LEAD.footerImages, ...DEMO_PHOTOS] : [...DEMO_PHOTOS];
+  return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? cycleFromHero(40) : [...DEMO_PHOTOS];
 }
 export function demoFeedImages(): string[] {
-  return LEAD && LEAD.feedImages && LEAD.feedImages.length > 0 ? LEAD.feedImages : DEMO_PHOTOS;
+  return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? cycleFromHero(DEMO_CAPTIONS.length) : DEMO_PHOTOS;
+}
+// Journey stage photos: rotating pairs from the hero set, so the journey
+// dropdown photos follow the lead's uploads too.
+export function demoStageImages(i: number): string[] {
+  const hero = demoHeroImages();
+  const n = hero.length;
+  return [hero[(i + 1) % n], hero[(i + 2) % n]];
 }
 
 // Seeded demo feed: real-post shape so the feed renders through the normal

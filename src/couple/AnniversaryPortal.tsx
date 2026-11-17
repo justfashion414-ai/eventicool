@@ -1912,7 +1912,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
             )}
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
             {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag=demoText(DETAILS.hashtag) eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS.map((e) => e.name)} />}
         </div>
 
         {/* TOAST NOTIFICATION */}

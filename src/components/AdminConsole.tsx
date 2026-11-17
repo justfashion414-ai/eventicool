@@ -68,7 +68,7 @@ interface Site {
   tpl?: string
   since: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; footerImages?: string[]; feedImages?: string[] }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[] }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -178,7 +178,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
-  const [ld, setLd] = useState({ b: '', g: '', city: 'Lagos', tpl: 'halo', acc: 'blush', hero: [] as string[], footer: [] as string[], feed: [] as string[] })
+  // The sample takes after the template the admin was last checking: the
+  // Preview buttons remember their template and the form opens on it.
+  const [ld, setLd] = useState(() => {
+    let t = 'halo'
+    try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* default */ }
+    const acc = DEF_ACC[t] || 'blush'
+    return { b: '', g: '', city: 'Lagos', tpl: t, acc, hero: [] as string[] }
+  })
   const [leadCreated, setLeadCreated] = useState<{ link: string; title: string; tpl: string; acc: string; exp: number } | null>(null)
   const [upBusy, setUpBusy] = useState('')
   const [obImgs, setObImgs] = useState<{ hero: string[]; footer: string[]; feed: string[] }>({ hero: [], footer: [], feed: [] })
@@ -363,17 +370,17 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         add.push(user?.uid === 'demo' ? await shrinkToDataUrl(f) : await uploadOneLead(f, kind))
       } catch { say('One photo could not upload. Try a smaller file') }
     }
-    const cur = onb ? obImgs[kind] : ld[kind]
+    const cur: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
     const next = [...cur, ...add].slice(0, cap)
     if (onb) setObImgs((p) => ({ ...p, [kind]: next }))
-    else setLd((p) => ({ ...p, [kind]: next }))
+    else setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: next } as unknown as typeof p))
     setUpBusy('')
     if (add.length > 0) say(`${add.length} photo${add.length > 1 ? 's' : ''} added`)
   }
 
   function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number, onb: boolean) {
-    const list = onb ? obImgs[kind] : ld[kind]
-    const setList = (v: string[]) => (onb ? setObImgs((p) => ({ ...p, [kind]: v })) : setLd((p) => ({ ...p, [kind]: v })))
+    const list: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
+    const setList = (v: string[]) => (onb ? setObImgs((p) => ({ ...p, [kind]: v })) : setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: v } as unknown as typeof p)))
     return (
       <div style={{ marginTop: 8 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
@@ -403,13 +410,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!b || !g) { say('Enter the bride’s and groom’s names'); return }
     const exp = Math.floor(Date.now() / 1000) + 3 * 86400
     const title = `${b} & ${g}`
-    const base = { bride: b, groom: g, title, city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000, heroImages: ld.hero, footerImages: ld.footer, feedImages: ld.feed }
+    const base = { bride: b, groom: g, title, city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000, heroImages: ld.hero }
     const done = (id: string) => {
       const row: LeadDoc = { id, ...base }
       setLeads((l) => [row, ...(l || [])])
       setLeadCreated({ link: leadLink(ld.tpl, ld.acc, exp, id), title, tpl: ld.tpl, acc: ld.acc, exp })
       say('Sample app created. Send the link yourself; the message is one tap away')
-      setLd({ b: '', g: '', city: 'Lagos', tpl: 'halo', acc: 'blush', hero: [], footer: [], feed: [] })
+      setLd((p) => ({ ...p, b: '', g: '', hero: [] }))
     }
     if (user?.uid === 'demo') {
       const id = `lead-${Date.now()}`
@@ -458,7 +465,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       .map((l) => ({ ...l, live: (l.expiresAt || 0) > now }))
       .filter((l) => (lf === 'all' ? true : lf === 'live' ? l.live : !l.live))
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    const photos = [...ld.hero, ...ld.footer].slice(0, 3)
+    const photos = [...ld.hero].slice(0, 3)
     return (
       <>
         {head('Leads', 'Sample apps you market with. A lead needs no email and never counts as a couple’s app or as revenue.')}
@@ -496,10 +503,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               ))}
             </div>
             <div className="fs" style={{ marginTop: 14 }}>PHOTOS THE SAMPLE USES AS PLACEHOLDERS</div>
-            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Optional. Whatever you upload fills the hero, the giant photo wall and the feed in this sample. The journey keeps its demo stages and reels keep their demo clips.</p>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Optional. Your hero uploads are the only photos this sample needs: the giant photo wall, the feed posts and the journey photos repeat them until the lead creates their own app and uploads everything. Reels keep their demo clips.</p>
             {imgRow('hero', 'Hero section', 14, false)}
-            {imgRow('footer', 'Giant photo wall', 40, false)}
-            {imgRow('feed', 'Feed posts', 40, false)}
             <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The link expires after 3 days, and your message tells them to create their own app on the Eventicor landing page, or ask us and we onboard them.</p>
             <div style={{ marginTop: 16 }}><button className="btn" onClick={createLead} disabled={busy}>Create sample app</button></div>
           </div>
@@ -527,7 +532,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               rows.map((l) => {
                 const expSec = Math.floor((l.expiresAt || 0) / 1000)
                 const daysLeft = Math.ceil(((l.expiresAt || 0) - Date.now()) / 864e5)
-                const imgs = (l.heroImages?.length || 0) + (l.footerImages?.length || 0) + (l.feedImages?.length || 0)
+                const imgs = l.heroImages?.length || 0
                 return (
                   <div className="att" key={l.id} style={{ flexWrap: 'wrap' }}>
                     <span><b>{leadName(l)}</b> · {l.city} · {TP[l.template || 'classic'].name}{imgs > 0 ? ` · ${imgs} photo${imgs > 1 ? 's' : ''}` : ''}{' '}
@@ -919,7 +924,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                       style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
                     />
                   ))}
-                  <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
+                  <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', k) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
                   <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
                 </div>
               </div>

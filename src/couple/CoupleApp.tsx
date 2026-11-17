@@ -97,7 +97,7 @@ export default function CoupleApp() {
       if (!alive) return;
       window.clearTimeout(bail);
       if (l && l.expiresAt && Date.now() > l.expiresAt) setLeadExpired(true);
-      setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, footerImages: l.footerImages, feedImages: l.feedImages } : null);
+      setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages } : null);
       setLead(l || null);
     });
     return () => { alive = false; window.clearTimeout(bail); };
