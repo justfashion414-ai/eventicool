@@ -1651,7 +1651,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     return imgs;
   }, [posts]);
   const footerPool = useMemo(
-    () => [...postFeedImages, ...(footerImages || []), ...PLACEHOLDER_IMAGES],
+    () => {
+      const base = [...postFeedImages, ...(footerImages || [])];
+      return base.length > 0 ? base : PLACEHOLDER_IMAGES;
+    },
     [postFeedImages, footerImages]
   );
 
