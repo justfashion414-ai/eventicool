@@ -35,7 +35,7 @@ export default async (req) => {
       init()
       const doc = await getFirestore().collection('leads').doc(leadId).get()
       if (doc.exists()) {
-        const d = doc.data() as any
+        const d = doc.data()
         name = `${d.bride || 'Our'} & ${d.groom || 'Event'}`
         short = `${d.bride || 'Our'} & ${(d.groom || '').slice(0, 1)}.`
         icon = Array.isArray(d.heroImages) && d.heroImages[0] ? String(d.heroImages[0]) : null
@@ -49,10 +49,10 @@ export default async (req) => {
   if (exp) params.set('exp', exp)
   if (leadId) params.set('lead', leadId)
 
-  const cdn = (w: number, u: string) =>
+  const cdn = (w, u) =>
     u.includes('/upload/') ? u.replace('/upload/', `/upload/w_${w},h_${w},c_fill,q_auto,f_jpg/`) : u
 
-  const icons: any[] = []
+  const icons = []
   if (icon && /^https:\/\//.test(icon)) {
     for (const w of [192, 512]) {
       icons.push({ src: cdn(w, icon), sizes: `${w}x${w}`, type: 'image/jpeg', purpose: 'any' })
