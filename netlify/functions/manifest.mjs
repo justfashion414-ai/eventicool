@@ -30,6 +30,7 @@ export default async (req) => {
   let name = 'Eventicor'
   let short = 'Eventicor'
   let icon = null
+  let dbg = null
   if (leadId) {
     try {
       init()
@@ -40,7 +41,7 @@ export default async (req) => {
         short = `${d.bride || 'Our'} & ${(d.groom || '').slice(0, 1)}.`
         icon = Array.isArray(d.heroImages) && d.heroImages[0] ? String(d.heroImages[0]) : null
       }
-    } catch { /* fall through to the generic manifest */ }
+    } catch (e) { dbg = String(e && e.message || e) }
   }
 
   const params = new URLSearchParams()
@@ -73,6 +74,7 @@ export default async (req) => {
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
+    dbg,
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,
