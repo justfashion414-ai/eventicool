@@ -83,6 +83,45 @@ export const DEMO_REELS = [
 // demo code, never the real couple's code from Firebase.
 export const DEMO_ACCESS_CODE = 'AMARA26';
 
+// ---- Lead sample override -------------------------------------------------
+// A lead sample is a marketing app an admin builds in the console. Its link
+// (?lead=<id>) carries the admin's chosen names and uploaded placeholder
+// images; CoupleApp resolves the lead before AnniversaryPortal renders, and
+// the generic demo content then uses the lead's data wherever it appears:
+// hero section, giant footer wall, feed photo posts and the names shown.
+// The journey keeps the seeded demo events and reels keep the demo videos.
+export interface LeadOverride {
+  bride: string;
+  groom: string;
+  city?: string;
+  heroImages?: string[];
+  footerImages?: string[];
+  feedImages?: string[];
+}
+let LEAD: LeadOverride | null = null;
+export function setLeadOverride(l: LeadOverride | null) { LEAD = l; }
+export function leadOverride(): LeadOverride | null { return LEAD; }
+export function demoBride(): string { return LEAD?.bride || DEMO_COUPLE.bride; }
+export function demoGroom(): string { return LEAD?.groom || DEMO_COUPLE.groom; }
+export function demoHeader(): string { return LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header; }
+export function demoCity(): string { return LEAD?.city || DEMO_COUPLE.city; }
+// Sample copy mentions Amara and Daniel by name; under a lead those sentences
+// name the lead's couple instead, so the story, captions and journey blurbs
+// stay coherent with the header.
+export function demoText(t: string): string {
+  if (!LEAD) return t;
+  return t.replace(/Amara/g, LEAD.bride).replace(/Daniel/g, LEAD.groom);
+}
+export function demoHeroImages(): string[] {
+  return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? LEAD.heroImages : DEMO_PHOTOS;
+}
+export function demoFooterImages(): string[] {
+  return LEAD && LEAD.footerImages && LEAD.footerImages.length > 0 ? [...LEAD.footerImages, ...DEMO_PHOTOS] : [...DEMO_PHOTOS];
+}
+export function demoFeedImages(): string[] {
+  return LEAD && LEAD.feedImages && LEAD.feedImages.length > 0 ? LEAD.feedImages : DEMO_PHOTOS;
+}
+
 // Seeded demo feed: real-post shape so the feed renders through the normal
 // card path. Demo posts never touch Firebase or Cloudinary.
 export const DEMO_POSTS = (() => {
@@ -128,42 +167,3 @@ export const DEMO_POSTS = (() => {
   });
   return rows;
 })();
-
-// ---- Lead sample override -------------------------------------------------
-// A lead sample is a marketing app an admin builds in the console. Its link
-// (?lead=<id>) carries the admin's chosen names and uploaded placeholder
-// images; CoupleApp resolves the lead before AnniversaryPortal renders, and
-// the generic demo content then uses the lead's data wherever it appears:
-// hero section, giant footer wall, feed photo posts and the names shown.
-// The journey keeps the seeded demo events and reels keep the demo videos.
-export interface LeadOverride {
-  bride: string;
-  groom: string;
-  city?: string;
-  heroImages?: string[];
-  footerImages?: string[];
-  feedImages?: string[];
-}
-let LEAD: LeadOverride | null = null;
-export function setLeadOverride(l: LeadOverride | null) { LEAD = l; }
-export function leadOverride(): LeadOverride | null { return LEAD; }
-export function demoBride(): string { return LEAD?.bride || DEMO_COUPLE.bride; }
-export function demoGroom(): string { return LEAD?.groom || DEMO_COUPLE.groom; }
-export function demoHeader(): string { return LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header; }
-export function demoCity(): string { return LEAD?.city || DEMO_COUPLE.city; }
-// Sample copy mentions Amara and Daniel by name; under a lead those sentences
-// name the lead's couple instead, so the story, captions and journey blurbs
-// stay coherent with the header.
-export function demoText(t: string): string {
-  if (!LEAD) return t;
-  return t.replace(/Amara/g, LEAD.bride).replace(/Daniel/g, LEAD.groom);
-}
-export function demoHeroImages(): string[] {
-  return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? LEAD.heroImages : DEMO_PHOTOS;
-}
-export function demoFooterImages(): string[] {
-  return LEAD && LEAD.footerImages && LEAD.footerImages.length > 0 ? [...LEAD.footerImages, ...DEMO_PHOTOS] : [...DEMO_PHOTOS];
-}
-export function demoFeedImages(): string[] {
-  return LEAD && LEAD.feedImages && LEAD.feedImages.length > 0 ? LEAD.feedImages : DEMO_PHOTOS;
-}
