@@ -1645,7 +1645,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       if (p.pending) continue;
       const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
       urls.forEach((u: string, i: number) => {
-        if (typeof u === 'string' && u.startsWith('http') && (p.mediaTypes?.[i] || 'image') !== 'video' && !imgs.includes(u)) imgs.push(u);
+        if (typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !imgs.includes(u)) imgs.push(u);
       });
     }
     return imgs;
