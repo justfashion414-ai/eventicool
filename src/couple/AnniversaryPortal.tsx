@@ -172,6 +172,7 @@ const WED_FULL = WED_DT.toLocaleDateString('en-GB', { weekday: 'long', day: 'num
 const WED_LONG = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 const p2 = (x: number) => (x < 10 ? '0' : '') + x;
 const WED_DOT = `${p2(WED_DT.getDate())}.${p2(WED_DT.getMonth() + 1)}.${WED_DT.getFullYear()}`;
+const WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
 
 const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
   { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
@@ -1651,10 +1652,33 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     }
     return imgs;
   }, [posts]);
+  // The giant footer always shows 24 tiles. Couples' uploads win, then the
+  // newest images from the feed (guests and couple alike) fill the grid and
+  // roll forward as new posts arrive, then demo/placeholder photos fill the rest.
   const footerPool = useMemo(
     () => {
-      const base = [...postFeedImages, ...(footerImages || [])];
-      return base.length > 0 ? base : PLACEHOLDER_IMAGES;
+      let base: string[] = [];
+      if (footerImages && footerImages.length > 0) base = [...footerImages];
+      else if (DEMO) base = [...DEMO_PHOTOS];
+      else {
+        const newestFirst = [...(posts as any[])].sort((a, b) => {
+          const ta = a?.createdAt?.seconds ?? (typeof a?.timestamp === 'number' ? a.timestamp : (a?.timestamp?.seconds ?? 0));
+          const tb = b?.createdAt?.seconds ?? (typeof b?.timestamp === 'number' ? b.timestamp : (b?.timestamp?.seconds ?? 0));
+          return tb - ta;
+        });
+        for (const p of newestFirst) {
+          if (base.length >= 24) break;
+          if (p.pending) continue;
+          const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
+          urls.forEach((u: string, i: number) => {
+            if (base.length < 24 && typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !base.includes(u)) base.push(u);
+          });
+        }
+      }
+      const fill = base.length > 0 ? base : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
+      const out: string[] = [];
+      for (let i = 0; out.length < 24; i++) out.push(fill[i % fill.length]);
+      return out;
     },
     [postFeedImages, footerImages]
   );
@@ -4458,24 +4482,40 @@ const footerRows = (images: string[], rows: number): string[][] => {
   return out;
 };
 
-// Style 1 · Photo wall: rows of photos drifting sideways under the couple's
-// serif names, the arrangement adopted from the reference video.
+// Style 1 · Photo wall: a still 24-photo grid under the couple's serif names.
+// Every tile sits greyed out; a bright scan sweeps the rows top to bottom and
+// back up again, looping (the reference video's arrangement).
 function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void }) {
-  const rows = footerRows(images, 5);
+  const ROWS = 6;
+  const [activeRow, setActiveRow] = useState(0);
+  useEffect(() => {
+    let r = 0;
+    let dir = 1;
+    const t = setInterval(() => {
+      let next = r + dir;
+      if (next > ROWS - 1) { dir = -1; next = ROWS - 2; }
+      if (next < 0) { dir = 1; next = 1; }
+      r = next;
+      setActiveRow(r);
+    }, 750);
+    return () => clearInterval(t);
+  }, []);
+  const gridRows: string[][] = [];
+  for (let i = 0; i < ROWS; i++) gridRows.push(images.slice(i * 4, i * 4 + 4));
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
-      <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[6px]">
-        {rows.map((row, r) => (
-          <div key={r} className={`ev-fw-row ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${58 + r * 11}s` }}>
-            {[...row, ...row].map((src, i) => (
-              <button key={i} type="button" onClick={() => onTap && onTap(src)} className="ev-fw-cell">
+      <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[6px] py-2">
+        {gridRows.map((row, r) => (
+          <div key={r} className="grid grid-cols-4 gap-[6px]">
+            {row.map((src, i) => (
+              <button key={i} type="button" onClick={() => onTap && onTap(src)} className={`ev-fw-tile${r === activeRow ? ' ev-fw-lit' : Math.abs(r - activeRow) === 1 ? ' ev-fw-warm' : ''}`}>
                 <img src={src} alt="" loading="lazy" />
               </button>
             ))}
           </div>
         ))}
-        <div className={`absolute inset-0 pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/40' : 'bg-white/35'}`} />
       </div>
+      <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
         <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? 'Amara' : 'Dara'}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
@@ -4483,7 +4523,11 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
           <span>{DEMO ? 'Daniel' : 'Femi'}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
-        <p className="mt-6 text-[clamp(0.7rem,2.6vw,1rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-80 m-0">{WED_DOT}</p>
+        <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
+          <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
+          <span className="text-[clamp(0.7rem,2.6vw,1rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
+          <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
+        </div>
       </div>
     </section>
   );
@@ -4497,6 +4541,19 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
+      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
+        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? 'Amara' : 'Dara'}</h2>
+        <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
+        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
+          <span>{DEMO ? 'Daniel' : 'Femi'}</span>
+          <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
+        </h2>
+        <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
+          <span className="flex-1 border-t border-dashed border-white/60" />
+          <span className="text-[clamp(0.65rem,2.4vw,0.9rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
+          <span className="flex-1 border-t border-dashed border-white/60" />
+        </div>
+      </div>
       <div className="flex flex-col gap-[10px] py-[16px]">
         {rows.map((row, r) => (
           <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s` }}>
@@ -6028,7 +6085,7 @@ function AdminDashboardModal({
                           </button>
                         ))}
                       </div>
-                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · names over a drifting photo wall · Style 2 · dark wall with rounded rows</p>
+                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
                     </div>
                     <div className="flex items-center justify-between mb-3">
                         <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
