@@ -4501,7 +4501,7 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
     return () => clearInterval(t);
   }, []);
   const gridRows: string[][] = [];
-  for (let i = 0; i < ROWS; i++) gridRows.push(images.slice(i * 4, i * 4 + 4));
+  for (let i = 0; i < ROWS; i++) gridRows.push(images.slice(i * 5, i * 5 + 5));
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] flex items-center justify-center bg-[#EEEDF3] dark:bg-[#0B171C] mt-12">
       <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[6px] py-2">
