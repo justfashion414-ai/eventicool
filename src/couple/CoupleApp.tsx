@@ -102,12 +102,12 @@ function SampleInfoButton({ accent }: { accent: string }) {
   }
   return (
     <>
-      <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 104, background: 'rgba(6,6,14,.55)' }} />
+      <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 299, background: 'rgba(6,6,14,.55)' }} />
       <div
         role="dialog"
         aria-label="About this sample app"
         style={{
-          position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 105,
+          position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 300,
           width: 'min(340px, calc(100vw - 40px))', background: '#fff', borderRadius: 24,
           padding: '26px 22px 20px', textAlign: 'center', boxShadow: '0 24px 60px rgba(6,6,14,.45)',
         }}
