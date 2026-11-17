@@ -26,8 +26,8 @@ function mini(t,anim,ack){var T=ack?(TP[ack]||TP.royal):(TP[P.ac]||TP.royal);if(
   if(v==='home'){var PLO=pool();
   if(t==='classic'){var tiles='';for(var i=0;i<(I?Math.min(PLO.length,6):3);i++){var l=i%2?'56%':'8%';var r=i%2?5:-6;tiles+='<div class="tile" style="left:'+l+';--r:'+r+'deg;transform:rotate('+r+'deg);'+(I?('animation-delay:-'+i*2.3+'s;'):('top:'+(10+i*26)+'px;'))+'background-image:url('+PLO[i%PLO.length]+');background-size:cover;background-position:center"></div>'}
   body='<div class="bd'+(I?'':' st')+'"><div class="mp">'+tiles+'</div><div class="mn"><small>Together with their families</small><b style="--fs:'+fs+'px">'+esc(bn)+'</b><em>and</em><b style="--fs:'+fs+'px">'+esc(gn)+'</b></div><div class="cd"><div><b>'+days+'</b>days to go</div><div><b>'+new Date(P.d+'T12:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</b>'+P.d.slice(0,4)+'</div><div><b>'+esc(P.c||'City')+'</b>city</div></div><div class="ev d"><i></i>Engagement<span>Done</span></div><div class="ev n"><i></i>Bridal shower<span>Next up</span></div></div>';}
-  else if(t==='halo'){var arc='';for(var i=0;i<7;i++){arc+='<i style="--a:'+(-64+i*(128/6)).toFixed(1)+'deg;--i:'+i+';background-image:url('+PLO[i%PLO.length]+')"><b>'+EVN[i%EVN.length]+'</b></i>'}
-  body='<div class="bd arbd"><div class="arwrap"><div class="arorbit'+(I?' live':'')+'">'+arc+'</div></div><div class="artt">'+esc(bn)+' &amp; '+esc(gn)+'</div><div class="arts">You are invited to celebrate with us</div><div class="artb">See the journey</div>'+CDC+'</div>';}
+  else if(t==='halo'){var arc='';for(var i=0;i<9;i++){arc+='<i style="background-image:url('+PLO[i%PLO.length]+')"><b>'+EVN[i%EVN.length]+'</b></i>'}
+  body='<div class="bd arbd"><div class="arwrap" data-hl="'+(I?'1':'0')+'">'+arc+'</div><div class="artt">'+esc(bn)+' &amp; '+esc(gn)+'</div><div class="arts">You are invited to celebrate with us</div><div class="artb">See the journey</div>'+CDC+'</div>';}
   else if(t==='carousel'){var ring='';for(var i=0;i<7;i++){ring+='<i style="--a:'+(i*360/7).toFixed(1)+'deg;background-image:url('+PLO[i%PLO.length]+')"><b>'+EVN[i%EVN.length]+'</b></i>'}
   body='<div class="bd"><div class="dkwrap"><div class="dknames">'+esc(bn)+' &amp; '+esc(gn)+'</div><div class="dkstage"><div class="dkring'+(I?' live':'')+'">'+ring+'</div></div></div>'+CDC+'</div>';}
   else if(t==='book'){var cap=['Together','Our traditions','The shoot','Golden hour','Save the date','Forever'];var pgi=function(i,n){return '<div class="kpg"><div class="kbp" style="background-image:url('+PLO[i%PLO.length]+')"></div><div class="kcp">'+cap[i]+'</div><div class="kpn">'+n+'</div></div>'};var dtx=new Date(P.d+'T12:00'),pd2=function(x){return (x<10?'0':'')+x},pds=pd2(dtx.getDate())+' \u00b7 '+pd2(dtx.getMonth()+1)+' \u00b7 '+dtx.getFullYear(),tag2='#'+((P.b||'E').charAt(0)+(P.g||'E').charAt(0)).toUpperCase()+dtx.getFullYear(),cover='<div class="kcv"><small>THE CELEBRATION OF</small><b>'+esc(bn)+'<br>&amp;<br>'+esc(gn)+'</b><div class="kor">&#10022;</div><span>'+pds+'</span></div>',txp='<div class="kpg ktx"><small>Together with their families</small><b>'+esc(bn)+' &amp; '+esc(gn)+'</b><i>request the honour of your presence</i><div class="kor">&#10022;</div><span>Ceremony &amp; Reception</span><span>'+pds+'</span></div>',fin='<div class="kpg ktx"><small>Save the date</small><b>'+pds+'</b><div class="kor">&#10022;</div><span>10:00 am \u00b7 '+esc(P.c||'Lagos')+'</span><span>'+tag2+'</span></div>',back='<div class="kcv kbc"><div class="kor">&#10022;</div><span>EVENTICOR</span></div>',F=[[cover,txp],[pgi(0,1),pgi(1,2)],[pgi(2,3),pgi(3,4)],[pgi(4,5),pgi(5,6)],[fin,back]],lv='';for(var bi=0;bi<F.length;bi++){var zz=I?(100+(F.length-bi)):(bi===0?100:(bi===1?200:(210-bi*10)));lv+='<div class="klf'+(!I&&bi===0?' flip':'')+'" style="--li:'+bi+';z-index:'+zz+'"><div class="kfc">'+F[bi][0]+'<i class="ksp1"></i><i class="ksd"></i></div><div class="kfc bf">'+F[bi][1]+'<i class="ksp2"></i><i class="ksd ksd2"></i></div></div>'}
@@ -240,6 +240,31 @@ document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)r
 function rsunm(v){v.muted=false;v.volume=1;var p=v.play();if(p&&p.catch)p.catch(function(){v.muted=true;v.volume=1;v.play().catch(function(){})});var b=v.parentElement&&v.parentElement.querySelector('.rvc');if(b)b.innerHTML='&#9834; Sound on'}
 var rsg=false;function rsgo(){if(rsg)return;rsg=true;document.querySelectorAll('#pv .frl video').forEach(function(v){if(v.muted)rsunm(v)})}
 document.addEventListener('pointerdown',rsgo,true);document.addEventListener('touchstart',rsgo,true);document.addEventListener('scroll',rsgo,{capture:true,passive:true});
-function rvsetup(){var vs=document.querySelectorAll('#pv .frl video');if(rvsetup.io)rvsetup.io.disconnect();if(!vs.length)return;vs.forEach(function(v){rsunm(v)});var io=rvsetup.io=new IntersectionObserver(function(es){es.forEach(function(en){var v=en.target;if(en.isIntersecting){var p=v.play();if(p&&p.catch)p.catch(function(){})}else{v.pause()}})},{threshold:.55});for(var i=0;i<vs.length;i++)io.observe(vs[i])}
+var HL=[];
+function hlRun(el,live){var W=el.clientWidth,H=el.clientHeight;if(!W||!H)return null;
+  var cw=Math.max(40,Math.min(W*0.34,66)),ch=cw*1.55,N=9,cards=el.querySelectorAll('i');
+  var span=W+1.6*cw,step=span/N,mid=W/2,amp=H*0.16,sig=W*0.3;
+  var st={el:el,flow:0,vel:(W/390)*21,live:live};
+  function frame(){
+    if(st.dead||!el.isConnected)return;
+    if(live)st.flow+=st.vel/60;
+    for(var i=0;i<N;i++){
+      var raw=((st.flow+i*step)%span+span)%span,u=raw-1.2*cw;
+      var x=mid+(u-mid)+cw*0.8*Math.max(0,(cw+6)/step-1)*Math.tanh((u-mid)/(cw*0.8));
+      var edge=Math.max(0,Math.min(1,(Math.abs(x-mid)-W*0.16)/(W*0.46))),e2=edge*edge;
+      var d=Math.exp(-0.5*Math.pow((x-mid)/sig,2));
+      var y=H*0.44-amp*d+H*0.36*e2;
+      var rot=Math.max(-16,Math.min(16,((x-mid)/W)*30))+34*e2;
+      var sc=(0.9+0.14*d)*(1-0.24*e2),n=cards[i];if(!n)continue;
+      n.style.width=cw+'px';n.style.height=ch+'px';
+      n.style.transform='translate3d('+(x-cw/2).toFixed(1)+'px,'+(y-ch/2).toFixed(1)+'px,0) rotate('+rot.toFixed(2)+'deg) scale('+sc.toFixed(3)+')';
+      n.style.zIndex=String(Math.round(200-Math.abs(x-mid)));
+    }
+    if(live)requestAnimationFrame(frame);
+  }
+  frame();return live?st:null}
+function hlvSync(){var els=document.querySelectorAll('[data-hl]');HL=HL.filter(function(st){if(!st.el.isConnected){st.dead=1;return false}return true});
+  for(var i=0;i<els.length;i++){var el=els[i];if(el._hl)continue;el._hl=hlRun(el,el.getAttribute('data-hl')==='1');if(el._hl)HL.push(el._hl)}}
+function rvsetup(){hlvSync();var vs=document.querySelectorAll('#pv .frl video');
 function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r=w.getBoundingClientRect();var vh=innerHeight||800;var total=r.height-vh;if(innerWidth<=900||total<=0){SGT=0;sgmove();return}var p=-r.top/total;p=p<0?0:(p>1?1:p);SGT=p*(SG5.length-1);sgmove()}var sgq=false,_fonsc=function(){if(sgq)return;sgq=true;requestAnimationFrame(function(){sgq=false;try{apscroll();secscroll()}catch(e){}})};addEventListener('scroll',_fonsc,{passive:true});addEventListener('resize',_fonsc);_fonsc();
 }
