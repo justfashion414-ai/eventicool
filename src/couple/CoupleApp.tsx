@@ -18,7 +18,7 @@ const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush',
 // lead needs no email: it opens on its own, shows the admin's uploaded
 // placeholder images and names, and after 3 days it points back to the
 // Eventicor landing page to create their own app.
-interface LeadData { bride?: string; groom?: string; city?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
+interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
 
 async function loadLead(id: string): Promise<LeadData | null> {
   // Sample apps built in the demo console live in this browser only.
@@ -56,7 +56,7 @@ function SampleExpired({ accent }: { accent: string }) {
   );
 }
 
-function SampleChip({ exp }: { exp: number }) {
+function SampleChip({ exp, trial }: { exp: number; trial?: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 30000);
@@ -69,7 +69,7 @@ function SampleChip({ exp }: { exp: number }) {
   const label = d > 0 ? `${d}d ${h}h left` : h > 0 ? `${h}h ${m}m left` : m > 0 ? `${m}m left` : 'expired';
   return (
     <div style={{ position: 'fixed', left: 12, bottom: 112, zIndex: 60, background: 'rgba(10,10,22,.72)', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '.07em', padding: '6px 12px', borderRadius: 999, pointerEvents: 'none', textTransform: 'uppercase' }}>
-      Sample app · {label}
+      {trial ? 'Free trial' : 'Sample app'} · {label}
     </div>
   );
 }
@@ -81,7 +81,7 @@ function SampleChip({ exp }: { exp: number }) {
 const SAMPLE_SITE_URL = 'https://eventicor.name.ng';
 const SAMPLE_COMMUNITY_URL = 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2';
 
-function SampleInfoButton({ accent }: { accent: string }) {
+function SampleInfoButton({ accent, selfServe }: { accent: string; selfServe?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
@@ -113,32 +113,47 @@ function SampleInfoButton({ accent }: { accent: string }) {
         }}
       >
         <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 22, fontWeight: 600, color: accent, lineHeight: 1.2 }}>
-          This is a sample app
+          {selfServe ? 'Your Eventicor app' : 'This is a sample app'}
         </div>
         <p style={{ color: '#3d4a50', fontSize: 13.5, lineHeight: 1.55, margin: '12px 0 0' }}>
-          Everything on this app is placeholder information, not real data.
+          Everything you see here is placeholder information until you finish setting up your app.
         </p>
         <p style={{ color: '#3d4a50', fontSize: 13.5, lineHeight: 1.55, margin: '8px 0 16px' }}>
-          Want it with your own names, photos and events? Create your own app on the Eventicor website in seconds.
+          {selfServe
+            ? 'Join the Eventicor community on WhatsApp and request the live webinar: our team walks you through managing your app for your event.'
+            : 'Want it with your own names, photos and events? Create your own app on the Eventicor website in seconds.'}
         </p>
-        <a
-          href={SAMPLE_SITE_URL}
-          target="_blank"
-          rel="noreferrer"
-          style={{ display: 'block', background: accent, color: '#fff', textDecoration: 'none', padding: '13px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.06em' }}
-        >
-          CREATE YOUR OWN APP
-        </a>
+        {selfServe ? (
+          <a
+            href={SAMPLE_COMMUNITY_URL}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: 'block', background: accent, color: '#fff', textDecoration: 'none', padding: '13px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.06em' }}
+          >
+            JOIN THE EVENTICOR COMMUNITY
+          </a>
+        ) : (
+          <a
+            href={SAMPLE_SITE_URL}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: 'block', background: accent, color: '#fff', textDecoration: 'none', padding: '13px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.06em' }}
+          >
+            CREATE YOUR OWN APP
+          </a>
+        )}
         <a
           href={SAMPLE_COMMUNITY_URL}
           target="_blank"
           rel="noreferrer"
-          style={{ display: 'block', margin: '10px 0 0', padding: '12px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.04em', color: accent, border: `1.5px solid ${accent}`, textDecoration: 'none' }}
+          style={{ display: selfServe ? 'none' : 'block', margin: '10px 0 0', padding: '12px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.04em', color: accent, border: `1.5px solid ${accent}`, textDecoration: 'none' }}
         >
           Join the Eventicor community on WhatsApp
         </a>
         <p style={{ color: '#7a8a91', fontSize: 11.5, lineHeight: 1.5, margin: '14px 0 0' }}>
-          This sample app stops working after the third day. Eventicor is on a free trial for now.
+          {selfServe
+            ? 'Your free trial is running. Your login details are waiting in your email.'
+            : 'This sample app stops working after the third day. Eventicor is on a free trial for now.'}
         </p>
         <button
           onClick={() => setOpen(false)}
@@ -179,6 +194,22 @@ export default function CoupleApp() {
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId]);
+  // A lead's app installs as a PWA under the couple's own names: inject the
+  // per-lead manifest and the service worker once the lead is resolved.
+  useEffect(() => {
+    if (!lead) return;
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    const q = new URLSearchParams({ tpl });
+    if (params.get('acc')) q.set('acc', params.get('acc')!);
+    if (expRaw) q.set('exp', String(expRaw));
+    if (leadId) q.set('lead', leadId);
+    link.href = `/api/manifest?${q.toString()}`;
+    document.head.appendChild(link);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    return () => { link.remove(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead]);
   if (expired || leadExpired) return <SampleExpired accent={acc.accent} />;
   return (
     <div
@@ -190,8 +221,8 @@ export default function CoupleApp() {
           <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} />
         </Suspense>
       )}
-      {isSample && expRaw > 0 && <SampleChip exp={expRaw} />}
-      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} />}
+      {isSample && expRaw > 0 && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
+      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} />}
     </div>
   );
 }

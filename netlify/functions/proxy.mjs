@@ -60,6 +60,43 @@ export default async (req) => {
   }
 
 
+  // Public, add-only access for the landing page's self-serve flow: a visitor
+  // who designs their app and publishes it creates a 24-hour trial lead. No
+  // auth (the landing has no account yet), no reads, and every field is
+  // clamped so a stranger cannot write anything else into the collection.
+  if (body.op === 'create-lead') {
+    try {
+      init()
+      const b = body.data || {}
+      const bride = String(b.bride || '').trim().slice(0, 40)
+      const groom = String(b.groom || '').trim().slice(0, 40)
+      if (!bride || !groom) return json(400, { error: 'Bride and groom names are required' })
+      const hero = Array.isArray(b.heroImages)
+        ? b.heroImages.filter((u) => /^https:\/\//.test(String(u))).slice(0, 14)
+        : []
+      const trialHours = Math.min(Math.max(Number(b.trialHours) || 24, 1), 24 * 7)
+      const expiresAt = Date.now() + trialHours * 3600 * 1000
+      const ref = await getFirestore().collection('leads').add({
+        bride,
+        groom,
+        email: String(b.email || '').trim().slice(0, 160),
+        city: String(b.city || '').slice(0, 60),
+        template: String(b.template || 'classic').slice(0, 20),
+        accent: String(b.accent || '').slice(0, 20),
+        plan: String(b.plan || '').slice(0, 20),
+        source: 'landing',
+        status: 'trial',
+        heroImages: hero,
+        trialHours,
+        expiresAt,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      return json(200, { id: ref.id, exp: Math.floor(expiresAt / 1000) })
+    } catch (e) {
+      return json(500, { error: String(e?.message || e) })
+    }
+  }
+
   const authHeader = req.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
   if (!token) return json(401, { error: 'Missing bearer token' })

@@ -7,6 +7,7 @@ import MailTest from './components/MailTest'
 import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
 import SetPassword from './components/SetPassword'
 const CoupleApp = lazy(() => import('./couple/CoupleApp'))
+const InstallPage = lazy(() => import('./components/InstallPage'))
 
 type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out' | 'check-error'
 
@@ -64,6 +65,9 @@ export default function App() {
 
   if (route === '/app') {
     return <Suspense fallback={null}><CoupleApp /></Suspense>
+  }
+  if (route === '/install') {
+    return <Suspense fallback={null}><InstallPage /></Suspense>
   }
   if (route === '/admin') {
     if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
