@@ -68,7 +68,7 @@ interface Site {
   tpl?: string
   since: string
 }
-interface LeadDoc { id: string; title?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; footerImages?: string[]; feedImages?: string[] }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -101,6 +101,45 @@ function Icon({ id }: { id: SecId }) {
 
 const pill = (s?: string) => (s ? <span className={`pl ${s}`}>{s[0].toUpperCase() + s.slice(1)}</span> : <span>—</span>)
 
+/* Lead photos: the console uploads to Cloudinary (signed, same route the
+   couple app uses) or, in the demo console, shrinks each pick to a data URL
+   that lives in this browser only. */
+async function shrinkToDataUrl(file: File): Promise<string> {
+  const bmp = await createImageBitmap(file).catch(() => null)
+  if (!bmp) throw new Error('not an image')
+  const max = 900
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height))
+  const w = Math.round(bmp.width * scale)
+  const h = Math.round(bmp.height * scale)
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  c.getContext('2d')!.drawImage(bmp, 0, 0, w, h)
+  return c.toDataURL('image/jpeg', 0.82)
+}
+
+async function uploadOneLead(file: File, kind: string): Promise<string> {
+  const folder = `eventicor-leads-${kind}`
+  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`]) {
+    try {
+      const res = await fetch(ep, { credentials: 'include' })
+      if (!res.ok) continue
+      const sig = await res.json()
+      if (!sig?.signature || !sig?.cloudName || !sig?.apiKey) continue
+      const form = new FormData()
+      form.append('file', file, file.name)
+      form.append('api_key', sig.apiKey)
+      form.append('timestamp', String(sig.timestamp))
+      form.append('signature', sig.signature)
+      form.append('folder', sig.folder || folder)
+      const up = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/auto/upload`, { method: 'POST', body: form })
+      const j = await up.json()
+      if (up.ok && j.secure_url) return j.secure_url as string
+    } catch { /* try the next endpoint */ }
+  }
+  throw new Error('upload failed')
+}
+
 
 /* Demo console seed: /console-demo renders with a fake admin and no Firebase
    access, so give it three pretend apps to exercise the Sites table, the
@@ -114,9 +153,9 @@ const DEMO_EVENTS: EvDoc[] = [
 /* Demo leads: sample apps an admin builds for outbound marketing. They carry
    no email and never count as couples' apps, customers or revenue. */
 const DEMO_LEADS: LeadDoc[] = [
-  { id: 'lead-d1', title: 'Ada & Obinna', city: 'Lagos', template: 'halo', accent: 'blush', createdAt: Date.now() - 864e5, expiresAt: Date.now() + 2 * 864e5 },
-  { id: 'lead-d2', title: 'Ngozi & Chike', city: 'Abuja', template: 'book', accent: 'royal', createdAt: Date.now() - 6 * 864e5, expiresAt: Date.now() - 36e5 },
-  { id: 'lead-d3', title: 'Amara & Ifeanyi', city: 'Enugu', template: 'hero', accent: 'sunset', createdAt: Date.now() - 36e5, expiresAt: Date.now() + 2.9 * 864e5 },
+  { id: 'lead-d1', bride: 'Ada', groom: 'Obinna', title: 'Ada & Obinna', city: 'Lagos', template: 'halo', accent: 'blush', createdAt: Date.now() - 864e5, expiresAt: Date.now() + 2 * 864e5 },
+  { id: 'lead-d2', bride: 'Ngozi', groom: 'Chike', title: 'Ngozi & Chike', city: 'Abuja', template: 'book', accent: 'royal', createdAt: Date.now() - 6 * 864e5, expiresAt: Date.now() - 36e5 },
+  { id: 'lead-d3', bride: 'Amara', groom: 'Ifeanyi', title: 'Amara & Ifeanyi', city: 'Enugu', template: 'hero', accent: 'sunset', createdAt: Date.now() - 36e5, expiresAt: Date.now() + 2.9 * 864e5 },
 ]
 
 export default function AdminConsole({ user, onSignOut, initialNavOpen = false }: { user: User | null; onSignOut: () => void; initialNavOpen?: boolean }) {
@@ -139,7 +178,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
-  const [ld, setLd] = useState({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
+  const [ld, setLd] = useState({ b: '', g: '', city: 'Lagos', tpl: 'halo', acc: 'blush', hero: [] as string[], footer: [] as string[], feed: [] as string[] })
+  const [leadCreated, setLeadCreated] = useState<{ link: string; title: string; tpl: string; acc: string; exp: number } | null>(null)
+  const [upBusy, setUpBusy] = useState('')
+  const [obImgs, setObImgs] = useState<{ hero: string[]; footer: string[]; feed: string[] }>({ hero: [], footer: [], feed: [] })
   const [lf, setLf] = useState<'all' | 'live' | 'expired'>('all')
   const [delLeadId, setDelLeadId] = useState<string | null>(null)
   const [sf, setSf] = useState<'all' | 'live' | 'draft' | 'suspended'>('all')
@@ -184,7 +226,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }, [menuOpen])
   useEffect(() => {
     let alive = true
-    if (user?.uid === 'demo') { setEvents(DEMO_EVENTS); setLeads(DEMO_LEADS); return () => { alive = false } }
+    if (user?.uid === 'demo') {
+      setEvents(DEMO_EVENTS)
+      let ids: string[] = []
+      try { ids = JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[] } catch { /* fresh console */ }
+      const stored = ids.map((id) => { try { return JSON.parse(localStorage.getItem(`ev-lead-${id}`) || 'null') } catch { return null } }).filter(Boolean) as LeadDoc[]
+      setLeads([...stored, ...DEMO_LEADS])
+      return () => { alive = false }
+    }
     proxyCall('list', { collection: 'events', limit: 50 })
       .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
       .catch(() => { if (alive) setEvents([]) })
@@ -263,11 +312,12 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             template: o.tpl, plan: o.plan, pay: o.pay,
             slug, status: o.pay === 'link' ? 'draft' : 'live',
             accessCode: code,
+            heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed,
           },
         })
         logAudit(`Onboarded ${o.b} & ${o.g} (${slug}) on ${PL[o.plan].name}`)
         setEvents((evs) => [
-          { id: `new-${Date.now()}`, title: `${o.b} & ${o.g}`, bride: o.b, groom: o.g, weddingDate: o.date, city: o.city, contact: o.contact, template: o.tpl, plan: o.plan, pay: o.pay, slug, status: o.pay === 'link' ? 'draft' : 'live', accessCode: code },
+          { id: `new-${Date.now()}`, title: `${o.b} & ${o.g}`, bride: o.b, groom: o.g, weddingDate: o.date, city: o.city, contact: o.contact, template: o.tpl, plan: o.plan, pay: o.pay, slug, status: o.pay === 'link' ? 'draft' : 'live', accessCode: code, heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed },
           ...(evs || []),
         ])
         setProv({ step: steps.length, done: true, slug, code })
@@ -281,6 +331,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   function provDone() {
     setProv(null)
     setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })
+    setObImgs({ hero: [], footer: [], feed: [] })
     go('sites')
   }
   function copyDetails() {
@@ -290,40 +341,106 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   /* ---- leads: sample apps built for outbound marketing ---- */
-  // A sample app carries its own 3-day expiry in the link (?exp=unix seconds),
-  // so a lead needs no email: the link opens on its own, and after 3 days it
-  // points back to the Eventicor landing page to create their own app. Leads
-  // live in their own collection and never count as couples' apps or revenue.
-  const leadLink = (t: string, a: string, exp: number) =>
-    `${window.location.origin}/app?tpl=${t}&acc=${a}&exp=${exp}`
-  const leadMsg = (title: string, t: string, a: string, exp: number) =>
-    `Hi ${title || 'there'}! Here's a sample of what your event app could look like: ${leadLink(t, a, exp)} This one is just a sample and stays live for 3 days. To create your own app, go to https://eventicor.name.ng`
+  // A sample app carries its own 3-day expiry (?exp=unix seconds) plus the
+  // lead's id (?lead=), so the link opens with the admin's names and uploaded
+  // placeholder images and needs no email: after 3 days it points back to the
+  // Eventicor landing page. Leads live in their own collection and never
+  // count as couples' apps or revenue.
+  const leadLink = (t: string, a: string, exp: number, id?: string) =>
+    `${window.location.origin}/app?tpl=${t}&acc=${a}&exp=${exp}${id ? `&lead=${id}` : ''}`
+  const leadMsg = (title: string, t: string, a: string, exp: number, id?: string) =>
+    `Hi ${title || 'there'}! Here's a sample of what your event app could look like: ${leadLink(t, a, exp, id)} It's just a sample and stays live for 3 days. To make your own permanent app, go to https://eventicor.name.ng, or tell us and we'll set it up for you.`
+  const leadName = (l: LeadDoc) => (l.bride && l.groom ? `${l.bride} & ${l.groom}` : l.title || 'Lead')
+
+  async function addLeadImages(files: FileList | null, kind: 'hero' | 'footer' | 'feed', cap: number, onb: boolean) {
+    if (!files || files.length === 0) return
+    setUpBusy(kind)
+    const add: string[] = []
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith('image/')) continue
+      if (add.length >= cap) break
+      try {
+        add.push(user?.uid === 'demo' ? await shrinkToDataUrl(f) : await uploadOneLead(f, kind))
+      } catch { say('One photo could not upload. Try a smaller file') }
+    }
+    const cur = onb ? obImgs[kind] : ld[kind]
+    const next = [...cur, ...add].slice(0, cap)
+    if (onb) setObImgs((p) => ({ ...p, [kind]: next }))
+    else setLd((p) => ({ ...p, [kind]: next }))
+    setUpBusy('')
+    if (add.length > 0) say(`${add.length} photo${add.length > 1 ? 's' : ''} added`)
+  }
+
+  function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number, onb: boolean) {
+    const list = onb ? obImgs[kind] : ld[kind]
+    const setList = (v: string[]) => (onb ? setObImgs((p) => ({ ...p, [kind]: v })) : setLd((p) => ({ ...p, [kind]: v })))
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ margin: 0 }}>{label} <small style={{ color: 'var(--mut)' }}>{list.length}/{cap}</small></label>
+          <label className="btn g s" style={{ cursor: 'pointer' }}>
+            {upBusy === kind ? 'Uploading…' : 'Add photos'}
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addLeadImages(e.target.files, kind, cap, onb); e.currentTarget.value = '' }} />
+          </label>
+        </div>
+        {list.length > 0 && (
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+            {list.map((src, i) => (
+              <span key={i} style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={src} alt="" style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                <button aria-label="Remove" onClick={() => setList(list.filter((_, j) => j !== i))} style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 99, border: 'none', background: '#0f172a', color: '#fff', fontSize: 11, lineHeight: '18px', cursor: 'pointer', padding: 0 }}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   async function createLead() {
-    if (!ld.title.trim()) { say('Give the lead a name, e.g. Tolu & Kunle'); return }
+    const b = ld.b.trim()
+    const g = ld.g.trim()
+    if (!b || !g) { say('Enter the bride’s and groom’s names'); return }
     const exp = Math.floor(Date.now() / 1000) + 3 * 86400
-    const row: LeadDoc = { id: `lead-${Date.now()}`, title: ld.title.trim(), city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000 }
-    if (user?.uid === 'demo') {
+    const title = `${b} & ${g}`
+    const base = { bride: b, groom: g, title, city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000, heroImages: ld.hero, footerImages: ld.footer, feedImages: ld.feed }
+    const done = (id: string) => {
+      const row: LeadDoc = { id, ...base }
       setLeads((l) => [row, ...(l || [])])
-      try { navigator.clipboard?.writeText(leadMsg(row.title || '', row.template || 'classic', row.accent || 'midnight', exp)) } catch {}
-      say('Demo console: sample app created, nothing is saved. Message copied')
-      setLd({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
+      setLeadCreated({ link: leadLink(ld.tpl, ld.acc, exp, id), title, tpl: ld.tpl, acc: ld.acc, exp })
+      say('Sample app created. Send the link yourself; the message is one tap away')
+      setLd({ b: '', g: '', city: 'Lagos', tpl: 'halo', acc: 'blush', hero: [], footer: [], feed: [] })
+    }
+    if (user?.uid === 'demo') {
+      const id = `lead-${Date.now()}`
+      try {
+        localStorage.setItem(`ev-lead-${id}`, JSON.stringify({ id, ...base }))
+        const ids = JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[]
+        localStorage.setItem('eventicor-leads-demo', JSON.stringify([id, ...ids].slice(0, 20)))
+      } catch { /* storage full: the link still works this session */ }
+      done(id)
       return
     }
     setBusy(true)
     try {
-      await proxyCall('add', { collection: 'leads', data: { title: row.title, city: row.city, template: row.template, accent: row.accent, createdAt: row.createdAt, expiresAt: row.expiresAt } })
-      setLeads((l) => [row, ...(l || [])])
-      logAudit(`Created sample app for lead ${row.title} (${TP[row.template || 'classic'].name})`)
-      try { navigator.clipboard?.writeText(leadMsg(row.title || '', row.template || 'classic', row.accent || 'midnight', exp)) } catch {}
-      say('Sample app created. Message copied — paste it in WhatsApp')
-    } catch { say('Could not save the lead. Try again'); setBusy(false); return }
+      const res = await proxyCall('add', { collection: 'leads', data: base }) as any
+      done(res?.id || `lead-${Date.now()}`)
+      logAudit(`Created sample app for lead ${title} (${TP[ld.tpl].name})`)
+    } catch { say('Could not save the lead. Try again') }
     setBusy(false)
-    setLd({ title: '', city: 'Lagos', tpl: 'halo', acc: 'blush' })
   }
   async function deleteLead(id: string) {
     if (delLeadId !== id) { setDelLeadId(id); say('Tap again to delete this lead'); return }
     setDelLeadId(null)
-    if (user?.uid === 'demo') { setLeads((l) => (l || []).filter((x) => x.id !== id)); say('Demo console: nothing is saved'); return }
+    if (user?.uid === 'demo') {
+      setLeads((l) => (l || []).filter((x) => x.id !== id))
+      try {
+        localStorage.removeItem(`ev-lead-${id}`)
+        localStorage.setItem('eventicor-leads-demo', JSON.stringify((JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[]).filter((x) => x !== id)))
+      } catch { /* ignore */ }
+      say('Lead deleted')
+      return
+    }
     setBusy(true)
     try {
       await proxyCall('delete', { collection: 'leads', id })
@@ -333,6 +450,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     } catch { say('Could not delete. Try again') }
     setBusy(false)
   }
+
   function leadsSection() {
     const now = Date.now()
     const liveN = (leads || []).filter((l) => (l.expiresAt || 0) > now).length
@@ -340,39 +458,54 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       .map((l) => ({ ...l, live: (l.expiresAt || 0) > now }))
       .filter((l) => (lf === 'all' ? true : lf === 'live' ? l.live : !l.live))
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    const photos = [...ld.hero, ...ld.footer].slice(0, 3)
     return (
       <>
         {head('Leads', 'Sample apps you market with. A lead needs no email and never counts as a couple’s app or as revenue.')}
-        <div className="card">
-          <h3>Create a sample app</h3>
-          <div className="two" style={{ marginTop: 8 }}>
-            <div>
-              <div className="row">
-                <div style={{ flex: 1 }}>
-                  <label>Event name</label>
-                  <input value={ld.title} onChange={(e) => setLd({ ...ld, title: e.target.value })} placeholder="e.g. Tolu & Kunle" />
-                </div>
-                <div style={{ width: 150 }}>
-                  <label>City</label>
-                  <input value={ld.city} onChange={(e) => setLd({ ...ld, city: e.target.value })} />
-                </div>
-              </div>
-              <label style={{ marginTop: 10 }}>Template</label>
-              <div className="row">
-                {Object.entries(TP).map(([k, t]) => (
-                  <button key={k} className={`chip${ld.tpl === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, tpl: k, acc: DEF_ACC[k] })}>{t.name}</button>
-                ))}
-              </div>
-              <label style={{ marginTop: 10 }}>Accent</label>
-              <div className="row">
-                {Object.entries(ACC6).map(([k]) => (
-                  <button key={k} className={`chip${ld.acc === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, acc: k })}>{k[0].toUpperCase() + k.slice(1)}</button>
-                ))}
-              </div>
-              <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The sample link expires after 3 days, and the message you send says the app is just a sample and points them to the Eventicor landing page to create their own.</p>
+        {leadCreated && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <h3>Sample app ready</h3>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 10px' }}>{leadCreated.title} · live for 3 days</p>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <input readOnly value={leadCreated.link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 200 }} />
+              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadCreated.link); say('Link copied') }}>Copy link</button>
+              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadMsg(leadCreated.title, leadCreated.tpl, leadCreated.acc, leadCreated.exp, leadCreated.link.split('lead=')[1] || undefined)); say('Message copied') }}>Copy message</button>
+              <button className="btn g s" onClick={() => setLeadCreated(null)}>Close</button>
             </div>
-            <div>
-              <button className="btn" onClick={createLead} disabled={busy}>Create sample app</button>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>Send the link yourself (WhatsApp, text, anywhere). The sample app shows its own expiry countdown, so you can follow up before it dies.</p>
+          </div>
+        )}
+        <div className="ob">
+          <div className="card">
+            <h3>Create a sample app</h3>
+            <div className="fg" style={{ marginTop: 8 }}>
+              <div><label>Bride</label><input value={ld.b} maxLength={14} onChange={(e) => setLd({ ...ld, b: e.target.value })} placeholder="Bride’s first name" /></div>
+              <div><label>Groom</label><input value={ld.g} maxLength={14} onChange={(e) => setLd({ ...ld, g: e.target.value })} placeholder="Groom’s first name" /></div>
+              <div><label>City</label><input value={ld.city} maxLength={16} onChange={(e) => setLd({ ...ld, city: e.target.value })} /></div>
+            </div>
+            <label style={{ marginTop: 10 }}>Template</label>
+            <div className="row">
+              {Object.entries(TP).map(([k, t]) => (
+                <button key={k} className={`chip${ld.tpl === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, tpl: k, acc: DEF_ACC[k] })}>{t.name}</button>
+              ))}
+            </div>
+            <label style={{ marginTop: 10 }}>Accent</label>
+            <div className="row">
+              {Object.entries(ACC6).map(([k]) => (
+                <button key={k} className={`chip${ld.acc === k ? ' on' : ''}`} onClick={() => setLd({ ...ld, acc: k })}>{k[0].toUpperCase() + k.slice(1)}</button>
+              ))}
+            </div>
+            <div className="fs" style={{ marginTop: 14 }}>PHOTOS THE SAMPLE USES AS PLACEHOLDERS</div>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Optional. Whatever you upload fills the hero, the giant photo wall and the feed in this sample. The journey keeps its demo stages and reels keep their demo clips.</p>
+            {imgRow('hero', 'Hero section', 14, false)}
+            {imgRow('footer', 'Giant photo wall', 40, false)}
+            {imgRow('feed', 'Feed posts', 40, false)}
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The link expires after 3 days, and your message tells them to create their own app on the Eventicor landing page, or ask us and we onboard them.</p>
+            <div style={{ marginTop: 16 }}><button className="btn" onClick={createLead} disabled={busy}>Create sample app</button></div>
+          </div>
+          <div>
+            <div className="pf">
+              <MiniPreview b={ld.b || 'Bride'} g={ld.g || 'Groom'} tpl={TP[ld.tpl]} city={ld.city || 'City'} days={3} photos={photos} />
             </div>
           </div>
         </div>
@@ -394,14 +527,16 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               rows.map((l) => {
                 const expSec = Math.floor((l.expiresAt || 0) / 1000)
                 const daysLeft = Math.ceil(((l.expiresAt || 0) - Date.now()) / 864e5)
+                const imgs = (l.heroImages?.length || 0) + (l.footerImages?.length || 0) + (l.feedImages?.length || 0)
                 return (
                   <div className="att" key={l.id} style={{ flexWrap: 'wrap' }}>
-                    <span><b>{l.title}</b> · {l.city} · {TP[l.template || 'classic'].name}{' '}
+                    <span><b>{leadName(l)}</b> · {l.city} · {TP[l.template || 'classic'].name}{imgs > 0 ? ` · ${imgs} photo${imgs > 1 ? 's' : ''}` : ''}{' '}
                       <span className={`pl ${l.live ? 'live' : 'suspended'}`}>{l.live ? (daysLeft <= 1 ? 'Ends today' : `${daysLeft} days left`) : 'Expired'}</span>
+                      {l.live && <small style={{ color: 'var(--mut)', marginLeft: 6 }}>{new Date(l.expiresAt || 0).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small>}
                     </span>
                     <span className="row" style={{ gap: 6 }}>
-                      <a className="btn g s" href={leadLink(l.template || 'classic', l.accent || 'midnight', expSec)} target="_blank" rel="noreferrer">Open</a>
-                      <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadMsg(l.title || '', l.template || 'classic', l.accent || 'midnight', expSec)); say('Message copied') }}>Copy message</button>
+                      <a className="btn g s" href={leadLink(l.template || 'classic', l.accent || 'midnight', expSec, l.id)} target="_blank" rel="noreferrer">Open</a>
+                      <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(leadMsg(leadName(l), l.template || 'classic', l.accent || 'midnight', expSec, l.id)); say('Message copied') }}>Copy message</button>
                       <button className="btn g s" onClick={() => deleteLead(l.id)}>{delLeadId === l.id ? 'Sure?' : 'Delete'}</button>
                     </span>
                   </div>
@@ -610,6 +745,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             {slugMsg}
             <div className="fs">PAYMENT</div>
             {chip('pay', [['paid', 'Paid online'], ['bank', 'Bank transfer received'], ['link', 'Send payment link']])}
+            <div className="fs" style={{ marginTop: 14 }}>SEED PHOTOS (OPTIONAL)</div>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Photos the couple can start from. They are saved on the app record as hero, photo-wall and feed seed images.</p>
+            {imgRow('hero', 'Hero section', 14, true)}
+            {imgRow('footer', 'Giant photo wall', 40, true)}
+            {imgRow('feed', 'Feed posts', 40, true)}
             <div style={{ marginTop: 20 }} className="row">
               <button className="btn" onClick={createSite}>Create app</button>
               <button className="btn g" onClick={() => setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })}>Clear form</button>
@@ -617,7 +757,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           </div>
           <div>
             <div className="pf">
-              <MiniPreview b={o.b || 'Bride'} g={o.g || 'Groom'} tpl={TP[o.tpl]} city={o.city || 'City'} days={days} />
+              <MiniPreview b={o.b || 'Bride'} g={o.g || 'Groom'} tpl={TP[o.tpl]} city={o.city || 'City'} days={days} photos={[...obImgs.hero, ...obImgs.footer].slice(0, 3)} />
             </div>
           </div>
         </div>
@@ -962,7 +1102,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   )
 }
 
-function MiniPreview({ b, g, tpl, city, days }: { b: string; g: string; tpl: { bg: string; fg: string; ac: string }; city: string; days: number }) {
+function MiniPreview({ b, g, tpl, city, days, photos }: { b: string; g: string; tpl: { bg: string; fg: string; ac: string }; city: string; days: number; photos?: string[] }) {
   return (
     <div className="mp" style={{ ['--b' as string]: tpl.bg, ['--f' as string]: tpl.fg, ['--a' as string]: tpl.ac }}>
       <div className="mh">{b} & {g}</div>
@@ -972,6 +1112,13 @@ function MiniPreview({ b, g, tpl, city, days }: { b: string; g: string; tpl: { b
         <em>and</em>
         <b>{g}</b>
       </div>
+      {photos && photos.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'center', margin: '8px 0 0' }}>
+          {photos.map((src, i) => (
+            <img key={i} src={src} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8 }} />
+          ))}
+        </div>
+      )}
       <div className="mc">
         <div><b>{days}</b>days</div>
         <div><b>{city}</b>city</div>

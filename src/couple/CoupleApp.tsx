@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
 const AnniversaryPortal = lazy(() => import('./AnniversaryPortal'));
 
@@ -14,8 +14,31 @@ const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = 
 const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
 // Sample apps are marketing leads an admin shares by hand. Their link carries
-// its own 3-day expiry (?exp=unix seconds), so a lead needs no email: it opens
-// on its own, and after 3 days it points back to the Eventicor landing page.
+// its own 3-day expiry (?exp=unix seconds) plus the lead id (?lead=), so a
+// lead needs no email: it opens on its own, shows the admin's uploaded
+// placeholder images and names, and after 3 days it points back to the
+// Eventicor landing page to create their own app.
+interface LeadData { bride?: string; groom?: string; city?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
+
+async function loadLead(id: string): Promise<LeadData | null> {
+  // Sample apps built in the demo console live in this browser only.
+  try {
+    const ls = localStorage.getItem(`ev-lead-${id}`);
+    if (ls) {
+      const j = JSON.parse(ls);
+      if (j && (j.bride || j.title)) return j;
+    }
+  } catch { /* ignore */ }
+  // Real console leads live in Firestore and must open on any device.
+  try {
+    const { db } = await import('../firebase');
+    const { doc, getDoc } = await import('firebase/firestore');
+    const snap = await getDoc(doc(db as any, 'leads', id));
+    if (snap.exists()) return snap.data() as LeadData;
+  } catch { /* rules or offline: fall back to the generic demo */ }
+  return null;
+}
+
 function SampleExpired({ accent }: { accent: string }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 28, background: '#faf7f2' }}>
@@ -33,6 +56,24 @@ function SampleExpired({ accent }: { accent: string }) {
   );
 }
 
+function SampleChip({ exp }: { exp: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(t);
+  }, []);
+  const ms = Math.max(0, exp * 1000 - now);
+  const d = Math.floor(ms / 864e5);
+  const h = Math.floor((ms % 864e5) / 36e5);
+  const m = Math.floor((ms % 36e5) / 6e4);
+  const label = d > 0 ? `${d}d ${h}h left` : h > 0 ? `${h}h ${m}m left` : m > 0 ? `${m}m left` : 'expired';
+  return (
+    <div style={{ position: 'fixed', left: 12, bottom: 112, zIndex: 60, background: 'rgba(10,10,22,.72)', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '.07em', padding: '6px 12px', borderRadius: 999, pointerEvents: 'none', textTransform: 'uppercase' }}>
+      Sample app · {label}
+    </div>
+  );
+}
+
 export default function CoupleApp() {
   const params = new URLSearchParams(window.location.search);
   const tplRaw = params.get('tpl') || 'classic';
@@ -40,22 +81,41 @@ export default function CoupleApp() {
   const accKey = ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight');
   const acc = ACCENTS[accKey];
   const expRaw = Number(params.get('exp') || 0);
-  const isSample = expRaw > 0;
-  const expired = isSample && Date.now() / 1000 > expRaw;
-  if (expired) return <SampleExpired accent={acc.accent} />;
+  const leadId = params.get('lead') || '';
+  const isSample = expRaw > 0 || !!leadId;
+  const expired = expRaw > 0 && Date.now() / 1000 > expRaw;
+  // The lead is resolved before the app renders so its names and uploaded
+  // images are in place from the first paint; a lookup that cannot settle
+  // (offline, or a lead id we cannot read) falls back to the generic demo.
+  const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId ? undefined : null));
+  const [leadExpired, setLeadExpired] = useState(false);
+  useEffect(() => {
+    if (!leadId) return;
+    let alive = true;
+    const bail = window.setTimeout(() => { if (alive) setLead((l) => (l === undefined ? null : l)); }, 4000);
+    loadLead(leadId).then((l) => {
+      if (!alive) return;
+      window.clearTimeout(bail);
+      if (l && l.expiresAt && Date.now() > l.expiresAt) setLeadExpired(true);
+      setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, footerImages: l.footerImages, feedImages: l.feedImages } : null);
+      setLead(l || null);
+    });
+    return () => { alive = false; window.clearTimeout(bail); };
+  }, [leadId]);
+  if (expired || leadExpired) return <SampleExpired accent={acc.accent} />;
   return (
     <div
       className="ev-couple-root"
       style={{ ['--ann-accent' as any]: acc.accent, ['--ann-hero' as any]: acc.hero, ['--ann-soft' as any]: acc.soft }}
     >
-      <Suspense fallback={null}>
-        <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} />
-      </Suspense>
-      {isSample && (
-        <div style={{ position: 'fixed', left: 12, bottom: 112, zIndex: 60, background: 'rgba(10,10,22,.72)', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '.07em', padding: '6px 12px', borderRadius: 999, pointerEvents: 'none', textTransform: 'uppercase' }}>
-          Sample app
-        </div>
+      {lead === undefined ? null : (
+        <Suspense fallback={null}>
+          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} />
+        </Suspense>
       )}
+      {isSample && expRaw > 0 && <SampleChip exp={expRaw} />}
     </div>
   );
 }
+
+import { setLeadOverride } from './lib/demoMode';

@@ -41,20 +41,21 @@ export const DEMO_PHOTOS = [
 ];
 
 export function demoEvents(): any[] {
+  const T = (t: string) => demoText(t);
   const rel = (days: number) => {
     const d = new Date(`${DEMO_WEDDING_DATE}T12:00:00`);
     d.setDate(d.getDate() - days);
     return d.toISOString().slice(0, 10);
   };
   return [
-    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: 'Both families meet, gifts are exchanged and the journey becomes official.', status: 'done', images: ['/demo/photo2.jpg', '/demo/photo3.jpg'] },
-    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: 'The ring, the yes and the first big celebration together.', status: 'done', images: ['/demo/photo4.jpg', '/demo/photo5.jpg'] },
-    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: 'Signing the register with our closest people.', status: 'done', images: ['/demo/photo6.jpg', '/demo/photo1.jpg'] },
-    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: 'An afternoon of games, gifts and girls with the bride.', status: 'next', images: ['/demo/photo7.jpg', '/demo/photo2.jpg'] },
-    { id: 'stag', name: "Groom's Party", type: "The groom's party", date: rel(4), desc: 'The groomsmen send Daniel off in style.', status: 'up', images: [] },
-    { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: DEMO_WEDDING_DATE, time: '10:00', desc: 'Vows before God, family and friends.', status: 'up', images: [] },
-    { id: 'reception', name: 'Reception', type: 'Hall celebration', date: DEMO_WEDDING_DATE, time: '15:00', desc: 'Food, music, aso-ebi and the first dance.', status: 'up', images: [] },
-    { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: rel(-1), desc: 'We close the weekend giving thanks together.', status: 'up', images: [] },
+    { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: rel(140), desc: T('Both families meet, gifts are exchanged and the journey becomes official.'), status: 'done', images: ['/demo/photo2.jpg', '/demo/photo3.jpg'] },
+    { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: rel(110), desc: T('The ring, the yes and the first big celebration together.'), status: 'done', images: ['/demo/photo4.jpg', '/demo/photo5.jpg'] },
+    { id: 'court', name: 'Court Wedding', type: 'Registry', date: rel(60), desc: T('Signing the register with our closest people.'), status: 'done', images: ['/demo/photo6.jpg', '/demo/photo1.jpg'] },
+    { id: 'shower', name: 'Bridal Shower', type: "The bride's party", date: rel(7), desc: T('An afternoon of games, gifts and girls with the bride.'), status: 'next', images: ['/demo/photo7.jpg', '/demo/photo2.jpg'] },
+    { id: 'stag', name: "Groom's Party", type: "The groom's party", date: rel(4), desc: T("The groomsmen send the groom off in style."), status: 'up', images: [] },
+    { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: DEMO_WEDDING_DATE, time: '10:00', desc: T('Vows before God, family and friends.'), status: 'up', images: [] },
+    { id: 'reception', name: 'Reception', type: 'Hall celebration', date: DEMO_WEDDING_DATE, time: '15:00', desc: T('Food, music, aso-ebi and the first dance.'), status: 'up', images: [] },
+    { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: rel(-1), desc: T('We close the weekend giving thanks together.'), status: 'up', images: [] },
   ];
 }
 
@@ -127,3 +128,42 @@ export const DEMO_POSTS = (() => {
   });
   return rows;
 })();
+
+// ---- Lead sample override -------------------------------------------------
+// A lead sample is a marketing app an admin builds in the console. Its link
+// (?lead=<id>) carries the admin's chosen names and uploaded placeholder
+// images; CoupleApp resolves the lead before AnniversaryPortal renders, and
+// the generic demo content then uses the lead's data wherever it appears:
+// hero section, giant footer wall, feed photo posts and the names shown.
+// The journey keeps the seeded demo events and reels keep the demo videos.
+export interface LeadOverride {
+  bride: string;
+  groom: string;
+  city?: string;
+  heroImages?: string[];
+  footerImages?: string[];
+  feedImages?: string[];
+}
+let LEAD: LeadOverride | null = null;
+export function setLeadOverride(l: LeadOverride | null) { LEAD = l; }
+export function leadOverride(): LeadOverride | null { return LEAD; }
+export function demoBride(): string { return LEAD?.bride || DEMO_COUPLE.bride; }
+export function demoGroom(): string { return LEAD?.groom || DEMO_COUPLE.groom; }
+export function demoHeader(): string { return LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header; }
+export function demoCity(): string { return LEAD?.city || DEMO_COUPLE.city; }
+// Sample copy mentions Amara and Daniel by name; under a lead those sentences
+// name the lead's couple instead, so the story, captions and journey blurbs
+// stay coherent with the header.
+export function demoText(t: string): string {
+  if (!LEAD) return t;
+  return t.replace(/Amara/g, LEAD.bride).replace(/Daniel/g, LEAD.groom);
+}
+export function demoHeroImages(): string[] {
+  return LEAD && LEAD.heroImages && LEAD.heroImages.length > 0 ? LEAD.heroImages : DEMO_PHOTOS;
+}
+export function demoFooterImages(): string[] {
+  return LEAD && LEAD.footerImages && LEAD.footerImages.length > 0 ? [...LEAD.footerImages, ...DEMO_PHOTOS] : [...DEMO_PHOTOS];
+}
+export function demoFeedImages(): string[] {
+  return LEAD && LEAD.feedImages && LEAD.feedImages.length > 0 ? LEAD.feedImages : DEMO_PHOTOS;
+}

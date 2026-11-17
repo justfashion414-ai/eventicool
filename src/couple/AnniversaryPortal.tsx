@@ -44,7 +44,7 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages } from './lib/demoMode';
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
 import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
@@ -204,7 +204,7 @@ const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
 const fmtEventDate = (e: { date: string; time?: string }) =>
   new Date(`${e.date}T${e.time || '12:00'}:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
-const DEFAULT_STORY = DEMO ? DEMO_STORY : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
+const DEFAULT_STORY = DEMO ? demoText(DEMO_STORY) : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
 
 const DEFAULT_DETAILS: any = DEMO ? DEMO_DETAILS : {
   churchTime: '11:00 am',
@@ -576,7 +576,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   // Hero photos tab and stored on app_config/main.
   const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
   const [heroImages, setHeroImages] = useState<string[]>(() => {
-    if (DEMO) return DEMO_PHOTOS;
+    if (DEMO) return demoHeroImages();
     try {
       const cached = localStorage.getItem('ann-hero-images');
       if (cached) {
@@ -1458,7 +1458,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
     const title = p.text || p.caption || (DEMO ? 'A memory from Amara & Daniel' : 'A memory from Dara & Femi');
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
-      try { await (navigator as any).share({ title: DEMO_COUPLE.header, text: title, url }); return; } catch { return; }
+      try { await (navigator as any).share({ title: demoHeader(), text: title, url }); return; } catch { return; }
     }
     setSharingPost(p);
   };
@@ -1563,7 +1563,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
       const txt = p.text || p.caption || '';
       return `<section class="card"><header><b>${esc(p.authorName || 'A guest')}</b><span>${esc(evName)}</span></header>${img}<p>${esc(txt)}</p></section>`;
     }).join('');
-    win.document.write(`<!doctype html><html><head><title>${esc(DEMO_COUPLE.header)} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(DEMO_COUPLE.header)}</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
+    win.document.write(`<!doctype html><html><head><title>${esc(demoHeader())} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(demoHeader())}</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
     win.document.close();
   };
 
@@ -1626,7 +1626,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
 
   // 3. Handle Posts Sync
   useEffect(() => {
-    if (DEMO) { setPosts(DEMO_POSTS as any); setIsPostsLoading(false); return; } // Previews read seeded demo posts only
+    if (DEMO) {
+      const fi = demoFeedImages();
+      const seeded = fi === DEMO_PHOTOS ? DEMO_POSTS : (DEMO_POSTS as any[]).map((sp, i) => (String(sp.id || '').startsWith('demo-seed-p') ? { ...sp, mediaUrls: [fi[i % fi.length]], text: demoText(String(sp.text || '')) } : sp));
+      setPosts(seeded as any); setIsPostsLoading(false); return;
+    } // Previews read seeded demo posts only
     const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snapshot) => {
       const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1659,7 +1663,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     () => {
       let base: string[] = [];
       if (footerImages && footerImages.length > 0) base = [...footerImages];
-      else if (DEMO) base = [...DEMO_PHOTOS];
+      else if (DEMO) base = demoFooterImages();
       else {
         const newestFirst = [...(posts as any[])].sort((a, b) => {
           const ta = a?.createdAt?.seconds ?? (typeof a?.timestamp === 'number' ? a.timestamp : (a?.timestamp?.seconds ?? 0));
@@ -1667,17 +1671,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
           return tb - ta;
         });
         for (const p of newestFirst) {
-          if (base.length >= 30) break;
+          if (base.length >= 40) break;
           if (p.pending) continue;
           const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
           urls.forEach((u: string, i: number) => {
-            if (base.length < 24 && typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !base.includes(u)) base.push(u);
+            if (base.length < 40 && typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !base.includes(u)) base.push(u);
           });
         }
       }
-      const fill = base.length > 0 ? base : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
+      const fill = base.length > 0 ? base : (DEMO ? demoFooterImages() : PLACEHOLDER_IMAGES);
       const out: string[] = [];
-      for (let i = 0; out.length < 30; i++) out.push(fill[i % fill.length]);
+      for (let i = 0; out.length < 40; i++) out.push(fill[i % fill.length]);
       return out;
     },
     [postFeedImages, footerImages]
@@ -1842,9 +1846,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               >
                 <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
-                  {DEMO ? 'Amara' : 'Dara'}
+                  {DEMO ? demoBride() : 'Dara'}
                   <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
-                  {DEMO ? 'Daniel' : 'Femi'}
+                  {DEMO ? demoGroom() : 'Femi'}
                 </h1>
                 <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
@@ -1866,7 +1870,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         <header className={`sticky top-0 z-[60] backdrop-blur-md px-5 py-3.5 border-b transition-colors ${isDarkMode ? 'bg-[#0B171C]/80 border-[#22363E]' : 'bg-[#EEEDF3]/80 border-[#DAD8E3]'}`}>
           <div className="max-w-[520px] mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">{DEMO_COUPLE.header}</h1>
+              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">{demoHeader()}</h1>
               {!isOnline && (
                 <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[10px] font-black uppercase tracking-wider">
                   Offline
@@ -1906,9 +1910,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
            {heroTemplate === 'classic' && (
               <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
             )}
-            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={DEMO_COUPLE.header} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={DEMO_COUPLE.header} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={DEMO_COUPLE.bride} groom={DEMO_COUPLE.groom} dotDate={heroDotDate} city={DEMO_COUPLE.city} hashtag={DETAILS.hashtag} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={DETAILS.hashtag} eventNames={EVENTS.map((e) => e.name)} />}
         </div>
 
         {/* TOAST NOTIFICATION */}
@@ -1962,9 +1966,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               }}>
                 <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
                 <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  {DEMO ? 'Amara' : 'Dara'}
+                  {DEMO ? demoBride() : 'Dara'}
                   <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  {DEMO ? 'Daniel' : 'Femi'}
+                  {DEMO ? demoGroom() : 'Femi'}
                 </h2>
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
 
@@ -2160,7 +2164,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
-                    <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{DEMO_COUPLE.header}</h4>
+                    <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{demoHeader()}</h4>
                     <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · {WED_LONG}</p>
                   </div>
                   <div className="pt-2 opacity-40">
@@ -2515,7 +2519,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">About</h2>
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px]">
-                  <strong className="block text-[1rem]">{DEMO_COUPLE.header}{DEMO ? '' : ' 2026'}</strong>
+                  <strong className="block text-[1rem]">{demoHeader()}{DEMO ? '' : ' 2026'}</strong>
                   <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
                 </div>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
@@ -2622,7 +2626,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         }}
         footerImages={footerImages}
         onUpdateFooterImages={async (urls: string[]) => {
-          const capped = urls.slice(0, 30);
+          const capped = urls.slice(0, 40);
           setFooterImages(capped);
           try {
             localStorage.setItem('ann-footer-images', JSON.stringify(capped));
@@ -4471,9 +4475,9 @@ const footerRows = (images: string[], rows: number): string[][] => {
   const src = images.length > 0 ? images : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
   const out: string[][] = [];
   const n = Math.max(1, src.length);
-  const per = Math.max(5, Math.ceil(n / rows) + 2);
+  const per = rows === 4 ? 10 : Math.max(5, Math.ceil(n / rows) + 2);
   for (let r = 0; r < rows; r++) {
-    const off = r % n;
+    const off = (r * per) % n;
     const rotated = [...src.slice(off), ...src.slice(0, off)];
     const row: string[] = [];
     while (row.length < per) row.push(...rotated);
@@ -4486,7 +4490,7 @@ const footerRows = (images: string[], rows: number): string[][] => {
 // Every tile sits greyed out; a bright scan sweeps the rows top to bottom and
 // back up again, looping (the reference video's arrangement).
 function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void }) {
-  const ROWS = 6;
+  const ROWS = 8;
   const [activeRow, setActiveRow] = useState(0);
   useEffect(() => {
     let r = 0;
@@ -4517,10 +4521,10 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
       </div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
-        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? 'Amara' : 'Dara'}</h2>
+        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? demoBride() : 'Dara'}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
-          <span>{DEMO ? 'Daniel' : 'Femi'}</span>
+          <span>{DEMO ? demoGroom() : 'Femi'}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
@@ -4542,10 +4546,10 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
-        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? 'Amara' : 'Dara'}</h2>
+        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? demoBride() : 'Dara'}</h2>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
-          <span>{DEMO ? 'Daniel' : 'Femi'}</span>
+          <span>{DEMO ? demoGroom() : 'Femi'}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
@@ -5496,7 +5500,7 @@ function AdminDashboardModal({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="mb-6">
-                        <p className="font-display text-[1.25rem] font-medium">{DEMO ? DEMO_COUPLE.header : 'Dara &amp; Femi'}</p>
+                        <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
                         <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                       </div>
                       <nav className="flex flex-col gap-1">
@@ -5552,7 +5556,7 @@ function AdminDashboardModal({
               <aside className="hidden md:flex flex-col w-[250px] shrink-0 bg-[#0B171C] text-white p-5 overflow-y-auto">
                 <div className="mb-6 flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-display text-[1.25rem] font-medium">{DEMO ? DEMO_COUPLE.header : 'Dara &amp; Femi'}</p>
+                    <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
@@ -6089,7 +6093,7 @@ function AdminDashboardModal({
                     </div>
                     <div className="flex items-center justify-between mb-3">
                         <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Giant Footer Images ({footerImages.length} / 30)
+                          Giant Footer Images ({footerImages.length} / 40)
                         </label>
                         {footerImages.length > 0 && (
                           <button
@@ -6102,7 +6106,7 @@ function AdminDashboardModal({
                         )}
                       </div>
                       <div className="grid grid-cols-4 gap-2 mb-4">
-                        {footerImages.slice(0, 30).map((img: string, idx: number) => (
+                        {footerImages.slice(0, 40).map((img: string, idx: number) => (
                           <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
                             <img src={img} className="w-full h-full object-cover" alt="" />
                             <button
@@ -6115,7 +6119,7 @@ function AdminDashboardModal({
                             </button>
                           </div>
                         ))}
-                        {footerImages.length < 30 && (
+                        {footerImages.length < 40 && (
                           <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
                             <input 
                               type="file" 
@@ -6127,7 +6131,7 @@ function AdminDashboardModal({
                                 const files = Array.from(e.target.files || []);
                                 if (files.length === 0) return;
 
-                                const remainingSlots = 30 - footerImages.length;
+                                const remainingSlots = 40 - footerImages.length;
                                 const filesToUpload = files.slice(0, remainingSlots);
                                 if (files.length > remainingSlots) {
                                   showToast(`Maximum 24 footer images allowed. Uploading first ${remainingSlots}.`, 'info');
@@ -6144,7 +6148,7 @@ function AdminDashboardModal({
                                   }
                                   
                                   if (uploadedUrls.length > 0) {
-                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 30));
+                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 40));
                                   }
                                 } catch (err: any) {
                                   console.error("Bulk upload error:", err);
@@ -6160,7 +6164,7 @@ function AdminDashboardModal({
                             ) : (
                               <>
                                 <ImageIcon className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({30 - footerImages.length})</span>
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({40 - footerImages.length})</span>
                               </>
                             )}
                           </label>
