@@ -1455,7 +1455,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
    */
   const sharePost = async (p: any) => {
     const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
-    const title = p.text || p.caption || 'A memory from Dara & Femi';
+    const title = p.text || p.caption || (DEMO ? 'A memory from Amara & Daniel' : 'A memory from Dara & Femi');
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try { await (navigator as any).share({ title: DEMO_COUPLE.header, text: title, url }); return; } catch { return; }
     }
@@ -5439,7 +5439,7 @@ function AdminDashboardModal({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="mb-6">
-                        <p className="font-display text-[1.25rem] font-medium">Dara &amp; Femi</p>
+                        <p className="font-display text-[1.25rem] font-medium">{DEMO ? DEMO_COUPLE.header : 'Dara &amp; Femi'}</p>
                         <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                       </div>
                       <nav className="flex flex-col gap-1">
@@ -5495,7 +5495,7 @@ function AdminDashboardModal({
               <aside className="hidden md:flex flex-col w-[250px] shrink-0 bg-[#0B171C] text-white p-5 overflow-y-auto">
                 <div className="mb-6 flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-display text-[1.25rem] font-medium">Dara &amp; Femi</p>
+                    <p className="font-display text-[1.25rem] font-medium">{DEMO ? DEMO_COUPLE.header : 'Dara &amp; Femi'}</p>
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
