@@ -575,6 +575,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   // Hero photos tab and stored on app_config/main.
   const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
   const [heroImages, setHeroImages] = useState<string[]>(() => {
+    if (DEMO) return DEMO_PHOTOS;
     try {
       const cached = localStorage.getItem('ann-hero-images');
       if (cached) {
@@ -1006,7 +1007,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
         if (data.activeAccessCode) {
           setActiveAccessCode(normalizeCode(data.activeAccessCode));
         }
-        if (Array.isArray(data.heroImages)) {
+        if (!DEMO && Array.isArray(data.heroImages)) {
           setHeroImages(data.heroImages);
           try {
             localStorage.setItem('ann-hero-images', JSON.stringify(data.heroImages));
