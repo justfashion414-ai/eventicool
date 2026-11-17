@@ -1660,35 +1660,36 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     }
     return imgs;
   }, [posts]);
-  // The giant footer always shows 30 tiles. Couples' uploads win, then the
-  // newest images from the feed (guests and couple alike) fill the grid and
-  // roll forward as new posts arrive, then demo/placeholder photos fill the rest.
+  // The giant footer is never hand-picked: it starts as placeholders of the
+  // hero images, and the newest approved feed images (guests and couple alike)
+  // replace tiles one after another, newest first, rolling forward as more
+  // posts arrive until every tile has come from the feed.
   const footerPool = useMemo(
     () => {
-      let base: string[] = [];
-      if (footerImages && footerImages.length > 0) base = [...footerImages];
-      else if (DEMO) base = demoFooterImages();
-      else {
+      let feed: string[] = [];
+      if (DEMO) {
+        feed = demoFeedImages();
+      } else {
         const newestFirst = [...(posts as any[])].sort((a, b) => {
           const ta = a?.createdAt?.seconds ?? (typeof a?.timestamp === 'number' ? a.timestamp : (a?.timestamp?.seconds ?? 0));
           const tb = b?.createdAt?.seconds ?? (typeof b?.timestamp === 'number' ? b.timestamp : (b?.timestamp?.seconds ?? 0));
           return tb - ta;
         });
         for (const p of newestFirst) {
-          if (base.length >= 40) break;
+          if (feed.length >= 40) break;
           if (p.pending) continue;
           const urls: string[] = Array.isArray(p.mediaUrls) ? p.mediaUrls : (p.mediaUrl ? [p.mediaUrl] : []);
           urls.forEach((u: string, i: number) => {
-            if (base.length < 40 && typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !base.includes(u)) base.push(u);
+            if (feed.length < 40 && typeof u === 'string' && (u.startsWith('http') || u.startsWith('/')) && (p.mediaTypes?.[i] || 'image') !== 'video' && !feed.includes(u)) feed.push(u);
           });
         }
       }
-      const fill = base.length > 0 ? base : (DEMO ? demoFooterImages() : PLACEHOLDER_IMAGES);
-      const out: string[] = [];
-      for (let i = 0; out.length < 40; i++) out.push(fill[i % fill.length]);
+      const placeholders = heroImages.length > 0 ? heroImages : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES);
+      const out: string[] = [...feed];
+      for (let i = 0; out.length < 40; i++) out.push(placeholders[i % placeholders.length]);
       return out;
     },
-    [postFeedImages, footerImages]
+    [postFeedImages, heroImages, footerImages]
   );
 
   // 3b. Detect video orientation for existing posts without explicit orientation metadata
@@ -5478,7 +5479,7 @@ function AdminDashboardModal({
                 <button onClick={() => setMobileAdminNavOpen(true)} className="p-2 rounded-xl bg-white/10 text-white active:bg-white/20" aria-label="Open menu">
                   <Menu className="w-5 h-5" />
                 </button>
-                <p className="font-display text-white text-base font-medium">Dara &amp; Femi</p>
+                <p className="font-display text-white text-base font-medium">{DEMO ? demoHeader() : 'Dara & Femi'}</p>
                 <div className="relative ml-auto">
                   <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
                   {profileMenuOpen && (
@@ -5627,7 +5628,7 @@ function AdminDashboardModal({
               {activeAdminTab === 'overview' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, Dara &amp; Femi</h2>
+                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, {DEMO ? demoHeader() : 'Dara & Femi'}</h2>
                     <p className="text-sm opacity-60 mt-0.5">{daysToWedding} days to the wedding. Here is what needs you.</p>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -5725,7 +5726,7 @@ function AdminDashboardModal({
                               <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              <button onClick={async () => { try { await updateDoc(doc(db, 'posts', p.id), { pending: false }); showToast('Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
+                              <button onClick={async () => { try { await updateDoc(doc(db, 'posts', p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : 'Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
                               <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Reject</button>
                             </div>
                           </div>
@@ -6095,86 +6096,9 @@ function AdminDashboardModal({
                       </div>
                       <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
                     </div>
-                    <div className="flex items-center justify-between mb-3">
-                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Giant Footer Images ({footerImages.length} / 40)
-                        </label>
-                        {footerImages.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateFooterImages([])}
-                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
-                          >
-                            Clear All
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 mb-4">
-                        {footerImages.slice(0, 40).map((img: string, idx: number) => (
-                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
-                            <img src={img} className="w-full h-full object-cover" alt="" />
-                            <button
-                              type="button"
-                              onClick={() => onUpdateFooterImages(footerImages.filter((_: string, i: number) => i !== idx))}
-                              className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Remove image"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                        {footerImages.length < 40 && (
-                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
-                            <input 
-                              type="file" 
-                              multiple 
-                              accept="image/*" 
-                              className="hidden" 
-                              disabled={isBulkUploading}
-                              onChange={async (e) => {
-                                const files = Array.from(e.target.files || []);
-                                if (files.length === 0) return;
-
-                                const remainingSlots = 40 - footerImages.length;
-                                const filesToUpload = files.slice(0, remainingSlots);
-                                if (files.length > remainingSlots) {
-                                  showToast(`Maximum 24 footer images allowed. Uploading first ${remainingSlots}.`, 'info');
-                                }
-                                
-                                setIsBulkUploading(true);
-                                const uploadedUrls: string[] = [];
-                                
-                                try {
-                                  for (const file of filesToUpload) {
-                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'programme');
-                                    uploadedUrls.push(url);
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                  }
-                                  
-                                  if (uploadedUrls.length > 0) {
-                                    onUpdateFooterImages([...footerImages, ...uploadedUrls].slice(0, 40));
-                                  }
-                                } catch (err: any) {
-                                  console.error("Bulk upload error:", err);
-                                  showToast(err?.message || "Failed to upload footer images.", "error");
-                                } finally {
-                                  setIsBulkUploading(false);
-                                  e.target.value = '';
-                                }
-                              }}
-                            />
-                            {isBulkUploading ? (
-                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
-                            ) : (
-                              <>
-                                <ImageIcon className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({40 - footerImages.length})</span>
-                              </>
-                            )}
-                          </label>
-                        )}
-                      </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 30 images for the giant footer photo grid (tapping a tile opens it full-screen).</p>
+                    <div>
+                      <p className="text-[0.75rem] opacity-60 italic">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
+                    </div>
                     </div>
                   )}
                   </div>

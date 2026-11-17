@@ -74,6 +74,83 @@ function SampleChip({ exp }: { exp: number }) {
   );
 }
 
+
+// Floating helper on every sample app: one small button on the right edge,
+// over every section. It explains that everything on the app is placeholder
+// data and points the lead at the Eventicor website and the WhatsApp community.
+const SAMPLE_SITE_URL = 'https://eventicor.name.ng';
+const SAMPLE_COMMUNITY_URL = 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2';
+
+function SampleInfoButton({ accent }: { accent: string }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        aria-label="About this sample app"
+        style={{
+          position: 'fixed', right: 12, bottom: 112, zIndex: 90, width: 40, height: 40,
+          borderRadius: 999, border: 'none', cursor: 'pointer', padding: 0,
+          background: 'rgba(10,10,22,.72)', color: '#fff', display: 'grid', placeItems: 'center',
+          fontFamily: 'Georgia, serif', fontStyle: 'italic', fontSize: 19, fontWeight: 700,
+          boxShadow: '0 4px 14px rgba(10,10,22,.35)',
+        }}
+      >
+        i
+      </button>
+    );
+  }
+  return (
+    <>
+      <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 104, background: 'rgba(6,6,14,.55)' }} />
+      <div
+        role="dialog"
+        aria-label="About this sample app"
+        style={{
+          position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 105,
+          width: 'min(340px, calc(100vw - 40px))', background: '#fff', borderRadius: 24,
+          padding: '26px 22px 20px', textAlign: 'center', boxShadow: '0 24px 60px rgba(6,6,14,.45)',
+        }}
+      >
+        <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 22, fontWeight: 600, color: accent, lineHeight: 1.2 }}>
+          This is a sample app
+        </div>
+        <p style={{ color: '#3d4a50', fontSize: 13.5, lineHeight: 1.55, margin: '12px 0 0' }}>
+          Everything on this app is placeholder information, not real data.
+        </p>
+        <p style={{ color: '#3d4a50', fontSize: 13.5, lineHeight: 1.55, margin: '8px 0 16px' }}>
+          Want it with your own names, photos and events? Create your own app on the Eventicor website in seconds.
+        </p>
+        <a
+          href={SAMPLE_SITE_URL}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'block', background: accent, color: '#fff', textDecoration: 'none', padding: '13px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.06em' }}
+        >
+          CREATE YOUR OWN APP
+        </a>
+        <a
+          href={SAMPLE_COMMUNITY_URL}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'block', margin: '10px 0 0', padding: '12px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.04em', color: accent, border: `1.5px solid ${accent}`, textDecoration: 'none' }}
+        >
+          Join the Eventicor community on WhatsApp
+        </a>
+        <p style={{ color: '#7a8a91', fontSize: 11.5, lineHeight: 1.5, margin: '14px 0 0' }}>
+          This sample app stops working after the third day. Eventicor is on a free trial for now.
+        </p>
+        <button
+          onClick={() => setOpen(false)}
+          style={{ marginTop: 12, background: 'none', border: 'none', color: '#93a4ab', fontSize: 12, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer' }}
+        >
+          Got it
+        </button>
+      </div>
+    </>
+  );
+}
+
 export default function CoupleApp() {
   const params = new URLSearchParams(window.location.search);
   const tplRaw = params.get('tpl') || 'classic';
@@ -114,6 +191,7 @@ export default function CoupleApp() {
         </Suspense>
       )}
       {isSample && expRaw > 0 && <SampleChip exp={expRaw} />}
+      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} />}
     </div>
   );
 }
