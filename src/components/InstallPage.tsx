@@ -47,7 +47,7 @@ function detectOs(): Os {
   return 'android'
 }
 
-export default function InstallPage({ guideOnly, names, installable: installableProp }: { guideOnly?: boolean; names?: string; installable?: boolean }) {
+export default function InstallPage({ guideOnly, names, installable: installableProp, onInstallStart, onInstallDismiss }: { guideOnly?: boolean; names?: string; installable?: boolean; onInstallStart?: () => void; onInstallDismiss?: () => void }) {
   const params = new URLSearchParams(window.location.search)
   const leadId = params.get('lead') || ''
   const tpl = params.get('tpl') || 'classic'
@@ -153,15 +153,26 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const [waiting, setWaiting] = useState(false)
   const install = () => {
     if (deferred) {
-      deferred.prompt()
+      // First toast: "Installing…" holds until the app lands, where the
+      // appinstalled listener replaces it with "App installed!". If the
+      // visitor dismisses Chrome's dialog, the host clears the toast.
+      const p = deferred
       setDeferred(null)
       setInstallMsg('')
       setWaiting(false)
+      onInstallStart?.()
+      p.prompt()
+        .then(async () => {
+          const { outcome } = await p.userChoice
+          if (outcome !== 'accepted') onInstallDismiss?.()
+        })
+        .catch(() => onInstallDismiss?.())
       return
     }
     // Chrome offers its install popup a moment after the page loads; wait for it.
     setInstallMsg('')
     setWaiting(true)
+    onInstallStart?.()
   }
   useEffect(() => {
     if (!waiting) return
@@ -173,6 +184,8 @@ export default function InstallPage({ guideOnly, names, installable: installable
     }
     const t = window.setTimeout(() => {
       setWaiting(false)
+      // Nothing to install into: drop the sticky "Installing…" toast too.
+      onInstallDismiss?.()
       setInstallMsg(onDesktop
         ? 'Open this page on your phone in Chrome, then tap Install app.'
         : "Chrome didn't show its popup. Use Chrome's menu (three dots) and choose Add to Home screen.")
