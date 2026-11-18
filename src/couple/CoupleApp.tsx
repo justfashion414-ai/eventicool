@@ -211,10 +211,14 @@ export default function CoupleApp() {
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);
-  // A lead's app installs as a PWA under the couple's own names: inject the
-  // per-lead manifest and the service worker once the lead is resolved.
+  // The service worker keeps every app working offline. The per-lead manifest
+  // (and with it the browser's install prompt) is ONLY for a customer's own
+  // app, created on the landing page: sample links carry no manifest, so they
+  // can never be installed.
   useEffect(() => {
     if (!lead) return;
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    if ((lead as any).source !== 'landing') return;
     const link = (document.querySelector('link[rel="manifest"]') || (() => { const l = document.createElement('link'); l.rel = 'manifest'; document.head.appendChild(l); return l })()) as HTMLLinkElement;
     const q = new URLSearchParams({ tpl });
     if (params.get('acc')) q.set('acc', params.get('acc')!);
@@ -223,7 +227,6 @@ export default function CoupleApp() {
     if (siteId) q.set('site', siteId);
     link.href = `/api/manifest?${q.toString()}`;
     document.head.appendChild(link);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     return () => {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead]);
@@ -235,7 +238,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? null : (
         <Suspense fallback={null}>
-          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} />
+          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={(lead as any)?.source === 'landing'} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}

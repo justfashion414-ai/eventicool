@@ -136,6 +136,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 interface AnniversaryPortalProps {
   onBackToMain: () => void;
   previewMode?: boolean;
+  installable?: boolean;
   adminMode?: 'none' | 'preview' | 'real';
   template?: 'classic' | 'halo' | 'hero' | 'book';
 }
@@ -488,7 +489,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   throw new Error(`Upload failed: ${errorInfo}`);
 };
 
-export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real' }: AnniversaryPortalProps) {
+export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
   });
@@ -3258,7 +3259,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             &times;
           </button>
           <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Loading install guide…</div>}>
-            <InstallGuide guideOnly names={demoHeader()} />
+            <InstallGuide guideOnly names={demoHeader()} installable={installable} />
           </Suspense>
         </div>
       )}

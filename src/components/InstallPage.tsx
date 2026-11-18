@@ -47,7 +47,7 @@ function detectOs(): Os {
   return 'android'
 }
 
-export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean; names?: string }) {
+export default function InstallPage({ guideOnly, names, installable: installableProp }: { guideOnly?: boolean; names?: string; installable?: boolean }) {
   const params = new URLSearchParams(window.location.search)
   const leadId = params.get('lead') || ''
   const tpl = params.get('tpl') || 'classic'
@@ -75,23 +75,37 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
   const groom = lead?.groom || 'Groom'
   // Outside a lead (a preview or a couple's own app), the caller names the couple.
   const appName = (lead?.bride && lead?.groom) ? `${bride} & ${groom}` : (names || `${bride} & ${groom}`)
+
+  // Only a customer's own app (created on the landing page, 24-hour trial)
+  // can be installed. Sample apps and previews show the guide as marketing:
+  // no install button and no manifest, so nothing can ever install there.
+  // The in-app overlay passes the answer in; the standalone page reads it
+  // from the lead it loads.
+  const installable = installableProp !== undefined
+    ? installableProp
+    : (leadId ? (lead ? lead.source === 'landing' : true) : false)
   const splash = lead?.heroImages?.[0] || '/demo/photo1.jpg'
   const initials = (bride.charAt(0) + groom.charAt(0)).toUpperCase()
 
   useEffect(() => {
     if (leadId) loadLead(leadId).then(setLead)
-    // The manifest and service worker make the browser's install prompt work:
-    // the installed app carries the couple's names and their first photo as its icon.
-    const link = document.createElement('link')
-    link.rel = 'manifest'
-    const q = new URLSearchParams({ tpl })
-    if (params.get('acc')) q.set('acc', params.get('acc')!)
-    if (params.get('exp')) q.set('exp', params.get('exp')!)
-    if (leadId) q.set('lead', leadId)
-    link.href = `/api/manifest?${q.toString()}`
-    document.head.appendChild(link)
+    // The service worker keeps the app working offline. The manifest is what
+    // makes the browser's install prompt work, and the installed app carries
+    // the couple's names and their first photo as its icon. It is injected
+    // ONLY for a customer's own app: a sample page never gets a manifest, so
+    // no install prompt can ever fire there.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+    const link = installable ? document.createElement('link') : null
+    if (link) {
+      link.rel = 'manifest'
+      const q = new URLSearchParams({ tpl })
+      if (params.get('acc')) q.set('acc', params.get('acc')!)
+      if (params.get('exp')) q.set('exp', params.get('exp')!)
+      if (leadId) q.set('lead', leadId)
+      link.href = `/api/manifest?${q.toString()}`
+      document.head.appendChild(link)
     }
     const onPrompt = (e: any) => {
       e.preventDefault()
@@ -106,10 +120,10 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
     return () => {
       window.removeEventListener('beforeinstallprompt', onPrompt)
       window.removeEventListener('appinstalled', onInstalled)
-      link.remove()
+      link?.remove()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadId])
+  }, [leadId, installable])
 
   const appPath = `/app?${(() => {
     const q = new URLSearchParams({ tpl })
@@ -317,7 +331,7 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
           {/* Left: the animated phone screen, with the real install button under it */}
           <div className="ip-phone">
             <div className="ip-screenbox"><div className="ip-scale"><div style={{ animation: 'ipFloat 5s ease-in-out infinite', width: 250 }}>{screen}</div></div></div>
-            {os === 'android' && (
+            {os === 'android' && installable && (
               <>
                 <button onClick={installed ? () => setInstalled(true) : install} className="ip-install">
                   {installed ? 'APP INSTALLED' : 'INSTALL APP'}
@@ -337,7 +351,9 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
             <>
                 <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
                 <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
-                  Put {appName} on your home screen. It works like a real app, with your name on the icon.
+                  {installable
+                    ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
+                    : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
                 </p>
                 {installed && (
                   <p style={{ marginTop: 16, padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 15, fontWeight: 800, lineHeight: 1.5 }}>
@@ -352,17 +368,27 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
                     </li>
                   ))}
                 </ol>
+                {!installable && (
+                  <div style={{ marginTop: 20, padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
+                    <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, fontWeight: 700 }}>
+                      This is exactly how your own app will download and stay saved on your phone permanently, once you create it yourself on the Eventicor website. This one is only a sample, so there is nothing to install here yet.
+                    </p>
+                    <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 12, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '13px 22px', borderRadius: 999, fontWeight: 800, fontSize: 14 }}>
+                      Create your own app
+                    </a>
+                  </div>
+                )}
               </>
           </div>
         </div>
         {!guideOnly && (
           <div className="ip-below">
-                {!installed && onDesktop && (
+                {!installed && onDesktop && installable && (
                   <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     You are on a computer right now. Open this page on your phone to install the app there.
                   </p>
                 )}
-                {!installed && os === 'android' && !deferred && (
+                {!installed && installable && os === 'android' && !deferred && (
                   <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     No install prompt? In Chrome, tap the menu (three dots) and choose <b>Add to Home screen</b>.
                   </p>
