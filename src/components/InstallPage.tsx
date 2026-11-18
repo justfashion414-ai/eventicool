@@ -162,6 +162,14 @@ export default function InstallPage() {
     }, 6000)
     return () => window.clearTimeout(t)
   }, [waiting, deferred])
+  // If the app is already on this phone, the button says so instead of offering to install again.
+  useEffect(() => {
+    try {
+      if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) setInstalled(true);
+    } catch { /* ignore */ }
+    const relApps = (navigator as any).getInstalledRelatedApps;
+    if (typeof relApps === 'function') relApps.call(navigator).then((l: any[]) => { if (Array.isArray(l) && l.length) setInstalled(true); }).catch(() => {});
+  }, []);
   const canInstall = os === 'android' && !!deferred && !installed
 
   // ---- the animated phone screen ----
@@ -306,12 +314,16 @@ export default function InstallPage() {
           {/* Left: the animated phone screen, with the real install button under it */}
           <div className="ip-phone">
             <div className="ip-screenbox"><div className="ip-scale"><div style={{ animation: 'ipFloat 5s ease-in-out infinite', width: 250 }}>{screen}</div></div></div>
-            {os === 'android' && !installed && (
+            {os === 'android' && (
               <>
-                <button onClick={install} className="ip-install">
-                  INSTALL APP
+                <button onClick={installed ? () => setInstalled(true) : install} className="ip-install">
+                  {installed ? 'APP INSTALLED' : 'INSTALL APP'}
                 </button>
-                {(installMsg || waiting) && (
+                {installed ? (
+                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>
+                    Your app is already installed. Check your home screen for the {appName} icon.
+                  </p>
+                ) : (installMsg || waiting) && (
                   <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>{waiting ? "Getting Chrome's install popup ready…" : installMsg}</p>
                 )}
               </>

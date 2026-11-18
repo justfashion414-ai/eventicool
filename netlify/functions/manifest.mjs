@@ -65,6 +65,8 @@ export default async (req) => {
   icons.push({ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' })
   icons.push({ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' })
 
+  // Lets the install page detect an already-installed app via getInstalledRelatedApps().
+  const manifestUrl = url.origin + '/api/manifest' + (url.search || '')
   const manifest = {
     name,
     short_name: short.slice(0, 12),
@@ -76,6 +78,7 @@ export default async (req) => {
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
+    related_applications: [{ platform: 'webapp', url: manifestUrl, id: manifestUrl }],
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,

@@ -526,10 +526,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
-  const [route, setRoute] = useState<string>(() => window.location.pathname);
+  const [route, setRoute] = useState<string>(() => (window.location.hash === '#admin' ? '/admin' : window.location.pathname));
+  // The admin dashboard lives on #admin: the address never leaves /app, so a
+  // refresh always reopens inside the couple app, never the landing page.
   const goAdminPage = () => {
-    if (window.location.pathname !== '/admin') {
-      try { window.history.pushState({}, '', '/admin'); } catch {}
+    if (window.location.hash !== '#admin') {
+      try { window.history.pushState({}, '', window.location.pathname + window.location.search + '#admin'); } catch {}
     }
     setRoute('/admin');
     setIsAdminDashboardOpen(true);
@@ -547,15 +549,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
   const leaveAdminPage = () => {
     setIsAdminDashboardOpen(false);
-    if (window.location.pathname !== '/') {
-      try { window.history.pushState({}, '', '/'); } catch {}
+    if (window.location.hash === '#admin') {
+      try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
     }
     setRoute('/');
   };
   useEffect(() => {
     const onPop = () => {
-      setRoute(window.location.pathname);
-      if (window.location.pathname !== '/admin') setIsAdminDashboardOpen(false);
+      const adminRoute = window.location.hash === '#admin' || window.location.pathname === '/admin';
+      setRoute(adminRoute ? '/admin' : window.location.pathname);
+      if (!adminRoute) setIsAdminDashboardOpen(false);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -715,9 +718,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
       if (storedAdminUi && storedAdminUi.open) {
         setIsAdminDashboardOpen(true);
-        if (window.location.pathname !== '/admin') {
-          try { window.history.replaceState({}, '', '/admin'); } catch {}
-          setRoute('/admin');
+        setRoute('/admin');
+        if (window.location.hash !== '#admin') {
+          try { window.history.replaceState({}, '', window.location.pathname + window.location.search + '#admin'); } catch {}
         }
       }
     } catch {}
@@ -728,6 +731,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true;
     setIsPWAInstalled(isStandalone);
+    const relApps = (navigator as any).getInstalledRelatedApps;
+    if (typeof relApps === 'function') relApps.call(navigator).then((l: any[]) => { if (Array.isArray(l) && l.length) setIsPWAInstalled(true); }).catch(() => {});
 
     const ua = window.navigator.userAgent.toLowerCase();
     const isIOS = /iphone|ipad|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -892,10 +897,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if (timeLeft <= 0) {
         signOut(auth);
         setIsAdminDashboardOpen(false);
-        if (window.location.pathname !== '/') {
-          try { window.history.pushState({}, '', '/'); } catch {}
-          setRoute('/');
+        if (window.location.hash === '#admin') {
+          try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
         }
+        setRoute('/');
         setIsAdminSessionValid(false);
         showToast("Your admin session expired. Please sign in again.", "error");
       } else if (timeLeft < 120000 && !sessionWarningRef.current) {
@@ -2598,7 +2603,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               </div>
 
-              {isAdmin && (
+              {(
                 <div className="pt-6 pb-2" style={{ display: 'grid', justifyItems: 'center' }}>
                   <style>{`@keyframes evAdminHalo { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
                   {adminMode === 'none' ? (
