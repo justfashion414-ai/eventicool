@@ -24,6 +24,15 @@ const ACC6: Record<string, { bg: string; ac: string }> = {
   sunset: { bg: '#2b1a12', ac: '#e07a4f' },
   sage: { bg: '#1f2b25', ac: '#8fbfa3' },
 }
+// Firestore serverTimestamp fields arrive as Timestamp objects, not numbers.
+// Normalize before any new Date() so a landing-created customer's createdAt
+// never renders as "Invalid Date".
+const tsMs = (v: any): number => {
+  if (typeof v === 'number') return v
+  const sec = typeof v?.seconds === 'number' ? v.seconds : typeof v?._seconds === 'number' ? v._seconds : 0
+  return sec ? sec * 1000 : 0
+}
+
 const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
@@ -254,7 +263,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
       .catch(() => { if (alive) setEvents([]) })
     proxyCall('list', { collection: 'leads', limit: 50 })
-      .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))) })
+      .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
       .catch(() => { if (alive) setLeads([]) })
     proxyCall('list', { collection: 'platform_audit', limit: 20 })
       .then((res) => {
@@ -493,7 +502,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const rows = adminLeads
       .map((l) => ({ ...l, live: (l.expiresAt || 0) > now }))
       .filter((l) => (lf === 'all' ? true : lf === 'live' ? l.live : !l.live))
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
     const photos = [...ld.hero].slice(0, 3)
     return (
       <>
@@ -1031,8 +1040,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           { id: 'demo-cust-3', bride: 'Ngozi', groom: 'Chike', email: 'ngozi.chike@example.com', city: 'Enugu', template: 'book', accent: 'royal', plan: 'Legacy', status: 'trial', createdAt: now - 50 * 3600e3, expiresAt: now - 26 * 3600e3 },
         ] as LeadDoc[])
       : []
-    const rows = [...mine, ...demo].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    const since = (l: LeadDoc) => (l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+    const rows = [...mine, ...demo].sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
+    const since = (l: LeadDoc) => { const ms = tsMs(l.createdAt); return ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' }
     const appLink = (l: LeadDoc) => {
       const t = l.template || 'classic'
       const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
