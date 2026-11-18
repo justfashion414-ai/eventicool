@@ -338,7 +338,6 @@ export default function InstallPage() {
                   ))}
                 </ol>
               </>
-            )}
           </div>
         </div>
         {true && (
