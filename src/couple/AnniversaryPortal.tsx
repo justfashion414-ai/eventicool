@@ -4889,11 +4889,9 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            {!isFirstTime && (
-              <button onClick={() => setScreen('forgot')} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
-                Forgot password?
-              </button>
-            )}
+            <button onClick={() => setScreen('forgot')} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
+              Forgot password?
+            </button>
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] my-3">{error}</p>}
             <button
               onClick={submit}
