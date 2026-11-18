@@ -34,6 +34,7 @@ export default async (req) => {
       bride: d.bride || '',
       groom: d.groom || '',
       city: d.city || '',
+      status: d.status || '',
       weddingDate: d.weddingDate || '',
       weddingTime: d.weddingTime || '',
       heroImages: Array.isArray(d.heroImages) ? d.heroImages : [],

@@ -18,7 +18,7 @@ const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush',
 // lead needs no email: it opens on its own, shows the admin's uploaded
 // placeholder images and names, and after 3 days it points back to the
 // Eventicor landing page to create their own app.
-interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
+interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number; status?: string }
 
 async function loadLead(id: string): Promise<LeadData | null> {
   // Sample apps built in the demo console live in this browser only.
@@ -65,6 +65,35 @@ function SampleExpired({ accent }: { accent: string }) {
         Eventicor sample apps stay live for 3 days. This one was just a preview of what yours could look like.
       </p>
       <a href="/" style={{ marginTop: 24, background: accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em' }}>
+        CREATE YOUR OWN APP
+      </a>
+      <small style={{ color: '#93a4ab', marginTop: 16, fontSize: 12 }}>eventicor.name.ng</small>
+    </div>
+  );
+}
+
+// Admin account actions (Nov 18 2026): a deleted account's link is revoked
+// and tells the visitor the app no longer exists; a suspended one asks them
+// to contact an Eventicor admin on WhatsApp. ADMIN_WHATSAPP holds that number.
+const ADMIN_WHATSAPP = '';
+
+function AccountScreen({ accent, kind }: { accent: string; kind: 'deleted' | 'suspended' }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 28, background: '#faf7f2' }}>
+      <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 32, lineHeight: 1.15, color: accent, fontWeight: 600 }}>
+        {kind === 'deleted' ? 'This app does not exist anymore' : 'This app is currently suspended'}
+      </div>
+      <p style={{ color: '#5a6970', maxWidth: 340, marginTop: 14, lineHeight: 1.55, fontSize: 15 }}>
+        {kind === 'deleted'
+          ? 'The link you followed has been removed. If you think this is a mistake, contact the couple or an Eventicor admin.'
+          : 'This account is not available right now. Contact an Eventicor admin to have it restored.'}
+      </p>
+      {kind === 'suspended' && ADMIN_WHATSAPP && (
+        <a href={`https://wa.me/${ADMIN_WHATSAPP}`} target="_blank" rel="noreferrer" style={{ marginTop: 22, background: '#25d366', color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14 }}>
+          Contact an Eventicor admin on WhatsApp
+        </a>
+      )}
+      <a href="/" style={{ marginTop: 18, background: accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em' }}>
         CREATE YOUR OWN APP
       </a>
       <small style={{ color: '#93a4ab', marginTop: 16, fontSize: 12 }}>eventicor.name.ng</small>
@@ -235,6 +264,11 @@ export default function CoupleApp() {
   // A confirmed payment makes the account active for a year from that moment:
   // the trial's expiry (URL exp and the lead's own expiresAt) no longer applies.
   const activatedAt = (lead as any)?.activatedAt as number | undefined;
+  // Suspended and deleted accounts answer before any expiry logic: their link
+  // resolves but the app itself is no longer served.
+  const leadStatus = (lead as any)?.status as string | undefined;
+  if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
+  if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" />;
   if ((expired || leadExpired) && !activatedAt) return <SampleExpired accent={acc.accent} />;
   return (
     <div

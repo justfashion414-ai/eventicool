@@ -101,6 +101,7 @@ const ICONS: Record<SecId, string> = {
   over: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
   leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
+  cust: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/>',
   onb: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
@@ -183,6 +184,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
   const [toast, setToast] = useState('')
+  // Account management: extend trial, suspend or delete a customer's app.
+  const [manage, setManage] = useState<LeadDoc | null>(null)
+  const [extH, setExtH] = useState(24)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [editTpl, setEditTpl] = useState<string | null>(null)
@@ -492,6 +496,39 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     setBusy(false)
   }
 
+  // Extend a customer's trial (or, for a paid account, its renewal date) by
+  // the duration picked in the manage dialog. Takes effect immediately: the
+  // app reads its own expiry from Firestore, so the trial chip updates live.
+  async function extendCustomer(l: LeadDoc) {
+    setBusy(true)
+    try {
+      const dur = extH * 3600e3
+      const data: any = l.activatedAt
+        ? { renewsAt: Math.max(Date.now(), l.renewsAt || Date.now()) + dur }
+        : { expiresAt: Math.max(Date.now(), l.expiresAt || 0) + dur }
+      await proxyCall('update', { collection: 'leads', id: l.id, data })
+      setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, ...data } as LeadDoc : x)))
+      logAudit(`Extended ${leadName(l)}${l.activatedAt ? "'s plan" : "'s trial"} by ${extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}`)
+      say('Extension applied. It takes effect immediately')
+      setManage(null)
+    } catch { say('Could not extend. Try again') }
+    setBusy(false)
+  }
+
+  // Suspend or delete a customer's app. Both stay on the record (never a hard
+  // delete) so their link can explain what happened instead of erroring.
+  async function setCustomerStatus(l: LeadDoc, status: 'suspended' | 'deleted' | 'active') {
+    setBusy(true)
+    try {
+      await proxyCall('update', { collection: 'leads', id: l.id, data: { status } })
+      setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, status } as LeadDoc : x)))
+      logAudit(`${status === 'deleted' ? 'Deleted' : status === 'suspended' ? 'Suspended' : 'Reinstated'} ${leadName(l)}`)
+      say(status === 'deleted' ? 'App deleted. Its link now tells visitors it no longer exists' : status === 'suspended' ? 'App suspended. Visitors are asked to contact an Eventicor admin' : 'App reinstated')
+      setManage(null)
+    } catch { say('Could not update the account. Try again') }
+    setBusy(false)
+  }
+
   function leadsSection() {
     const now = Date.now()
     // Admin sample leads only. A customer's 24-hour trial app also lives in
@@ -648,12 +685,15 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const first = (user?.email || 'admin').split('@')[0].replace(/[^a-zA-Z]+/g, ' ').trim()
   const name = first ? first[0].toUpperCase() + first.slice(1) : 'Admin'
 
-  function head(t: string, s: string, right?: React.ReactNode) {
+  function head(t: string, s: string, right?: React.ReactNode, icon?: React.ReactNode) {
     return (
       <div className="top">
-        <div>
-          <h1>{t}</h1>
-          <p>{s}</p>
+        <div style={icon ? { display: 'flex', alignItems: 'center', gap: 12 } : undefined}>
+          {icon}
+          <div>
+            <h1>{t}</h1>
+            <p>{s}</p>
+          </div>
         </div>
         <div className="row" style={{ alignItems: 'center' }}>
           {right}
@@ -1050,6 +1090,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       return `${window.location.origin}/app?tpl=${t}&acc=${a}${exp ? `&exp=${exp}` : ''}&lead=${l.id}`
     }
     const planStatus = (l: LeadDoc) => {
+      if (l.status === 'deleted') return { label: 'Deleted', live: false }
+      if (l.status === 'suspended') return { label: 'Suspended', live: false }
       if (l.activatedAt) {
         const d = new Date(l.renewsAt || l.activatedAt + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
         return { label: `Active · renews ${d}`, live: true }
@@ -1060,14 +1102,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     return (
       <>
-        {head('Customers', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.')}
+        {head('Customers', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
         {rows.length === 0 ? (
           <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
         ) : (
           <div className="card">
             <div className="ov">
               <table className="tb">
-                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th></tr></thead>
+                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th>ACTIONS</th></tr></thead>
                 <tbody>
                   {rows.map((l) => {
                     const st = planStatus(l)
@@ -1077,7 +1119,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                         <td><small>{l.email || '—'}</small></td>
                         <td><small>{l.city || '—'}</small></td>
                         <td>{l.plan ? PL[l.plan]?.name || l.plan : 'No plan picked'}</td>
-                        <td><span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: st.live ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)', color: st.live ? '#1f8a5b' : 'var(--mut)' }}>{st.label}</span></td>
+                        <td><span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: st.label === 'Suspended' ? 'rgba(214,140,0,.16)' : st.live ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)', color: st.label === 'Suspended' ? '#a36a00' : st.live ? '#1f8a5b' : 'var(--mut)' }}>{st.label}</span></td>
                         <td>{l.template ? TP[l.template]?.name || l.template : '—'}</td>
                         <td><small>{since(l)}</small></td>
                         <td>
@@ -1089,6 +1131,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
                           </div>
                         </td>
+                        <td><button className="chip" onClick={() => setManage(l)}>Manage</button></td>
                       </tr>
                     )
                   })}
@@ -1225,6 +1268,35 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 ))}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {manage && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setManage(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 19 }}>{leadName(manage)}</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 14px' }}>Manage this account. Extensions apply immediately; suspending or deleting revokes the app link for visitors.</p>
+            {!manage.activatedAt && (
+              <>
+                <b style={{ fontSize: 13 }}>Extend the trial</b>
+                <div className="rw" style={{ margin: '8px 0 4px', flexWrap: 'wrap' }}>
+                  {([[24, '24 hours'], [72, '3 days'], [168, '7 days'], [336, '14 days'], [720, '30 days']] as [number, string][]).map(([h, lab]) => (
+                    <button key={h} className={`chip ${extH === h ? 'on' : ''}`} onClick={() => setExtH(h)}>{lab}</button>
+                  ))}
+                </div>
+                <button className="btn" style={{ width: '100%' }} disabled={busy} onClick={() => extendCustomer(manage)}>Extend by {extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}</button>
+              </>
+            )}
+            <div className="rw" style={{ marginTop: 14 }}>
+              {manage.status !== 'suspended' ? (
+                <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setCustomerStatus(manage, 'suspended')}>Suspend</button>
+              ) : (
+                <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setCustomerStatus(manage, 'active')}>Reinstate</button>
+              )}
+              <button className="btn" style={{ flex: 1, background: '#b3261e', borderColor: '#b3261e', color: '#fff' }} disabled={busy} onClick={() => setCustomerStatus(manage, 'deleted')}>Delete app</button>
+            </div>
+            <button className="btn g" style={{ width: '100%', marginTop: 10 }} onClick={() => setManage(null)}>Close</button>
           </div>
         </div>
       )}
