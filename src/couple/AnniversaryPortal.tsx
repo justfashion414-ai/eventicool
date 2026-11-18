@@ -536,24 +536,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setRoute('/admin');
     setIsAdminDashboardOpen(true);
   };
-  // The round admin shortcut: one tap on a preview, three taps on a real app.
-  // A real couple's app NEVER opens the dashboard directly: the taps open the
-  // admin sign-in, and the dashboard opens only after a successful sign-in
+  // The round admin shortcut: one tap on a preview, always sign-in on a real
+  // app. A real couple's app NEVER opens the dashboard directly: the tap opens
+  // the admin sign-in, and the dashboard opens only after a successful sign-in
   // (or after the forced permanent-password step). Lead sample apps never
   // respond at all (adminMode === 'none').
-  const adminTapRef = useRef<{ n: number; t: number }>({ n: 0, t: 0 });
   const shortcutLoginRef = useRef(false);
   const onAdminShortcutTap = () => {
     if (adminMode === 'preview') { goAdminPage(); return; }
-    const now = Date.now();
-    const st = adminTapRef.current;
-    st.n = now - st.t < 2500 ? st.n + 1 : 1;
-    st.t = now;
-    if (st.n >= 3) {
-      st.n = 0;
-      shortcutLoginRef.current = true;
-      setAuthScreen('signin');
-    }
+    shortcutLoginRef.current = true;
+    setAuthScreen('signin');
   };
   const leaveAdminPage = () => {
     setIsAdminDashboardOpen(false);
