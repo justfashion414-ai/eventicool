@@ -271,7 +271,7 @@ function citybuild(){
   var cityModal=function(){var old=document.getElementById('citym');if(old)old.remove();
     var m=document.createElement('div');m.id='citym';m.className='cmm';
     m.innerHTML='<div class="cbox"><button class="ux" type="button" aria-label="Close">&times;</button><h3>Enter your city</h3><p class="cps">Type the name of your city or town.</p><input id="ccity" type="text" placeholder="e.g. Owu Ate" maxlength="30" autocomplete="off"><button type="button" class="caddb" id="ccadd">Add</button></div>';
-    document.body.appendChild(m);
+    var root=document.getElementById('ev-l');(root||document.body).appendChild(m);
     var ip=m.querySelector('#ccity');setTimeout(function(){ip.focus()},80);
     m.addEventListener('click',function(e){if(e.target===m||e.target.classList.contains('ux'))m.remove()});
     m.querySelector('#ccadd').addEventListener('click',function(){setCustom(ip.value)});
