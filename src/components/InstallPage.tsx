@@ -319,22 +319,16 @@ export default function InstallPage() {
           </div>
           {/* Right: the guide */}
           <div className="ip-guide">
-            {installed ? (
-              <>
-                <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Your app is installed</h1>
-                <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 600 }}>
-                  {appName} now lives on your home screen. Open it any time, no browser needed.
-                </p>
-                <a href={appPath} style={{ display: 'inline-block', marginTop: 22, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '16px 34px', borderRadius: 999, fontWeight: 800, letterSpacing: '.04em' }}>
-                  OPEN YOUR APP
-                </a>
-              </>
-            ) : (
-              <>
+            <>
                 <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
                 <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
                   Put {appName} on your home screen. It works like a real app, with your name on the icon.
                 </p>
+                {installed && (
+                  <p style={{ marginTop: 16, padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 15, fontWeight: 800, lineHeight: 1.5 }}>
+                    Your app is installed. Check your home screen for the {appName} icon.
+                  </p>
+                )}
                 <ol style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 14 }}>
                   {steps.map((s, i) => (
                     <li key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -347,14 +341,14 @@ export default function InstallPage() {
             )}
           </div>
         </div>
-        {!installed && (
+        {true && (
           <div className="ip-below">
-                {onDesktop && (
+                {!installed && onDesktop && (
                   <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     You are on a computer right now. Open this page on your phone to install the app there.
                   </p>
                 )}
-                {os === 'android' && !deferred && (
+                {!installed && os === 'android' && !deferred && (
                   <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     No install prompt? In Chrome, tap the menu (three dots) and choose <b>Add to Home screen</b>.
                   </p>
