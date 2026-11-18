@@ -179,19 +179,9 @@ export default function InstallPage() {
           )}
           {/* Android: Chrome's own dialog slides up (stage 1); iPhone: the share sheet (stage 1-2) */}
           {os === 'android' && st === 1 && (
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%', margin: 10, marginBottom: 14, borderRadius: 16, background: '#fff', color: '#111', padding: '16px 16px 14px', animation: 'ipUp .45s cubic-bezier(.2,.8,.25,1) both' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ width: 42, height: 42, borderRadius: 12, background: acc.accent, color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 16 }}>{initials}</span>
-                  <div style={{ flex: 1 }}>
-                    <b style={{ display: 'block', fontSize: 14.5 }}>{appName}</b>
-                    <small style={{ color: '#555', fontSize: 12 }}>eventicor.name.ng</small>
-                  </div>
-                </div>
-                <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <span style={{ padding: '8px 16px', borderRadius: 10, fontSize: 13.5, color: '#0b57d0', fontWeight: 700 }}>Cancel</span>
-                  <span style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13.5, background: '#0b57d0', color: '#fff', fontWeight: 700 }}>Install</span>
-                </div>
+            <div style={{ position: 'absolute', left: 18, right: 18, bottom: 82 }}>
+              <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,.25)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: '100%', borderRadius: 99, background: '#fff', animation: 'ipLoad 1.7s ease-in-out infinite' }} />
               </div>
             </div>
           )}
@@ -239,6 +229,7 @@ export default function InstallPage() {
         @keyframes ipFloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
         @keyframes ipPulse2 { 0%,100% { box-shadow: 0 0 0 0 ${acc.accent}00 } 50% { box-shadow: 0 0 0 14px ${acc.accent}55 } }
         @keyframes ipUp { from { opacity: 0; transform: translateY(36px) } to { opacity: 1; transform: none } }
+        @keyframes ipLoad { 0% { transform: translateX(-100%) } 100% { transform: translateX(100%) } }
         @keyframes ipLand { from { opacity: 0; transform: scale(.5) translateY(-14px) } to { opacity: 1; transform: none } }
       `}</style>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 26px' }}>
