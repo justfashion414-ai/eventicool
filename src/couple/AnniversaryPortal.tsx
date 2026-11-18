@@ -2598,7 +2598,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     }}
                     className={`text-xs font-bold tracking-wide select-none cursor-pointer ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
                   >
-                    {DEMO ? 'Happy Wedding, Amara & Daniel' : 'Happy Wedding, Dara & Femi'}
+                    Happy Wedding, {demoHeader()}
                   </span>
                 </div>
               </div>
