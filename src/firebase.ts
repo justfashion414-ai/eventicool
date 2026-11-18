@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app'
+import { getFirestore } from 'firebase/firestore'
 
 // Eventicor web app — Firebase project eventicool-3887d.
 // Values come from Netlify environment variables (FIREBASE_*), with the
@@ -15,6 +16,10 @@ export const firebaseConfig = {
 }
 
 export const app = initializeApp(firebaseConfig)
+
+// Firestore client used for public reads only (sample-app lead lookup).
+// Every write still goes through the server-side proxy.
+export const db = getFirestore(app)
 
 // Helper for the Firestore proxy (server-side service account, no client keys).
 export async function proxyCall(op, payload = {}) {

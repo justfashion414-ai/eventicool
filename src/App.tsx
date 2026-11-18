@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
 import AdminConsole from './components/AdminConsole'
-import { isAdmin, signOutEverywhere, watchAuth, type User } from './auth'
+import MailTest from './components/MailTest'
+import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
+import SetPassword from './components/SetPassword'
+const CoupleApp = lazy(() => import('./couple/CoupleApp'))
+const InstallPage = lazy(() => import('./components/InstallPage'))
 
-type AdminState = 'loading' | 'admin' | 'not-admin' | 'signed-out'
+type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out' | 'check-error'
 
 function navigate(to: string) {
   window.history.pushState({}, '', to)
@@ -32,7 +36,13 @@ export default function App() {
           return
         }
         setAdminState('loading')
-        setAdminState((await isAdmin(u)) ? 'admin' : 'not-admin')
+        try {
+          const doc = await getAdminDoc(u)
+          setAdminState(!doc ? 'not-admin' : doc.mustChangePassword ? 'must-change' : 'admin')
+        } catch {
+          // A failed access check (network, proxy hiccup) must never log the admin out.
+          setAdminState('check-error')
+        }
       }),
     [],
   )
@@ -44,16 +54,62 @@ export default function App() {
     }
   }, [route, adminState])
 
+  function retryAdminCheck() {
+    setAdminState('loading')
+    const u = user
+    if (!u) { setAdminState('signed-out'); return }
+    getAdminDoc(u)
+      .then((doc) => setAdminState(!doc ? 'not-admin' : (doc as any).mustChangePassword ? 'must-change' : 'admin'))
+      .catch(() => setAdminState('check-error'))
+  }
+
+  // The couple app also lives under its own install scope paths
+  // (/app/lead/<id>/, /app/site/<id>/, /app/demo/), which Chrome opens as the
+  // installed app's start_url. Every /app* path renders the couple app; the
+  // couple's names, template and accent come from the query string.
+  if (route === '/app' || route.startsWith('/app/')) {
+    return <Suspense fallback={null}><CoupleApp /></Suspense>
+  }
+  if (route === '/install') {
+    return <Suspense fallback={null}><InstallPage /></Suspense>
+  }
   if (route === '/admin') {
     if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
+    if (adminState === 'must-change') {
+      return <SetPassword user={user} onDone={() => setAdminState('admin')} onSignOut={() => navigate('/')} />
+    }
     if (adminState === 'signed-out') {
       return <Login onDone={() => navigate('/admin')} />
+    }
+    if (adminState === 'check-error') {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center">
+          <span className="max-w-xs text-sm text-slate-600">
+            We could not verify your access just now. You are still signed in. Check your connection and try again.
+          </span>
+          <button
+            onClick={retryAdminCheck}
+            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+          >
+            Try again
+          </button>
+        </main>
+      )
     }
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
         <span className="text-sm text-slate-500">Checking your access…</span>
       </main>
     )
+  }
+
+  // Design/demo route: renders the console with a fake admin, no auth or data writes needed.
+  if (route === '/console-demo') {
+    const drawer = new URLSearchParams(window.location.search).has('drawer')
+    return <AdminConsole user={{ uid: 'demo', email: 'ola@eventicor.name.ng' } as User} onSignOut={() => navigate('/')} initialNavOpen={drawer} />
+  }
+  if (route === '/mail-test') {
+    return <MailTest />
   }
 
   if (route === '/login') {

@@ -1,9 +1,13 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Netlify injects a fixed deploy badge on preview deploys; hide it on every page -->
+    <style>[data-netlify-deploy-id], a[href*="app.netlify.com/sites"] { display: none !important; }</style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Eventicor</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>(function(){var l=document.querySelector('link[rel="manifest"]');if(l)l.href='/api/manifest'+location.search})();</script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />

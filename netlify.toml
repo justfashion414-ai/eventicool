@@ -11,6 +11,12 @@
   status = 200
 
 [[redirects]]
+  from = "/manifest.webmanifest"
+  to = "/api/manifest"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
