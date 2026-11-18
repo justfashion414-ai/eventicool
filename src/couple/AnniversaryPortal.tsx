@@ -616,7 +616,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // sticky=true keeps the toast on screen until the next toast replaces it,
-  // which is how the install flow holds "Downloading" until the app lands.
+  // which is how the install flow holds "Installing" until the app lands.
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success', sticky = false) => {
     setToast({ message, type });
     if (toastTimer.current) { clearTimeout(toastTimer.current); toastTimer.current = null; }
@@ -815,7 +815,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setPendingAndroidInstall(false);
       setShowIOSInstallModal(false);
       (window as any).__deferredPwaPrompt = null;
-      showToast('App already installed!');
+      showToast('App installed!');
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -905,7 +905,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
 
     setPendingAndroidInstall(true);
-    showToast('Downloading\u2026', 'info', true);
+    showToast('Installing\u2026', 'info', true);
     setShowIOSInstallModal(false);
   };
 

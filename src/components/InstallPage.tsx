@@ -336,13 +336,6 @@ export default function InstallPage({ guideOnly, names, installable: installable
                 <button onClick={installed ? () => setInstalled(true) : install} className="ip-install">
                   {installed ? 'APP INSTALLED' : 'INSTALL APP'}
                 </button>
-                {installed ? (
-                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>
-                    Your app is already installed. Check your home screen for the {appName} icon.
-                  </p>
-                ) : (installMsg || waiting) && (
-                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>{waiting ? "Getting Chrome's install popup ready…" : installMsg}</p>
-                )}
               </>
             )}
           </div>

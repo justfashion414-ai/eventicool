@@ -57,11 +57,16 @@ export default async (req) => {
   if (leadId) params.set('lead', leadId)
   if (siteId) params.set('site', siteId)
 
-  // Install identity. We deliberately set NO explicit manifest id: Chrome on
-  // Android keys its "app is already installed" check on a fixed id, which
-  // blocks installing a second couple's app from the same domain. Without an
-  // id the identity falls back to start_url, which is unique per couple
-  // (lead/site param included), so every couple installs as its own app.
+  // Install identity and scope. We deliberately set NO explicit manifest id:
+  // Chrome on Android keys its "app is already installed" check on identity,
+  // which blocks installing a second couple's app from the same domain. Each
+  // couple's app instead gets its OWN non-overlapping scope path, the setup
+  // Chrome documents for multiple PWAs on one domain: identity falls back to
+  // start_url, which is unique per couple, and the scopes never collide.
+  const key = leadId ? ('lead/' + leadId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60))
+    : siteId ? ('site/' + siteId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60))
+    : 'demo'
+  const basePath = '/app/' + key + '/'
 
   const cdn = (w, u) =>
     u.includes('/upload/') ? u.replace('/upload/', `/upload/w_${w},h_${w},c_fill,q_auto,f_jpg/`) : u
@@ -85,14 +90,14 @@ export default async (req) => {
     name,
     short_name: short.slice(0, 12),
     description: `${name}: every photo, video and wish from their event, in one beautiful place.`,
-    start_url: `/app?${params.toString()}`,
-    scope: '/',
+    start_url: url.origin + basePath + '?' + params.toString(),
+    scope: url.origin + basePath,
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
-    related_applications: [{ platform: 'webapp', url: manifestUrl, id: url.origin + '/app?' + params.toString() }],
+    related_applications: [{ platform: 'webapp', url: manifestUrl, id: url.origin + basePath + '?' + params.toString() }],
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,
