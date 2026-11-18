@@ -765,6 +765,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setIsPWAInstalled(true);
       setDeferredInstallPrompt(null);
       setPendingAndroidInstall(false);
+      setShowIOSInstallModal(false);
       (window as any).__deferredPwaPrompt = null;
       showToast('App downloaded and installed successfully!');
     };
@@ -813,13 +814,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   }, [pendingAndroidInstall, deferredInstallPrompt]);
 
-  const handleInstallClick = async () => {
-    // Only iOS devices should ever see the 2-step Add to Home Screen modal
-    if (isIOSDevice) {
-      setShowIOSInstallModal(true);
-      return;
-    }
+  // The header Install button opens the embedded install guide for everyone
+  // (guests included): the native Android install button, or the iPhone steps.
+  const handleInstallClick = () => {
+    setShowIOSInstallModal(true);
+  };
 
+  const handleAndroidInstall = async () => {
     const promptEvent = deferredInstallPrompt || (window as any).__deferredPwaPrompt;
     if (promptEvent) {
       try {
@@ -829,6 +830,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setIsPWAInstalled(true);
           setDeferredInstallPrompt(null);
           (window as any).__deferredPwaPrompt = null;
+          setShowIOSInstallModal(false);
         }
       } catch (err) {
         console.error('Install prompt error:', err);
@@ -852,6 +854,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     setPendingAndroidInstall(true);
     showToast('Downloading app...', 'info');
+    setShowIOSInstallModal(false);
   };
 
   // 1. Handle Auth & Session
@@ -3196,7 +3199,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
       {/* iOS / Add to Home Screen Bottom Splash Pop Up (2 Steps - iOS only) */}
       <AnimatePresence>
-        {showIOSInstallModal && isIOSDevice && (
+        {showIOSInstallModal && (
           <>
             <motion.div
               initial={{ opacity: 0 }}
@@ -3224,7 +3227,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <div>
                     <h3 className="text-lg font-black font-display leading-tight">{DEMO ? 'Install Amara & Daniel' : 'Install Dara & Femi'}</h3>
                     <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                      Add to your Home Screen for quick &amp; offline access
+                      {isIOSDevice ? 'Add to your Home Screen for quick & offline access' : 'Get the app on your phone in one tap'}
                     </p>
                   </div>
                 </div>
@@ -3237,6 +3240,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </button>
               </div>
 
+              {!isIOSDevice && (
+                <div className="space-y-3 mb-6">
+                  <button
+                    onClick={handleAndroidInstall}
+                    className="w-full py-4 rounded-2xl bg-[var(--ann-accent)] text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/25 hover:opacity-95 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4.5 h-4.5 stroke-[2.5]" />
+                    Install app
+                  </button>
+                  <p className={`text-center text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+                    Chrome will pop up a confirm box. Tap Install.
+                  </p>
+                </div>
+              )}
+
+              {isIOSDevice && (
               <div className="space-y-3 mb-6">
                 {/* Step 1 */}
                 <div className={`p-4 rounded-2xl border flex items-center gap-4 ${
@@ -3272,6 +3291,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   </div>
                 </div>
               </div>
+              )}
 
               <button
                 onClick={() => setShowIOSInstallModal(false)}
