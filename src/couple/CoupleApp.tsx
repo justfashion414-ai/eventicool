@@ -75,7 +75,7 @@ function SampleExpired({ accent }: { accent: string }) {
 // Admin account actions (Nov 18 2026): a deleted account's link is revoked
 // and tells the visitor the app no longer exists; a suspended one asks them
 // to contact an Eventicor admin on WhatsApp. ADMIN_WHATSAPP holds that number.
-const ADMIN_WHATSAPP = '';
+const ADMIN_WHATSAPP = '2349030064109';
 
 function AccountScreen({ accent, kind }: { accent: string; kind: 'deleted' | 'suspended' }) {
   return (
