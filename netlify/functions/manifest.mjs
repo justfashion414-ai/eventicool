@@ -61,6 +61,9 @@ export default async (req) => {
   } else {
     for (const w of [192, 512]) icons.push({ src: '/demo/photo1.jpg', sizes: `${w}x${w}`, type: 'image/jpeg' })
   }
+  // Local PNG fallbacks: installability never depends on a remote image loading.
+  icons.push({ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' })
+  icons.push({ src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' })
 
   const manifest = {
     name,

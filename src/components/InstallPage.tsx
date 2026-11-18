@@ -168,42 +168,35 @@ export default function InstallPage() {
   const screen = (
     <div style={{ width: 250, height: 512, borderRadius: 40, border: '3px solid rgba(255,255,255,.35)', background: '#000', boxShadow: `0 30px 80px ${acc.hero}`, position: 'relative', overflow: 'hidden', flex: '0 0 auto' }}>
       {os === 'ios' && st < 3 ? (
-        <>
-          <img src={splash} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(180deg, transparent 40%, ${acc.hero}ee 100%)` }} />
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 96, textAlign: 'center' }}>
-            <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 30, fontWeight: 600, textShadow: '0 2px 14px rgba(0,0,0,.5)' }}>{bride} &amp; {groom}</div>
-            <div style={{ fontSize: 12.5, opacity: .85, marginTop: 4 }}>You are invited to celebrate with us</div>
+        st < 2 ? (
+          /* stages 0-1: Safari's share sheet slides up, then Add to Home Screen is tapped */
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', display: 'flex', alignItems: 'flex-end' }}>
+            <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: '#f2f2f7', color: '#111', padding: '14px 14px 18px', animation: 'ipUp .45s cubic-bezier(.2,.8,.25,1) both', maxHeight: 250, overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 8 }}>⌒</div>
+              {['Copy', 'Add to Favorites', 'Mark as Unread', 'Add to Home Screen'].map((r) => (
+                <div key={r} style={{
+                  padding: '12px 12px', fontSize: 14.5, borderBottom: '1px solid #e2e2e7',
+                  background: r === 'Add to Home Screen' && st === 1 ? '#d7e9ff' : 'transparent', borderRadius: 8,
+                  fontWeight: r === 'Add to Home Screen' ? 700 : 400, color: r === 'Add to Home Screen' ? '#0a84ff' : '#111',
+                  animation: r === 'Add to Home Screen' && st === 0 ? 'ipPulse2 1.4s ease-in-out infinite' : undefined,
+                }}>
+                  ＋ {r}
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 46, background: 'rgba(28,28,30,.92)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', backdropFilter: 'blur(6px)' }}>
-            <span style={{ opacity: .85, fontSize: 17 }}>ᐸ</span>
-            <span style={{ opacity: .85, fontSize: 15 }}>⇄</span>
-            <span style={{ opacity: .55, fontSize: 15 }}>＋</span>
-            <span style={{
-              fontSize: 15, padding: '4px 14px', borderRadius: 10, background: 'rgba(255,255,255,.16)',
-              animation: st === 0 ? 'ipPulse2 1.4s ease-in-out infinite' : undefined, transition: 'background .3s',
-              background: st >= 1 ? 'rgba(10,132,255,.85)' : 'rgba(255,255,255,.16)',
-            }}>⬆︎</span>
-            <span style={{ opacity: .85, fontSize: 15 }}>☰</span>
-          </div>
-          {st >= 1 && (
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: '#f2f2f7', color: '#111', padding: '14px 14px 18px', animation: 'ipUp .45s cubic-bezier(.2,.8,.25,1) both', maxHeight: 250, overflow: 'hidden' }}>
-                <div style={{ fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 8 }}>⌒</div>
-                {['Copy', 'Add to Favorites', 'Mark as Unread', 'Add to Home Screen'].map((r) => (
-                  <div key={r} style={{
-                    padding: '12px 12px', fontSize: 14.5, borderBottom: '1px solid #e2e2e7',
-                    background: r === 'Add to Home Screen' && st === 2 ? '#d7e9ff' : 'transparent', borderRadius: 8,
-                    fontWeight: r === 'Add to Home Screen' ? 700 : 400, color: r === 'Add to Home Screen' ? '#0a84ff' : '#111',
-                  }}>
-                    ＋ {r}
-                  </div>
-                ))}
+        ) : (
+          /* stage 2: adding to the home screen */
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: '72%' }}>
+              <div style={{ fontSize: 13.5, color: '#fff', opacity: .9, textAlign: 'center', marginBottom: 10, fontWeight: 700 }}>Adding {appName} to your Home Screen…</div>
+              <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: '100%', borderRadius: 99, background: acc.accent, animation: 'ipLoad 1.5s ease-in-out infinite' }} />
               </div>
             </div>
-          )}
-        </>
-      ) : os === 'android' && st < 3 ? (
+          </div>
+        )
+            ) : os === 'android' && st < 3 ? (
         st < 2 ? (
           /* stages 0-1: Chrome's install popup slides up, then Install is tapped */
           <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', display: 'flex', alignItems: 'flex-end' }}>
