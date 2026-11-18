@@ -57,15 +57,11 @@ export default async (req) => {
   if (leadId) params.set('lead', leadId)
   if (siteId) params.set('site', siteId)
 
-  // The app's install identity. Excluded from `exp` so extending a trial
-  // updates the same app rather than creating a second one, but every
-  // different lead (couple) is a distinct app with its own launcher entry.
-  const idParams = new URLSearchParams()
-  idParams.set('tpl', tpl)
-  if (acc) idParams.set('acc', acc)
-  if (leadId) idParams.set('lead', leadId)
-  if (siteId) idParams.set('site', siteId)
-  const appId = url.origin + '/app?' + idParams.toString()
+  // Install identity. We deliberately set NO explicit manifest id: Chrome on
+  // Android keys its "app is already installed" check on a fixed id, which
+  // blocks installing a second couple's app from the same domain. Without an
+  // id the identity falls back to start_url, which is unique per couple
+  // (lead/site param included), so every couple installs as its own app.
 
   const cdn = (w, u) =>
     u.includes('/upload/') ? u.replace('/upload/', `/upload/w_${w},h_${w},c_fill,q_auto,f_jpg/`) : u
@@ -96,8 +92,7 @@ export default async (req) => {
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
-    id: appId,
-    related_applications: [{ platform: 'webapp', url: manifestUrl, id: appId }],
+    related_applications: [{ platform: 'webapp', url: manifestUrl, id: url.origin + '/app?' + params.toString() }],
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,

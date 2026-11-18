@@ -815,7 +815,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setPendingAndroidInstall(false);
       setShowIOSInstallModal(false);
       (window as any).__deferredPwaPrompt = null;
-      showToast('App downloaded and installed successfully!');
+      showToast('App already installed!');
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -2086,7 +2086,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">{WED_YEAR}</span>
                       </div>
                       <div className="px-5 text-center">
-                        <b className="block text-[1.5rem] font-serif-display leading-none">Lagos</b>
+                        <b className="block text-[1.5rem] font-serif-display leading-none">{demoCity()}</b>
                         <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
                       </div>
                     </div>
