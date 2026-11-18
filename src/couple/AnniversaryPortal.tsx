@@ -626,7 +626,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // first real post exists.
   const sampleMode = DEMO || !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-'));
   const [isPostsLoading, setIsPostsLoading] = useState(true);
-  const [aboutClickCount, setAboutClickCount] = useState(0);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
 
   const [bookmarks, setBookmarks] = useState<string[]>(() => {
@@ -1238,28 +1237,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
-  const handleAdminSignup = async (email: string, password: string) => {
-    setAuthError('');
-    setAuthBusy(true);
-    try {
-      await createUserWithEmailAndPassword(auth, email.trim(), password);
-      setAuthScreen(null);
-      setAuthPassword('');
-      setAuthEmail('');
-      showToast('Admin account created.', 'success');
-    } catch (err: any) {
-      const code = err?.code || '';
-      if (code.includes('email-already-in-use')) {
-        setAuthError('That email already has an account. Sign in instead.');
-      } else if (code.includes('weak-password')) {
-        setAuthError('Password is too weak. Use at least 6 characters.');
-      } else {
-        setAuthError('Could not create the account. Please try again.');
-      }
-    } finally {
-      setAuthBusy(false);
-    }
-  };
 
   const handleForgotPassword = async (email: string) => {
     setAuthError('');
@@ -2597,24 +2574,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <button className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
                 </div>
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
-                  <span
-                    onClick={() => {
-                      if (DEMO) {
-                        // Template previews open the dashboard straight away so
-                        // any setting can be tried without signing in.
-                        goAdminPage();
-                        return;
-                      }
-                      const newCount = aboutClickCount + 1;
-                      if (newCount >= 3) {
-                        setAuthScreen('signin');
-                        setAboutClickCount(0);
-                      } else {
-                        setAboutClickCount(newCount);
-                      }
-                    }}
-                    className={`text-xs font-bold tracking-wide select-none cursor-pointer ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
-                  >
+                  <span className={`text-xs font-bold tracking-wide select-none ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                     Happy Wedding, {demoHeader()}
                   </span>
                 </div>
@@ -2762,9 +2722,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <AuthScreen
           screen={authScreen ?? 'signin'}
           setScreen={setAuthScreen}
+          coupleLabel={demoHeader()}
           onClose={leaveAdminPage}
           onSignIn={handleAdminLogin}
-          onSignup={handleAdminSignup}
           onForgot={handleForgotPassword}
           busy={authBusy}
           error={authError}
@@ -3167,9 +3127,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <AuthScreen
           screen={authScreen}
           setScreen={setAuthScreen}
+          coupleLabel={demoHeader()}
           onClose={() => { setAuthScreen(null); setAuthError(''); shortcutLoginRef.current = false; }}
           onSignIn={handleAdminLogin}
-          onSignup={handleAdminSignup}
           onForgot={handleForgotPassword}
           busy={authBusy}
           error={authError}
@@ -4820,30 +4780,37 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
 }
 
 
-function AuthScreen({ screen, setScreen, onSignIn, onSignup, onForgot, busy, error, clearError, isDarkMode }: {
+function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, error, clearError, isDarkMode, coupleLabel }: {
   screen: 'signin' | 'forgot' | 'sent';
   setScreen: (s: 'signin' | 'forgot' | 'sent') => void;
+  onClose: () => void;
   onSignIn: (email: string, password: string) => void;
-  onSignup: (email: string, password: string) => void;
   onForgot: (email: string) => void;
   busy: boolean;
   error: string;
   clearError: () => void;
   isDarkMode: boolean;
+  coupleLabel: string;
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isFirstTime, setIsFirstTime] = useState(false);
-
   const submit = () => {
     if (!email.trim() || !password) { return; }
-    if (isFirstTime) { onSignup(email, password); } else { onSignIn(email, password); }
+    onSignIn(email, password);
   };
 
   return (
     <div className={`fixed inset-0 z-[300] flex items-center justify-center p-5 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C]' : 'bg-[#F6F5FA]'}`}>
       <div className={`w-full max-w-[430px] my-auto rounded-[28px] p-8 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}>
+        <div className="flex justify-end mb-1">
+          <button
+            onClick={onClose}
+            className={`flex items-center gap-1.5 py-1 px-2 text-[0.85rem] font-bold ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
+          >
+            Cancel <X className="w-4 h-4" />
+          </button>
+        </div>
         {screen === 'sent' ? (
           <>
             <div className="w-16 h-16 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-5">
@@ -4893,12 +4860,12 @@ function AuthScreen({ screen, setScreen, onSignIn, onSignup, onForgot, busy, err
         ) : (
           <>
             <div className="text-center mb-8">
-              <p className="font-display text-[var(--ann-accent)] text-[0.85rem] font-medium mb-1">Dara &amp; Femi 2026</p>
+              <p className="font-display text-[var(--ann-accent)] text-[0.85rem] font-medium mb-1">{coupleLabel}</p>
               <h2 className="text-[1.9rem] font-black font-display tracking-tight leading-tight">
-                {isFirstTime ? 'Create admin account' : 'Welcome back'}
+                Welcome back
               </h2>
               <p className={`text-[0.92rem] mt-1 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                {isFirstTime ? 'Set up the couple dashboard sign-in.' : 'Sign in to the couple dashboard.'}
+                Sign in to the couple dashboard.
               </p>
             </div>
             <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Email</label>
@@ -4918,7 +4885,7 @@ function AuthScreen({ screen, setScreen, onSignIn, onSignup, onForgot, busy, err
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
                 placeholder="Your password"
-                autoComplete={isFirstTime ? 'new-password' : 'current-password'}
+                autoComplete="current-password"
                 className={`w-full p-4 pr-12 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
               />
               <button
@@ -4941,13 +4908,7 @@ function AuthScreen({ screen, setScreen, onSignIn, onSignup, onForgot, busy, err
               disabled={busy || !email.trim() || !password}
               className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all mt-3"
             >
-              {busy ? 'Please wait…' : isFirstTime ? 'Create account' : 'Sign in'}
-            </button>
-            <button
-              onClick={() => { setIsFirstTime(!isFirstTime); clearError(); }}
-              className={`w-full py-3 text-[0.85rem] font-bold ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}
-            >
-              {isFirstTime ? 'Already have an account? Sign in' : 'First time? Create an admin account'}
+              {busy ? 'Please wait…' : 'Sign in'}
             </button>
           </>
         )}
