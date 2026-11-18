@@ -389,29 +389,35 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
                     <input readOnly value={webUrl} onFocus={(e) => e.currentTarget.select()} style={{ flex: '1 1 220px', minWidth: 0, background: 'rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.2)', borderRadius: 12, color: '#fff', padding: '11px 12px', fontSize: 13 }} />
                     <button
                       onClick={async () => {
-                        // Clipboard first; some browsers block it, so fall back
-                        // to the classic hidden-input copy, and always answer
-                        // the tap with visible feedback either way.
+                        // Answer the tap right away: execCommand copies
+                        // synchronously on a real click, so the label flips
+                        // instantly; async clipboard is only the fallback, and
+                        // it is raced with a short timer so a stuck clipboard
+                        // permission can never leave the button silent.
                         let ok = false
-                        try { await navigator.clipboard.writeText(webUrl); ok = true } catch {
+                        try {
+                          const ta = document.createElement('textarea')
+                          ta.value = webUrl
+                          ta.style.position = 'fixed'
+                          ta.style.opacity = '0'
+                          document.body.appendChild(ta)
+                          ta.focus()
+                          ta.select()
+                          ok = document.execCommand('copy')
+                          ta.remove()
+                        } catch { /* fall through to clipboard */ }
+                        if (!ok) {
                           try {
-                            const ta = document.createElement('textarea')
-                            ta.value = webUrl
-                            ta.style.position = 'fixed'
-                            ta.style.opacity = '0'
-                            document.body.appendChild(ta)
-                            ta.select()
-                            ok = document.execCommand('copy')
-                            ta.remove()
-                          } catch { /* give up quietly */ }
+                            await Promise.race([
+                              navigator.clipboard.writeText(webUrl),
+                              new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 800)),
+                            ])
+                            ok = true
+                          } catch { /* clipboard refused */ }
                         }
-                        if (ok) {
-                          setCopied(true)
-                          window.setTimeout(() => setCopied(false), 1800)
-                        } else {
-                          setCopyErr(true)
-                          window.setTimeout(() => setCopyErr(false), 2200)
-                        }
+                        setCopied(ok)
+                        setCopyErr(!ok)
+                        window.setTimeout(() => { setCopied(false); setCopyErr(false) }, ok ? 1800 : 2200)
                       }}
                       style={{ border: 'none', cursor: 'pointer', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: copied ? 'rgba(31,175,84,.35)' : 'rgba(255,255,255,.14)', color: '#fff', fontSize: 13 }}
                     >
