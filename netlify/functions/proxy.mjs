@@ -148,6 +148,7 @@ export default async (req) => {
         source: 'landing',
         status: 'trial',
         heroImages: hero,
+        weddingDate: String(b.wedding_date || b.weddingDate || '').slice(0, 20),
         trialHours,
         expiresAt,
         createdAt: FieldValue.serverTimestamp(),

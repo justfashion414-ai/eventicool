@@ -229,14 +229,25 @@ const fmtEventDate = (e: { date: string; time?: string }) =>
 
 const DEFAULT_STORY = DEMO ? demoText(DEMO_STORY) : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
 
-const DEFAULT_DETAILS: any = DEMO ? DEMO_DETAILS : {
-  churchTime: '11:00 am',
-  churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
-  receptionTime: '3:00 pm',
-  receptionVenue: 'The Grand Hall, Victoria Island, Lagos',
-  asoEbi: 'emerald green and gold',
-  hashtag: '#DaraAndFemi2026',
-};
+const DEFAULT_DETAILS: any = (() => {
+  if (!DEMO) return {
+    churchTime: '11:00 am',
+    churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
+    receptionTime: '3:00 pm',
+    receptionVenue: 'The Grand Hall, Victoria Island, Lagos',
+    asoEbi: 'emerald green and gold',
+    hashtag: '#DaraAndFemi2026',
+  };
+  // Under a bound couple, the details card shows THEIR city instead of the
+  // demo venues: no invented hall names, just their chosen location.
+  const d = { ...DEMO_DETAILS };
+  const ov = leadOverride();
+  if (ov && ov.city) {
+    d.churchVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
+    d.receptionVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
+  }
+  return d;
+})();
 
 // Local placeholder photos used until real ones are uploaded (hero + footer grid)
 const PLACEHOLDER_IMAGES = [
@@ -603,9 +614,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isAdminSessionValid, setIsAdminSessionValid] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // sticky=true keeps the toast on screen until the next toast replaces it,
+  // which is how the install flow holds "Downloading" until the app lands.
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success', sticky = false) => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    if (toastTimer.current) { clearTimeout(toastTimer.current); toastTimer.current = null; }
+    if (!sticky) toastTimer.current = setTimeout(() => setToast(null), 3000);
   };
 
   const [cfgEvents, setCfgEvents] = useState<WeddingEvent[] | null>(null);
@@ -839,6 +854,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             setIsPWAInstalled(true);
             setDeferredInstallPrompt(null);
             (window as any).__deferredPwaPrompt = null;
+          } else {
+            setToast(null); // the Chrome dialog was dismissed: drop the sticky download toast
           }
         } catch (err) {
           console.error('Deferred install prompt error:', err);
@@ -864,6 +881,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setDeferredInstallPrompt(null);
           (window as any).__deferredPwaPrompt = null;
           setShowIOSInstallModal(false);
+        } else {
+          setToast(null); // the Chrome dialog was dismissed: drop the sticky download toast
         }
       } catch (err) {
         console.error('Install prompt error:', err);
@@ -886,7 +905,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
 
     setPendingAndroidInstall(true);
-    showToast('Downloading app...', 'info');
+    showToast('Downloading\u2026', 'info', true);
     setShowIOSInstallModal(false);
   };
 
