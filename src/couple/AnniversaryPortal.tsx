@@ -537,15 +537,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setIsAdminDashboardOpen(true);
   };
   // The round admin shortcut: one tap on a preview, three taps on a real app.
-  // Lead sample apps never respond at all (adminMode === 'none').
+  // A real couple's app NEVER opens the dashboard directly: the taps open the
+  // admin sign-in, and the dashboard opens only after a successful sign-in
+  // (or after the forced permanent-password step). Lead sample apps never
+  // respond at all (adminMode === 'none').
   const adminTapRef = useRef<{ n: number; t: number }>({ n: 0, t: 0 });
+  const shortcutLoginRef = useRef(false);
   const onAdminShortcutTap = () => {
     if (adminMode === 'preview') { goAdminPage(); return; }
     const now = Date.now();
     const st = adminTapRef.current;
     st.n = now - st.t < 2500 ? st.n + 1 : 1;
     st.t = now;
-    if (st.n >= 3) { st.n = 0; goAdminPage(); }
+    if (st.n >= 3) {
+      st.n = 0;
+      shortcutLoginRef.current = true;
+      setAuthScreen('signin');
+    }
   };
   const leaveAdminPage = () => {
     setIsAdminDashboardOpen(false);
@@ -1208,6 +1216,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setAuthScreen(null);
       setAuthPassword('');
       setAuthEmail('');
+      if (shortcutLoginRef.current) { shortcutLoginRef.current = false; goAdminPage(); }
     } catch (err: any) {
       const code = err?.code || '';
       if (code.includes('wrong-password') || code.includes('user-not-found') || code.includes('invalid-credential')) {
@@ -1271,6 +1280,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setNewPassword('');
       setConfirmNewPassword('');
       showToast('Permanent password saved. Welcome in!', 'success');
+      if (shortcutLoginRef.current) { shortcutLoginRef.current = false; goAdminPage(); }
     } catch (err) {
       console.error('Set password error:', err);
       setAuthError('Could not update the password. Sign out, sign in again, then try.');
@@ -3150,7 +3160,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <AuthScreen
           screen={authScreen}
           setScreen={setAuthScreen}
-          onClose={() => { setAuthScreen(null); setAuthError(''); }}
+          onClose={() => { setAuthScreen(null); setAuthError(''); shortcutLoginRef.current = false; }}
           onSignIn={handleAdminLogin}
           onSignup={handleAdminSignup}
           onForgot={handleForgotPassword}
