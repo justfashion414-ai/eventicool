@@ -47,7 +47,7 @@ function detectOs(): Os {
   return 'android'
 }
 
-export default function InstallPage({ guideOnly }: { guideOnly?: boolean }) {
+export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean; names?: string }) {
   const params = new URLSearchParams(window.location.search)
   const leadId = params.get('lead') || ''
   const tpl = params.get('tpl') || 'classic'
@@ -73,7 +73,8 @@ export default function InstallPage({ guideOnly }: { guideOnly?: boolean }) {
 
   const bride = lead?.bride || 'Bride'
   const groom = lead?.groom || 'Groom'
-  const appName = `${bride} & ${groom}`
+  // Outside a lead (a preview or a couple's own app), the caller names the couple.
+  const appName = (lead?.bride && lead?.groom) ? `${bride} & ${groom}` : (names || `${bride} & ${groom}`)
   const splash = lead?.heroImages?.[0] || '/demo/photo1.jpg'
   const initials = (bride.charAt(0) + groom.charAt(0)).toUpperCase()
 
@@ -288,7 +289,7 @@ export default function InstallPage({ guideOnly }: { guideOnly?: boolean }) {
           .ip-phone p{font-size:11.5px !important;max-width:170px !important}
         }
       `}</style>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 26px' }}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: guideOnly ? '18px 68px 18px 26px' : '18px 26px' }}>
         <b style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 21, letterSpacing: '.02em' }}>Eventicor</b>
         <span style={{ fontSize: 12.5, opacity: .75 }}>{appName}</span>
       </header>

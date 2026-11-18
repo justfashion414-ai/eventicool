@@ -3253,7 +3253,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             &times;
           </button>
           <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Loading install guide…</div>}>
-            <InstallGuide guideOnly />
+            <InstallGuide guideOnly names={demoHeader()} />
           </Suspense>
         </div>
       )}
