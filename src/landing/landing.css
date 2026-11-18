@@ -171,4 +171,4 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .csp{flex:0 0 18px;width:18px;height:18px;border-radius:99px;border:2.5px solid var(--line);border-top-color:var(--acc);animation:evspin 1s linear infinite;margin:4px}
 @keyframes evspin{to{transform:rotate(360deg)}}
 #ev-l .pthumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-#ev-l .pthumbs img{width:46px;height:46px;object-fit:cover;border-radius:10px;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,18,43,.2)}
+#ev-l .pthumbs img{width:58px;height:58px;object-fit:cover;border-radius:12px;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,18,43,.2)}

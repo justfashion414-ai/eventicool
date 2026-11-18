@@ -102,6 +102,7 @@ export const handler = async (event) => {
     temp_password: String(p.temp_password || ''),
     install_url: String(p.install_url || previewUrl || ''),
     plan_name: String(p.plan || '').trim(),
+    plan_line: String(p.plan || '').trim() ? ('The '+String(p.plan).trim()+' plan you picked is the one you will start on when the trial ends.<br>') : '',
     trial_label: trialLabel,
     whatsapp_url: 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2',
   };
