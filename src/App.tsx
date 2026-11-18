@@ -2,10 +2,11 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
-import AdminConsole from './components/AdminConsole'
 import MailTest from './components/MailTest'
 import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
 import SetPassword from './components/SetPassword'
+import BootLoader from './components/BootLoader'
+const AdminConsole = lazy(() => import('./components/AdminConsole'))
 const CoupleApp = lazy(() => import('./couple/CoupleApp'))
 const InstallPage = lazy(() => import('./components/InstallPage'))
 
@@ -68,13 +69,13 @@ export default function App() {
   // installed app's start_url. Every /app* path renders the couple app; the
   // couple's names, template and accent come from the query string.
   if (route === '/app' || route.startsWith('/app/')) {
-    return <Suspense fallback={null}><CoupleApp /></Suspense>
+    return <Suspense fallback={<BootLoader />}><CoupleApp /></Suspense>
   }
   if (route === '/install') {
-    return <Suspense fallback={null}><InstallPage /></Suspense>
+    return <Suspense fallback={<BootLoader />}><InstallPage /></Suspense>
   }
   if (route === '/admin') {
-    if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
+    if (adminState === 'admin') return <Suspense fallback={<BootLoader />}><AdminConsole user={user} onSignOut={() => navigate('/')} /></Suspense>
     if (adminState === 'must-change') {
       return <SetPassword user={user} onDone={() => setAdminState('admin')} onSignOut={() => navigate('/')} />
     }

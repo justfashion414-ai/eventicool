@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 
-const AnniversaryPortal = lazy(() => import('./AnniversaryPortal'));
+import AnniversaryPortal from './AnniversaryPortal';
+import BootLoader from '../components/BootLoader';
 
 // Six Eventicor accents, mapped onto the couple app's palette.
 const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = {
@@ -276,7 +277,7 @@ export default function CoupleApp() {
       style={{ ['--ann-accent' as any]: acc.accent, ['--ann-hero' as any]: acc.hero, ['--ann-soft' as any]: acc.soft }}
     >
       {lead === undefined ? null : (
-        <Suspense fallback={null}>
+        <Suspense fallback={<BootLoader />}>
           <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={(lead as any)?.source === 'landing'} />
         </Suspense>
       )}
