@@ -120,7 +120,7 @@ export default function InstallPage() {
   const webUrl = `${window.location.origin}${appPath}`
 
   const androidSteps = [
-    'Tap the install button at the bottom of the screen.',
+    'Tap the INSTALL APP button under the phone.',
     'Chrome will ask to confirm. Tap Install.',
     'Wait a moment. Your app appears on your home screen, named ' + appName + '.',
     'Open it. Your app opens straight in, ready for your event.',
@@ -132,10 +132,16 @@ export default function InstallPage() {
   ]
   const steps = os === 'ios' ? iosSteps : androidSteps
 
+  const [installMsg, setInstallMsg] = useState('')
   const install = () => {
     if (deferred) {
       deferred.prompt()
       setDeferred(null)
+      setInstallMsg('')
+    } else if (onDesktop) {
+      setInstallMsg('Open this page on your phone in Chrome, then tap Install app.')
+    } else {
+      setInstallMsg("Chrome's install prompt is not available right now. Use Chrome's menu and choose Add to Home screen.")
     }
   }
   const canInstall = os === 'android' && !!deferred && !installed
@@ -255,9 +261,21 @@ export default function InstallPage() {
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 34, alignItems: 'center', justifyContent: 'center' }}>
-          {/* Left: the animated phone screen */}
-          <div style={{ display: 'grid', placeItems: 'center', animation: 'ipFloat 5s ease-in-out infinite' }}>{screen}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 44, alignItems: 'flex-start', justifyContent: 'center' }}>
+          {/* Left: the animated phone screen, with the real install button under it */}
+          <div style={{ flex: '0 0 250px', display: 'grid', justifyItems: 'center', gap: 16 }}>
+            <div style={{ display: 'grid', placeItems: 'center', animation: 'ipFloat 5s ease-in-out infinite' }}>{screen}</div>
+            {os === 'android' && !installed && (
+              <>
+                <button onClick={install} style={{ border: 'none', cursor: 'pointer', background: acc.accent, color: '#fff', padding: '16px 40px', borderRadius: 999, fontWeight: 800, fontSize: 15.5, letterSpacing: '.06em', boxShadow: `0 10px 30px ${acc.accent}66`, touchAction: 'manipulation' }}>
+                  INSTALL APP
+                </button>
+                {installMsg && (
+                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>{installMsg}</p>
+                )}
+              </>
+            )}
+          </div>
           {/* Right: the guide */}
           <div style={{ flex: '1 1 380px', maxWidth: 470 }}>
             {installed ? (
@@ -317,9 +335,7 @@ export default function InstallPage() {
                     <button onClick={() => { navigator.clipboard?.writeText(webUrl) }} style={{ border: 'none', cursor: 'pointer', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: 'rgba(255,255,255,.14)', color: '#fff', fontSize: 13 }}>
                       Copy link
                     </button>
-                    <a href={appPath} style={{ display: 'inline-block', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: acc.accent, color: '#fff', textDecoration: 'none', fontSize: 13 }}>
-                      Open on the web
-                    </a>
+
                   </div>
                 </div>
               </>
