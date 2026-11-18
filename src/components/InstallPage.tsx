@@ -133,65 +133,60 @@ export default function InstallPage() {
   const steps = os === 'ios' ? iosSteps : androidSteps
 
   const [installMsg, setInstallMsg] = useState('')
+  const [waiting, setWaiting] = useState(false)
   const install = () => {
     if (deferred) {
       deferred.prompt()
       setDeferred(null)
       setInstallMsg('')
-    } else if (onDesktop) {
-      setInstallMsg('Open this page on your phone in Chrome, then tap Install app.')
-    } else {
-      setInstallMsg("Chrome's install prompt is not available right now. Use Chrome's menu and choose Add to Home screen.")
+      setWaiting(false)
+      return
     }
+    // Chrome offers its install popup a moment after the page loads; wait for it.
+    setInstallMsg('')
+    setWaiting(true)
   }
+  useEffect(() => {
+    if (!waiting) return
+    if (deferred) {
+      deferred.prompt()
+      setDeferred(null)
+      setWaiting(false)
+      return
+    }
+    const t = window.setTimeout(() => {
+      setWaiting(false)
+      setInstallMsg(onDesktop
+        ? 'Open this page on your phone in Chrome, then tap Install app.'
+        : "Chrome didn't show its popup. Use Chrome's menu (three dots) and choose Add to Home screen.")
+    }, 6000)
+    return () => window.clearTimeout(t)
+  }, [waiting, deferred])
   const canInstall = os === 'android' && !!deferred && !installed
 
   // ---- the animated phone screen ----
   const screen = (
     <div style={{ width: 250, height: 512, borderRadius: 40, border: '3px solid rgba(255,255,255,.35)', background: '#000', boxShadow: `0 30px 80px ${acc.hero}`, position: 'relative', overflow: 'hidden', flex: '0 0 auto' }}>
-      {st < 3 ? (
+      {os === 'ios' && st < 3 ? (
         <>
           <img src={splash} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(180deg, transparent 40%, ${acc.hero}ee 100%)` }} />
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: os === 'android' ? 96 : 96, textAlign: 'center' }}>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 96, textAlign: 'center' }}>
             <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 30, fontWeight: 600, textShadow: '0 2px 14px rgba(0,0,0,.5)' }}>{bride} &amp; {groom}</div>
             <div style={{ fontSize: 12.5, opacity: .85, marginTop: 4 }}>You are invited to celebrate with us</div>
           </div>
-          {os === 'android' ? (
-            <button
-              onClick={install}
-              style={{
-                position: 'absolute', left: 18, right: 18, bottom: 18, height: 52, borderRadius: 14,
-                border: 'none', background: '#fff', color: '#111', fontWeight: 800, fontSize: 15,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, cursor: 'pointer',
-                animation: 'ipPulse2 1.8s ease-in-out infinite',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke="#111" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 20h14" stroke="#111" strokeWidth="2.2" strokeLinecap="round"/></svg>
-              Install app
-            </button>
-          ) : (
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 46, background: 'rgba(28,28,30,.92)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', backdropFilter: 'blur(6px)' }}>
-              <span style={{ opacity: .85, fontSize: 17 }}>ᐸ</span>
-              <span style={{ opacity: .85, fontSize: 15 }}>⇄</span>
-              <span style={{ opacity: .55, fontSize: 15 }}>＋</span>
-              <span style={{
-                fontSize: 15, padding: '4px 14px', borderRadius: 10, background: 'rgba(255,255,255,.16)',
-                animation: st === 0 ? 'ipPulse2 1.4s ease-in-out infinite' : undefined, transition: 'background .3s',
-                background: st >= 1 ? 'rgba(10,132,255,.85)' : 'rgba(255,255,255,.16)',
-              }}>⬆︎</span>
-              <span style={{ opacity: .85, fontSize: 15 }}>☰</span>
-            </div>
-          )}
-          {/* Android: Chrome's own dialog slides up (stage 1); iPhone: the share sheet (stage 1-2) */}
-          {os === 'android' && st === 1 && (
-            <div style={{ position: 'absolute', left: 18, right: 18, bottom: 82 }}>
-              <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,.25)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: '100%', borderRadius: 99, background: '#fff', animation: 'ipLoad 1.7s ease-in-out infinite' }} />
-              </div>
-            </div>
-          )}
-          {os === 'ios' && st >= 1 && st < 3 && (
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 46, background: 'rgba(28,28,30,.92)', display: 'flex', alignItems: 'center', justifyContent: 'space-around', backdropFilter: 'blur(6px)' }}>
+            <span style={{ opacity: .85, fontSize: 17 }}>ᐸ</span>
+            <span style={{ opacity: .85, fontSize: 15 }}>⇄</span>
+            <span style={{ opacity: .55, fontSize: 15 }}>＋</span>
+            <span style={{
+              fontSize: 15, padding: '4px 14px', borderRadius: 10, background: 'rgba(255,255,255,.16)',
+              animation: st === 0 ? 'ipPulse2 1.4s ease-in-out infinite' : undefined, transition: 'background .3s',
+              background: st >= 1 ? 'rgba(10,132,255,.85)' : 'rgba(255,255,255,.16)',
+            }}>⬆︎</span>
+            <span style={{ opacity: .85, fontSize: 15 }}>☰</span>
+          </div>
+          {st >= 1 && (
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: '#f2f2f7', color: '#111', padding: '14px 14px 18px', animation: 'ipUp .45s cubic-bezier(.2,.8,.25,1) both', maxHeight: 250, overflow: 'hidden' }}>
                 <div style={{ fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 8 }}>⌒</div>
@@ -208,6 +203,41 @@ export default function InstallPage() {
             </div>
           )}
         </>
+      ) : os === 'android' && st < 3 ? (
+        st < 2 ? (
+          /* stages 0-1: Chrome's install popup slides up, then Install is tapped */
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', display: 'flex', alignItems: 'flex-end' }}>
+            <div style={{ width: '100%', background: '#fff', color: '#1f1f1f', borderRadius: '24px 24px 0 0', padding: '22px 18px 18px', animation: 'ipUp .45s cubic-bezier(.2,.8,.25,1) both', boxShadow: '0 -12px 40px rgba(0,0,0,.45)' }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div style={{ width: 46, height: 46, borderRadius: 13, background: acc.accent, color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 17 }}>{initials}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15.5 }}>Install app</div>
+                  <div style={{ fontSize: 12.5, color: '#5f6368', marginTop: 2 }}>Add {appName} to your home screen</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 18 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: acc.accent, padding: '10px 14px', borderRadius: 10 }}>Cancel</span>
+                <span style={{
+                  fontSize: 13.5, fontWeight: 800, color: st === 1 ? '#fff' : acc.accent,
+                  background: st === 1 ? acc.accent : 'transparent',
+                  padding: '10px 20px', borderRadius: 10,
+                  animation: st === 0 ? 'ipPulse2 1.4s ease-in-out infinite' : undefined,
+                  boxShadow: st === 1 ? `0 4px 14px ${acc.accent}66` : undefined,
+                }}>Install</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* stage 2: installing */
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: '72%' }}>
+              <div style={{ fontSize: 13.5, color: '#fff', opacity: .9, textAlign: 'center', marginBottom: 10, fontWeight: 700 }}>Installing {appName}…</div>
+              <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: '100%', borderRadius: 99, background: acc.accent, animation: 'ipLoad 1.5s ease-in-out infinite' }} />
+              </div>
+            </div>
+          </div>
+        )
       ) : (
         /* stage 3: the home screen, with the app landing on it */
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg,#20242e,#111520 70%)', padding: '34px 18px' }}>
@@ -237,6 +267,23 @@ export default function InstallPage() {
         @keyframes ipUp { from { opacity: 0; transform: translateY(36px) } to { opacity: 1; transform: none } }
         @keyframes ipLoad { 0% { transform: translateX(-100%) } 100% { transform: translateX(100%) } }
         @keyframes ipLand { from { opacity: 0; transform: scale(.5) translateY(-14px) } to { opacity: 1; transform: none } }
+        .ip-row{display:flex;gap:44px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+        .ip-phone{flex:0 0 250px;display:grid;justify-items:center;gap:16px}
+        .ip-screenbox{width:250px;height:512px;position:relative}
+        .ip-screenbox>div{transform-origin:top left}
+        .ip-guide{flex:1 1 380px;max-width:470px;min-width:0}
+        .ip-install{border:none;cursor:pointer;background:${acc.accent};color:#fff;padding:16px 40px;border-radius:999px;font-weight:800;font-size:15.5px;letter-spacing:.06em;box-shadow:0 10px 30px ${acc.accent}66;touch-action:manipulation}
+        @media(max-width:760px){
+          .ip-row{gap:14px;flex-wrap:nowrap;padding:0 10px}
+          .ip-phone{flex:0 0 176px;gap:12px}
+          .ip-screenbox{width:176px;height:361px}
+          .ip-screenbox>div{transform:scale(.704)}
+          .ip-guide h1{font-size:25px !important}
+          .ip-guide p{font-size:14px !important}
+          .ip-guide b{font-size:13.5px !important}
+          .ip-install{padding:12px 26px !important;font-size:13px !important}
+          .ip-phone p{font-size:11.5px !important;max-width:170px !important}
+        }
       `}</style>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 26px' }}>
         <b style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 21, letterSpacing: '.02em' }}>Eventicor</b>
@@ -261,23 +308,23 @@ export default function InstallPage() {
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 44, alignItems: 'flex-start', justifyContent: 'center' }}>
+        <div className="ip-row">
           {/* Left: the animated phone screen, with the real install button under it */}
-          <div style={{ flex: '0 0 250px', display: 'grid', justifyItems: 'center', gap: 16 }}>
-            <div style={{ display: 'grid', placeItems: 'center', animation: 'ipFloat 5s ease-in-out infinite' }}>{screen}</div>
+          <div className="ip-phone">
+            <div className="ip-screenbox"><div style={{ animation: 'ipFloat 5s ease-in-out infinite', width: 250 }}>{screen}</div></div>
             {os === 'android' && !installed && (
               <>
-                <button onClick={install} style={{ border: 'none', cursor: 'pointer', background: acc.accent, color: '#fff', padding: '16px 40px', borderRadius: 999, fontWeight: 800, fontSize: 15.5, letterSpacing: '.06em', boxShadow: `0 10px 30px ${acc.accent}66`, touchAction: 'manipulation' }}>
+                <button onClick={install} className="ip-install">
                   INSTALL APP
                 </button>
-                {installMsg && (
-                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>{installMsg}</p>
+                {(installMsg || waiting) && (
+                  <p style={{ margin: 0, fontSize: 13, opacity: .85, maxWidth: 260, textAlign: 'center', lineHeight: 1.5 }}>{waiting ? "Getting Chrome's install popup ready…" : installMsg}</p>
                 )}
               </>
             )}
           </div>
           {/* Right: the guide */}
-          <div style={{ flex: '1 1 380px', maxWidth: 470 }}>
+          <div className="ip-guide">
             {installed ? (
               <>
                 <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Your app is installed</h1>
