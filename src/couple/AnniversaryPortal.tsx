@@ -3225,7 +3225,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     30
                   </div>
                   <div>
-                    <h3 className="text-lg font-black font-display leading-tight">{DEMO ? 'Install Amara & Daniel' : 'Install Dara & Femi'}</h3>
+                    <h3 className="text-lg font-black font-display leading-tight">Install {demoHeader()}</h3>
                     <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                       {isIOSDevice ? 'Add to your Home Screen for quick & offline access' : 'Get the app on your phone in one tap'}
                     </p>
