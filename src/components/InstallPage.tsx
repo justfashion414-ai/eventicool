@@ -269,15 +269,15 @@ export default function InstallPage() {
         @keyframes ipLand { from { opacity: 0; transform: scale(.5) translateY(-14px) } to { opacity: 1; transform: none } }
         .ip-row{display:flex;gap:44px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
         .ip-phone{flex:0 0 250px;display:grid;justify-items:center;gap:16px}
-        .ip-screenbox{width:250px;height:512px;position:relative}
-        .ip-screenbox>div{transform-origin:top left}
+        .ip-screenbox{width:250px;height:512px;position:relative;overflow:visible}
+        .ip-scale{width:250px;transform-origin:top left}
         .ip-guide{flex:1 1 380px;max-width:470px;min-width:0}
         .ip-install{border:none;cursor:pointer;background:${acc.accent};color:#fff;padding:16px 40px;border-radius:999px;font-weight:800;font-size:15.5px;letter-spacing:.06em;box-shadow:0 10px 30px ${acc.accent}66;touch-action:manipulation}
         @media(max-width:760px){
           .ip-row{gap:14px;flex-wrap:nowrap;padding:0 10px}
-          .ip-phone{flex:0 0 176px;gap:12px}
-          .ip-screenbox{width:176px;height:361px}
-          .ip-screenbox>div{transform:scale(.704)}
+          .ip-phone{flex:0 0 154px;gap:12px}
+          .ip-screenbox{width:154px;height:310px}
+          .ip-scale{transform:scale(.6)}
           .ip-guide h1{font-size:25px !important}
           .ip-guide p{font-size:14px !important}
           .ip-guide b{font-size:13.5px !important}
@@ -311,7 +311,7 @@ export default function InstallPage() {
         <div className="ip-row">
           {/* Left: the animated phone screen, with the real install button under it */}
           <div className="ip-phone">
-            <div className="ip-screenbox"><div style={{ animation: 'ipFloat 5s ease-in-out infinite', width: 250 }}>{screen}</div></div>
+            <div className="ip-screenbox"><div className="ip-scale"><div style={{ animation: 'ipFloat 5s ease-in-out infinite', width: 250 }}>{screen}</div></div></div>
             {os === 'android' && !installed && (
               <>
                 <button onClick={install} className="ip-install">
