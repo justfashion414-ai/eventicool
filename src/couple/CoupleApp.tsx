@@ -42,13 +42,16 @@ async function loadLead(id: string): Promise<LeadData | null> {
 // A real couple's app link (?site=<events doc id>) resolves their events doc
 // before render: the names, wedding date, city and the photos seeded at
 // onboarding, so their app opens on THEIR day, not the seeded placeholder.
+// The events collection is not publicly readable, so the resolution goes
+// through the read-only /api/couple endpoint, which returns only the fields
+// the app needs and never the couple's contact details or access code.
 async function loadSite(id: string): Promise<LeadData | null> {
   try {
-    const { db } = await import('../firebase');
-    const { doc, getDoc } = await import('firebase/firestore');
-    const snap = await getDoc(doc(db as any, 'events', id));
-    if (snap.exists()) return snap.data() as LeadData;
-  } catch { /* rules or offline: fall back to the generic demo */ }
+    const r = await fetch(`/api/couple?site=${encodeURIComponent(id)}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (j && (j.bride || j.groom)) return j as LeadData;
+  } catch { /* offline: fall back to the generic demo */ }
   return null;
 }
 
