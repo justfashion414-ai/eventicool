@@ -131,6 +131,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 interface AnniversaryPortalProps {
   onBackToMain: () => void;
   previewMode?: boolean;
+  adminMode?: 'none' | 'preview' | 'real';
   template?: 'classic' | 'halo' | 'hero' | 'book';
 }
 
@@ -466,7 +467,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   throw new Error(`Upload failed: ${errorInfo}`);
 };
 
-export default function AnniversaryPortal({ onBackToMain, previewMode, template }: AnniversaryPortalProps) {
+export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real' }: AnniversaryPortalProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
   });
@@ -532,6 +533,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     }
     setRoute('/admin');
     setIsAdminDashboardOpen(true);
+  };
+  // The round admin shortcut: one tap on a preview, three taps on a real app.
+  // Lead sample apps never respond at all (adminMode === 'none').
+  const adminTapRef = useRef<{ n: number; t: number }>({ n: 0, t: 0 });
+  const onAdminShortcutTap = () => {
+    if (adminMode === 'preview') { goAdminPage(); return; }
+    const now = Date.now();
+    const st = adminTapRef.current;
+    st.n = now - st.t < 2500 ? st.n + 1 : 1;
+    st.t = now;
+    if (st.n >= 3) { st.n = 0; goAdminPage(); }
   };
   const leaveAdminPage = () => {
     setIsAdminDashboardOpen(false);
@@ -647,6 +659,34 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
   useEffect(() => {
     try { localStorage.setItem('ann-last-tab', activeTab); } catch {}
   }, [activeTab]);
+  // The phone's back button walks the app's own history instead of quitting the app.
+  const viewStackRef = useRef<string[]>([]);
+  const prevSigRef = useRef<string | null>(null);
+  const restoringRef = useRef(false);
+  const viewSig = `${activeTab}|${isAdminModalOpen ? 'a' : ''}|${activeMediaIndex ? 'm' : ''}`;
+  useEffect(() => {
+    if (restoringRef.current) { restoringRef.current = false; prevSigRef.current = viewSig; return; }
+    if (prevSigRef.current && prevSigRef.current !== viewSig) viewStackRef.current.push(prevSigRef.current);
+    prevSigRef.current = viewSig;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewSig]);
+  useEffect(() => {
+    try { window.history.pushState({ evApp: 1 }, ''); } catch {}
+    const onPop = () => {
+      const prev = viewStackRef.current.pop();
+      if (prev !== undefined) {
+        restoringRef.current = true;
+        const parts = prev.split('|');
+        setActiveTab((cur: string) => (parts[0] !== cur ? parts[0] : cur));
+        setIsAdminDashboardOpen(parts[1] === 'a');
+        if (parts[2] !== 'm') setActiveMediaIndex(null);
+        try { window.history.pushState({ evApp: 1 }, ''); } catch {}
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     try { localStorage.setItem('ann-last-feedtab', feedSubTab); } catch {}
   }, [feedSubTab]);
@@ -665,7 +705,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
     } catch {}
   }, [isAdminModalOpen]);
   useEffect(() => {
-    if (DEMO && route === '/admin') setIsAdminDashboardOpen(true);
+    if (DEMO && adminMode !== 'real' && route === '/admin') setIsAdminDashboardOpen(true);
     else if (route === '/admin' && user && !user.isAnonymous && isAdmin) setIsAdminDashboardOpen(true);
   }, [route, user, isAdmin]);
 
@@ -2559,10 +2599,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template 
               </div>
 
               {isAdmin && (
-                <div className="pt-6 pb-2">
-                  <button onClick={goAdminPage} className="w-full py-4 rounded-[16px] bg-[var(--ann-accent)] text-white text-[0.75rem] font-black uppercase tracking-widest">
-                    Open admin dashboard
-                  </button>
+                <div className="pt-6 pb-2" style={{ display: 'grid', justifyItems: 'center' }}>
+                  <style>{`@keyframes evAdminHalo { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+                  {adminMode === 'none' ? (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, opacity: .5, letterSpacing: '.08em', textTransform: 'uppercase' }}>Open admin dashboard</span>
+                  ) : (
+                    <button
+                      onClick={onAdminShortcutTap}
+                      aria-label="Open admin dashboard"
+                      style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid var(--ann-accent)', background: `url(${heroImages[0] || DEMO_PHOTOS[0]}) center/cover no-repeat`, boxShadow: '0 10px 26px rgba(0,0,0,.4)', cursor: 'pointer', touchAction: 'manipulation', position: 'relative', padding: 0 }}
+                    >
+                      <span style={{ position: 'absolute', inset: -7, borderRadius: '50%', background: 'conic-gradient(from 0deg, transparent 0deg 250deg, var(--ann-accent) 320deg, transparent 360deg)', animation: 'evAdminHalo 2.6s linear infinite', pointerEvents: 'none' }} />
+                    </button>
+                  )}
                 </div>
               )}
               </TabErrorBoundary>

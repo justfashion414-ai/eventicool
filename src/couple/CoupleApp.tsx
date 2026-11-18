@@ -217,7 +217,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? null : (
         <Suspense fallback={null}>
-          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} />
+          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={(lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview'} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
