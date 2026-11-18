@@ -49,6 +49,15 @@ export default async (req) => {
   if (exp) params.set('exp', exp)
   if (leadId) params.set('lead', leadId)
 
+  // The app's install identity. Excluded from `exp` so extending a trial
+  // updates the same app rather than creating a second one, but every
+  // different lead (couple) is a distinct app with its own launcher entry.
+  const idParams = new URLSearchParams()
+  idParams.set('tpl', tpl)
+  if (acc) idParams.set('acc', acc)
+  if (leadId) idParams.set('lead', leadId)
+  const appId = url.origin + '/app?' + idParams.toString()
+
   const cdn = (w, u) =>
     u.includes('/upload/') ? u.replace('/upload/', `/upload/w_${w},h_${w},c_fill,q_auto,f_jpg/`) : u
 
@@ -78,7 +87,8 @@ export default async (req) => {
     background_color: '#ffffff',
     theme_color: ACCENTS[acc] || '#14122b',
     icons,
-    related_applications: [{ platform: 'webapp', url: manifestUrl, id: manifestUrl }],
+    id: appId,
+    related_applications: [{ platform: 'webapp', url: manifestUrl, id: appId }],
   }
   return new Response(JSON.stringify(manifest), {
     status: 200,

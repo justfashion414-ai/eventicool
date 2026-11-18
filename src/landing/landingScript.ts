@@ -223,7 +223,24 @@ fxbuild();fanbuild();gidraw(false);apdraw();sqdraw();lcdraw(false);sgbuild();
 var tio=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){typer(en.target)}else if(en.target._ty){clearInterval(en.target._ty);en.target._ty=null}})},{threshold:.5});document.querySelectorAll('.ftp2').forEach(function(el){tio.observe(el)});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='plsel'&&!e.target.closest('.btn'))plsel(+b.dataset.v)});
 addEventListener('resize',pkmove);addEventListener('resize',sgbuild);
-draw();pricing();galbuild();
+
+function citybuild(){
+  var sel=$('#c'),dd=$('#citydd');if(!sel||!dd)return;
+  var lab=$('#citylab'),pan=$('#citypanel'),btn=$('#citybtn');if(!lab||!pan||!btn)return;
+  var opts=Array.prototype.slice.call(sel.options).map(function(o){return o.textContent||''});
+  pan.innerHTML=opts.map(function(c){var on=c===sel.value;return '<button type="button" class="copt'+(on?' on':'')+'" data-c="'+esc(c)+'" role="option" aria-selected="'+on+'">'+esc(c)+'</button>'}).join('');
+  var close=function(){dd.classList.remove('open');btn.setAttribute('aria-expanded','false')};
+  var setc=function(c){sel.value=c;lab.textContent=c;
+    pan.querySelectorAll('.copt').forEach(function(b){var on=b.getAttribute('data-c')===c;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false')});
+    sel.dispatchEvent(new Event('input',{bubbles:true}));close()};
+  btn.addEventListener('click',function(e){e.stopPropagation();var open=dd.classList.toggle('open');btn.setAttribute('aria-expanded',open?'true':'false');
+    if(open){var cur=pan.querySelector('.copt.on');if(cur)cur.scrollIntoView({block:'nearest'})}});
+  pan.addEventListener('click',function(e){var b=e.target.closest?e.target.closest('.copt'):null;if(!b)return;setc(b.getAttribute('data-c')||'')});
+  document.addEventListener('click',function(e){if(!dd.contains(e.target))close()});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
+}
+
+draw();pricing();galbuild();citybuild();
 try{(function(){
  var q=null;try{q=new URLSearchParams(location.search).get('tpl')}catch(e){}
  if(q&&TPL[q]){P.tp=q;draw()}
