@@ -23,6 +23,7 @@ const ACCENTS = {
 export default async (req) => {
   const url = new URL(req.url)
   const leadId = (url.searchParams.get('lead') || '').slice(0, 80)
+  const siteId = (url.searchParams.get('site') || '').slice(0, 80)
   const tpl = (url.searchParams.get('tpl') || 'classic').slice(0, 20)
   const acc = (url.searchParams.get('acc') || '').slice(0, 20)
   const exp = (url.searchParams.get('exp') || '').replace(/[^0-9]/g, '').slice(0, 12)
@@ -30,16 +31,22 @@ export default async (req) => {
   let name = 'Eventicor'
   let short = 'Eventicor'
   let icon = null
+  const nameFrom = (d) => {
+    name = `${d.bride || 'Our'} & ${d.groom || 'Event'}`
+    short = `${d.bride || 'Our'} & ${(d.groom || '').slice(0, 1)}.`
+    icon = Array.isArray(d.heroImages) && d.heroImages[0] ? String(d.heroImages[0]) : null
+  }
   if (leadId) {
     try {
       init()
       const doc = await getFirestore().collection('leads').doc(leadId).get()
-      if (doc.exists) {
-        const d = doc.data()
-        name = `${d.bride || 'Our'} & ${d.groom || 'Event'}`
-        short = `${d.bride || 'Our'} & ${(d.groom || '').slice(0, 1)}.`
-        icon = Array.isArray(d.heroImages) && d.heroImages[0] ? String(d.heroImages[0]) : null
-      }
+      if (doc.exists) nameFrom(doc.data())
+    } catch { /* fall through to the generic manifest */ }
+  } else if (siteId) {
+    try {
+      init()
+      const doc = await getFirestore().collection('events').doc(siteId).get()
+      if (doc.exists) nameFrom(doc.data())
     } catch { /* fall through to the generic manifest */ }
   }
 
@@ -48,6 +55,7 @@ export default async (req) => {
   if (acc) params.set('acc', acc)
   if (exp) params.set('exp', exp)
   if (leadId) params.set('lead', leadId)
+  if (siteId) params.set('site', siteId)
 
   // The app's install identity. Excluded from `exp` so extending a trial
   // updates the same app rather than creating a second one, but every
@@ -56,6 +64,7 @@ export default async (req) => {
   idParams.set('tpl', tpl)
   if (acc) idParams.set('acc', acc)
   if (leadId) idParams.set('lead', leadId)
+  if (siteId) idParams.set('site', siteId)
   const appId = url.origin + '/app?' + idParams.toString()
 
   const cdn = (w, u) =>

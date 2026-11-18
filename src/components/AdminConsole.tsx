@@ -781,7 +781,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   function sitesSection() {
-    const appLink = (s: Site) => `${window.location.origin}/app?tpl=${s.tpl || 'classic'}`
+    // A couple's app link binds to their own events doc, so it opens with
+    // their names, chosen wedding date and city, not the generic demo.
+    const appLink = (s: Site) => `${window.location.origin}/app?tpl=${s.tpl || 'classic'}&acc=${DEF_ACC[(s.tpl || 'classic') as keyof typeof DEF_ACC] || 'midnight'}&site=${s.id}`
     const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>

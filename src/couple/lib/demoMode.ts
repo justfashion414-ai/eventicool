@@ -95,6 +95,8 @@ export interface LeadOverride {
   bride: string;
   groom: string;
   city?: string;
+  weddingDate?: string;
+  weddingTime?: string;
   heroImages?: string[];
 }
 let LEAD: LeadOverride | null = null;
@@ -104,6 +106,10 @@ export function demoBride(): string { return LEAD?.bride || DEMO_COUPLE.bride; }
 export function demoGroom(): string { return LEAD?.groom || DEMO_COUPLE.groom; }
 export function demoHeader(): string { return LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header; }
 export function demoCity(): string { return LEAD?.city || DEMO_COUPLE.city; }
+// A bound couple's chosen wedding day rides the same overlay as their names,
+// so the countdown and hero show THEIR date instead of the seeded one.
+export function demoWeddingDate(): string { return LEAD?.weddingDate || DEMO_WEDDING_DATE; }
+export function demoWeddingTime(): string { return LEAD?.weddingTime || DEMO_WEDDING_TIME; }
 // Sample copy mentions Amara and Daniel by name; under a lead those sentences
 // name the lead's couple instead, so the story, captions and journey blurbs
 // stay coherent with the header.

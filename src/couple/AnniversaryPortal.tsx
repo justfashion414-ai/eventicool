@@ -44,7 +44,7 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -1312,10 +1312,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // reception, else the latest saved event date. Until they save anything,
   // the seeded date shows.
   {
+    const ov = DEMO ? leadOverride() : null;
     const church = EVENTS.find((e: any) => e.id === 'church');
     const reception = EVENTS.find((e: any) => e.id === 'reception');
     const latestDate = EVENTS.map((e: any) => e.date).filter(Boolean).sort().pop() as string | undefined;
-    recomputeWed((church?.date || reception?.date || latestDate) as string | undefined, church?.time || reception?.time || undefined);
+    // The couple's chosen wedding day wins: the date they picked when their
+    // app was created, then the church service, else the reception, else the
+    // latest saved event date. Before anything is saved, the seeded date shows.
+    const wed = ((ov?.weddingDate || church?.date || reception?.date || latestDate) as string | undefined);
+    recomputeWed(wed, ov?.weddingTime || church?.time || reception?.time || undefined);
   }
   const heroTemplate = template || 'classic';
   const _heroWed = new Date(`${WEDDING_DATE}T12:00:00`);

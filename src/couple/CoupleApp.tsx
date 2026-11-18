@@ -18,7 +18,7 @@ const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush',
 // lead needs no email: it opens on its own, shows the admin's uploaded
 // placeholder images and names, and after 3 days it points back to the
 // Eventicor landing page to create their own app.
-interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
+interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number }
 
 async function loadLead(id: string): Promise<LeadData | null> {
   // Sample apps built in the demo console live in this browser only.
@@ -34,6 +34,19 @@ async function loadLead(id: string): Promise<LeadData | null> {
     const { db } = await import('../firebase');
     const { doc, getDoc } = await import('firebase/firestore');
     const snap = await getDoc(doc(db as any, 'leads', id));
+    if (snap.exists()) return snap.data() as LeadData;
+  } catch { /* rules or offline: fall back to the generic demo */ }
+  return null;
+}
+
+// A real couple's app link (?site=<events doc id>) resolves their events doc
+// before render: the names, wedding date, city and the photos seeded at
+// onboarding, so their app opens on THEIR day, not the seeded placeholder.
+async function loadSite(id: string): Promise<LeadData | null> {
+  try {
+    const { db } = await import('../firebase');
+    const { doc, getDoc } = await import('firebase/firestore');
+    const snap = await getDoc(doc(db as any, 'events', id));
     if (snap.exists()) return snap.data() as LeadData;
   } catch { /* rules or offline: fall back to the generic demo */ }
   return null;
@@ -174,6 +187,7 @@ export default function CoupleApp() {
   const acc = ACCENTS[accKey];
   const expRaw = Number(params.get('exp') || 0);
   const leadId = params.get('lead') || '';
+  const siteId = params.get('site') || '';
   const isSample = expRaw > 0 || !!leadId;
   const expired = expRaw > 0 && Date.now() / 1000 > expRaw;
   // The lead is resolved before the app renders so its names and uploaded
@@ -182,18 +196,18 @@ export default function CoupleApp() {
   const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId ? undefined : null));
   const [leadExpired, setLeadExpired] = useState(false);
   useEffect(() => {
-    if (!leadId) return;
+    if (!leadId && !siteId) return;
     let alive = true;
     const bail = window.setTimeout(() => { if (alive) setLead((l) => (l === undefined ? null : l)); }, 4000);
-    loadLead(leadId).then((l) => {
+    (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
       if (!alive) return;
       window.clearTimeout(bail);
       if (l && l.expiresAt && Date.now() > l.expiresAt) setLeadExpired(true);
-      setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages } : null);
+      setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, weddingDate: l.weddingDate, weddingTime: l.weddingTime } : null);
       setLead(l || null);
     });
     return () => { alive = false; window.clearTimeout(bail); };
-  }, [leadId]);
+  }, [leadId, siteId]);
   // A lead's app installs as a PWA under the couple's own names: inject the
   // per-lead manifest and the service worker once the lead is resolved.
   useEffect(() => {
@@ -203,6 +217,7 @@ export default function CoupleApp() {
     if (params.get('acc')) q.set('acc', params.get('acc')!);
     if (expRaw) q.set('exp', String(expRaw));
     if (leadId) q.set('lead', leadId);
+    if (siteId) q.set('site', siteId);
     link.href = `/api/manifest?${q.toString()}`;
     document.head.appendChild(link);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -217,7 +232,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? null : (
         <Suspense fallback={null}>
-          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={(lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview'} />
+          <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
