@@ -716,7 +716,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     } catch {}
   }, [isAdminModalOpen]);
   useEffect(() => {
-    if (DEMO && adminMode !== 'real' && route === '/admin') setIsAdminDashboardOpen(true);
+    if (adminMode === 'preview' && route === '/admin') setIsAdminDashboardOpen(true);
+    else if (adminMode === 'none' && route === '/admin') {
+      // Sample apps never expose the admin area: put the guest back in the app.
+      if (window.location.hash === '#admin') {
+        try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
+      }
+      setRoute('/');
+    }
     else if (route === '/admin' && user && !user.isAnonymous && isAdmin) setIsAdminDashboardOpen(true);
   }, [route, user, isAdmin]);
 
@@ -2637,7 +2644,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       )}
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
-      {isAdminModalOpen && (DEMO || (user && !user.isAnonymous && isAdmin)) && (
+      {isAdminModalOpen && (adminMode === 'preview' || (user && !user.isAnonymous && isAdmin)) && (
       <AdminDashboardModal 
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
@@ -2751,7 +2758,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       )}
 
       {/* /admin sign-in screen for signed-out visitors */}
-      {route === '/admin' && !DEMO && !(user && !user.isAnonymous && isAdmin) && (
+      {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
         <AuthScreen
           screen={authScreen ?? 'signin'}
           setScreen={setAuthScreen}
