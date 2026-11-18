@@ -198,8 +198,7 @@ export default function CoupleApp() {
   // per-lead manifest and the service worker once the lead is resolved.
   useEffect(() => {
     if (!lead) return;
-    const link = document.createElement('link');
-    link.rel = 'manifest';
+    const link = (document.querySelector('link[rel="manifest"]') || (() => { const l = document.createElement('link'); l.rel = 'manifest'; document.head.appendChild(l); return l })()) as HTMLLinkElement;
     const q = new URLSearchParams({ tpl });
     if (params.get('acc')) q.set('acc', params.get('acc')!);
     if (expRaw) q.set('exp', String(expRaw));
@@ -207,7 +206,7 @@ export default function CoupleApp() {
     link.href = `/api/manifest?${q.toString()}`;
     document.head.appendChild(link);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-    return () => { link.remove(); };
+    return () => {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead]);
   if (expired || leadExpired) return <SampleExpired accent={acc.accent} />;

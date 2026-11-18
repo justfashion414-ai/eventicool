@@ -272,6 +272,7 @@ export default function InstallPage() {
         .ip-screenbox{width:250px;height:512px;position:relative;overflow:visible}
         .ip-scale{width:250px;transform-origin:top left}
         .ip-guide{flex:1 1 380px;max-width:470px;min-width:0}
+        .ip-below{margin:44px auto 0;max-width:720px;display:grid;gap:18px}
         .ip-install{border:none;cursor:pointer;background:${acc.accent};color:#fff;padding:16px 40px;border-radius:999px;font-weight:800;font-size:15.5px;letter-spacing:.06em;box-shadow:0 10px 30px ${acc.accent}66;touch-action:manipulation}
         @media(max-width:760px){
           .ip-row{gap:14px;flex-wrap:nowrap;padding:0 10px}
@@ -349,17 +350,23 @@ export default function InstallPage() {
                     </li>
                   ))}
                 </ol>
+              </>
+            )}
+          </div>
+        </div>
+        {!installed && (
+          <div className="ip-below">
                 {onDesktop && (
-                  <p style={{ marginTop: 18, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
+                  <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     You are on a computer right now. Open this page on your phone to install the app there.
                   </p>
                 )}
-                {os === 'android' && !deferred && !installed && (
-                  <p style={{ marginTop: 18, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
+                {os === 'android' && !deferred && (
+                  <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
                     No install prompt? In Chrome, tap the menu (three dots) and choose <b>Add to Home screen</b>.
                   </p>
                 )}
-                <div style={{ marginTop: 30, padding: '18px 20px', borderRadius: 18, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)' }}>
+                <div style={{ marginTop: 0, padding: '18px 20px', borderRadius: 18, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)' }}>
                   <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, fontWeight: 700 }}>
                     The link to our webinar, which shows you how to manage your app for your event, arrives right here below the install button. Join the Eventicor community on WhatsApp to get it.
                   </p>
@@ -372,7 +379,7 @@ export default function InstallPage() {
                     </p>
                   )}
                 </div>
-                <div style={{ marginTop: 22, padding: '18px 20px', borderRadius: 18, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)' }}>
+                <div style={{ margin: 0, padding: '18px 20px', borderRadius: 18, background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)' }}>
                   <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, fontWeight: 700 }}>You can also open your app on the web.</p>
                   <p style={{ margin: '6px 0 12px', fontSize: 13.5, opacity: .85, lineHeight: 1.55 }}>
                     Everything you set up appears in both the web app and the installed app: same app, two ways in.
@@ -385,10 +392,8 @@ export default function InstallPage() {
 
                   </div>
                 </div>
-              </>
-            )}
           </div>
-        </div>
+        )}
       </main>
     </div>
   )
