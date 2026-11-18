@@ -47,7 +47,7 @@ function detectOs(): Os {
   return 'android'
 }
 
-export default function InstallPage() {
+export default function InstallPage({ guideOnly }: { guideOnly?: boolean }) {
   const params = new URLSearchParams(window.location.search)
   const leadId = params.get('lead') || ''
   const tpl = params.get('tpl') || 'classic'
@@ -133,6 +133,7 @@ export default function InstallPage() {
   const steps = os === 'ios' ? iosSteps : androidSteps
 
   const [installMsg, setInstallMsg] = useState('')
+  const [copied, setCopied] = useState(false)
   const [waiting, setWaiting] = useState(false)
   const install = () => {
     if (deferred) {
@@ -352,7 +353,7 @@ export default function InstallPage() {
               </>
           </div>
         </div>
-        {true && (
+        {!guideOnly && (
           <div className="ip-below">
                 {!installed && onDesktop && (
                   <p style={{ margin: 0, fontSize: 14.5, opacity: .85, lineHeight: 1.55 }}>
@@ -384,8 +385,17 @@ export default function InstallPage() {
                   </p>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <input readOnly value={webUrl} onFocus={(e) => e.currentTarget.select()} style={{ flex: '1 1 220px', minWidth: 0, background: 'rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.2)', borderRadius: 12, color: '#fff', padding: '11px 12px', fontSize: 13 }} />
-                    <button onClick={() => { navigator.clipboard?.writeText(webUrl) }} style={{ border: 'none', cursor: 'pointer', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: 'rgba(255,255,255,.14)', color: '#fff', fontSize: 13 }}>
-                      Copy link
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(webUrl)
+                          setCopied(true)
+                          window.setTimeout(() => setCopied(false), 1800)
+                        } catch { /* clipboard blocked: the input above still shows the link */ }
+                      }}
+                      style={{ border: 'none', cursor: 'pointer', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: copied ? 'rgba(31,175,84,.35)' : 'rgba(255,255,255,.14)', color: '#fff', fontSize: 13 }}
+                    >
+                      {copied ? 'Copied ✓' : 'Copy link'}
                     </button>
 
                   </div>

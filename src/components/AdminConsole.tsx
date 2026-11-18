@@ -68,6 +68,8 @@ interface Site {
   status?: string
   tpl?: string
   since: string
+  contact?: string
+  city?: string
 }
 interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
@@ -214,6 +216,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         status: ev.status,
         tpl: ev.template,
         since: fmtDate(ev.createdAt),
+        contact: ev.contact || '',
+        city: ev.city || '',
       })),
     [events],
   )
@@ -777,7 +781,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   function sitesSection() {
-    const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug}`.toLowerCase().includes(sq.toLowerCase()))
+    const appLink = (s: Site) => `${window.location.origin}/app?tpl=${s.tpl || 'classic'}`
+    const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>
         {head('Apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
@@ -791,21 +796,29 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div className="ov">
             <table className="tb">
               <thead>
-                <tr><th>COUPLE</th><th>PLAN</th><th>STATUS</th><th>TEMPLATE</th><th>CREATED</th><th></th></tr>
+                <tr><th>COUPLE</th><th>EMAIL</th><th>STATE</th><th>PLAN</th><th>STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th></th></tr>
               </thead>
               <tbody>
                 {events === null ? (
-                  <tr><td colSpan={6}><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading events…</div></td></tr>
+                  <tr><td colSpan={9}><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading events…</div></td></tr>
                 ) : L.length === 0 ? (
-                  <tr><td colSpan={6}>No apps match.</td></tr>
+                  <tr><td colSpan={9}>No apps match.</td></tr>
                 ) : (
                   L.map((s) => (
                     <tr key={s.id}>
                       <td><b>{s.couple}</b><small>{s.slug}.eventicor.com</small></td>
+                      <td><small>{s.contact || '—'}</small></td>
+                      <td><small>{s.city || '—'}</small></td>
                       <td>{s.plan ? PL[s.plan]?.name || s.plan : '—'}</td>
                       <td>{pill(s.status)}</td>
                       <td>{s.tpl ? TP[s.tpl]?.name || s.tpl : '—'}</td>
                       <td>{s.since}</td>
+                      <td>
+                        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                          <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(appLink(s)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
+                          <button className="chip" onClick={() => window.open(appLink(s), '_blank')}>Open</button>
+                        </div>
+                      </td>
                       <td><button className="btn g s" onClick={() => { setDelText(''); setDrawerId(s.id) }}>Manage</button></td>
                     </tr>
                   ))

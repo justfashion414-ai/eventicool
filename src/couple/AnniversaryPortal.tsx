@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { motion, AnimatePresence, animate, useAnimationFrame, useMotionValue } from 'motion/react';
 import { 
   Home, 
@@ -45,6 +45,11 @@ import {
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages } from './lib/demoMode';
+
+// The installation page (animated phone + steps), opened over the app when
+// the header Install button is tapped. guideOnly strips the WhatsApp and web
+// link info so guests see nothing but the pure install guide.
+const InstallGuide = lazy(() => import('../components/InstallPage'));
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
 import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
@@ -161,19 +166,35 @@ interface WeddingEvent {
   images?: string[]; // up to 2 photos the couple attaches to this journey step
 }
 
-const WEDDING_DATE = DEMO ? DEMO_WEDDING_DATE : '2026-12-12';
-const WEDDING_TIME = DEMO ? DEMO_WEDDING_TIME : '11:00';
+const WED_FALLBACK_DATE = DEMO ? DEMO_WEDDING_DATE : '2026-12-12';
+const WED_FALLBACK_TIME = DEMO ? DEMO_WEDDING_TIME : '11:00';
 
-// Everything that displays the wedding date derives from WEDDING_DATE, so the
-// date shown and the days-to-go countdown can never disagree again.
-const WED_DT = new Date(`${WEDDING_DATE}T12:00:00`);
-const WED_DAY_SHORT = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-const WED_YEAR = String(WED_DT.getFullYear());
-const WED_FULL = WED_DT.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const WED_LONG = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+// Everything that displays the wedding date derives from these LIVE values.
+// They start on the seeded date and are recomputed the moment the couple's
+// saved config loads (or they change a date in their dashboard), so the date
+// shown, the countdown and the hero never stay on the seeded placeholder
+// after the couple picks their own day.
 const p2 = (x: number) => (x < 10 ? '0' : '') + x;
-const WED_DOT = `${p2(WED_DT.getDate())}.${p2(WED_DT.getMonth() + 1)}.${WED_DT.getFullYear()}`;
-const WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
+let WEDDING_DATE = WED_FALLBACK_DATE;
+let WEDDING_TIME = WED_FALLBACK_TIME;
+let WED_DT = new Date(`${WEDDING_DATE}T12:00:00`);
+let WED_DAY_SHORT = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+let WED_YEAR = String(WED_DT.getFullYear());
+let WED_FULL = WED_DT.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+let WED_LONG = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+let WED_DOT = `${p2(WED_DT.getDate())}.${p2(WED_DT.getMonth() + 1)}.${WED_DT.getFullYear()}`;
+let WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
+function recomputeWed(date?: string, time?: string) {
+  WEDDING_DATE = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : WED_FALLBACK_DATE;
+  WEDDING_TIME = time || WED_FALLBACK_TIME;
+  WED_DT = new Date(`${WEDDING_DATE}T12:00:00`);
+  WED_DAY_SHORT = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  WED_YEAR = String(WED_DT.getFullYear());
+  WED_FULL = WED_DT.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  WED_LONG = WED_DT.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  WED_DOT = `${p2(WED_DT.getDate())}.${p2(WED_DT.getMonth() + 1)}.${WED_DT.getFullYear()}`;
+  WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
+}
 
 const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
   { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
@@ -542,8 +563,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // (or after the forced permanent-password step). Lead sample apps never
   // respond at all (adminMode === 'none').
   const shortcutLoginRef = useRef(false);
+  // On a real couple's app the admin area opens on THREE taps of the round
+  // button (taps within 2 seconds count together), so a stray guest tap never
+  // opens it. Console previews stay one-tap for the admin's own convenience.
+  const adminTapCountRef = useRef(0);
+  const adminTapAtRef = useRef(0);
   const onAdminShortcutTap = () => {
     if (adminMode === 'preview') { goAdminPage(); return; }
+    const now = Date.now();
+    if (now - adminTapAtRef.current > 2000) adminTapCountRef.current = 0;
+    adminTapAtRef.current = now;
+    adminTapCountRef.current += 1;
+    if (adminTapCountRef.current < 3) return;
+    adminTapCountRef.current = 0;
     shortcutLoginRef.current = true;
     setAuthScreen('signin');
   };
@@ -1275,6 +1307,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : EVENTS_DATA;
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : DEFAULT_STORY;
   const DETAILS: any = cfgDetails || DEFAULT_DETAILS;
+
+  // The couple's chosen wedding day wins: the church service, else the
+  // reception, else the latest saved event date. Until they save anything,
+  // the seeded date shows.
+  {
+    const church = EVENTS.find((e: any) => e.id === 'church');
+    const reception = EVENTS.find((e: any) => e.id === 'reception');
+    const latestDate = EVENTS.map((e: any) => e.date).filter(Boolean).sort().pop() as string | undefined;
+    recomputeWed((church?.date || reception?.date || latestDate) as string | undefined, church?.time || reception?.time || undefined);
+  }
   const heroTemplate = template || 'classic';
   const _heroWed = new Date(`${WEDDING_DATE}T12:00:00`);
   const heroDateShort = _heroWed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -3197,112 +3239,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       </nav>
       )}
 
-      {/* iOS / Add to Home Screen Bottom Splash Pop Up (2 Steps - iOS only) */}
-      <AnimatePresence>
-        {showIOSInstallModal && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowIOSInstallModal(false)}
-              className="fixed inset-0 bg-black/60 z-[210] backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 26, stiffness: 220 }}
-              className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[520px] z-[211] rounded-t-[32px] p-6 pb-8 shadow-2xl border-t ${
-                isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'
-              }`}
-            >
-              <div className="w-12 h-1.5 bg-[#DAD8E3] dark:bg-[#22363E] rounded-full mx-auto mb-5" />
-
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-[var(--ann-accent)] text-white flex items-center justify-center font-black font-display text-base shadow-md">
-                    30
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black font-display leading-tight">Install {demoHeader()}</h3>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                      {isIOSDevice ? 'Add to your Home Screen for quick & offline access' : 'Get the app on your phone in one tap'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowIOSInstallModal(false)}
-                  className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  aria-label="Close install guide"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {!isIOSDevice && (
-                <div className="space-y-3 mb-6">
-                  <button
-                    onClick={handleAndroidInstall}
-                    className="w-full py-4 rounded-2xl bg-[var(--ann-accent)] text-white font-black text-sm uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/25 hover:opacity-95 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                  >
-                    <Download className="w-4.5 h-4.5 stroke-[2.5]" />
-                    Install app
-                  </button>
-                  <p className={`text-center text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                    Chrome will pop up a confirm box. Tap Install.
-                  </p>
-                </div>
-              )}
-
-              {isIOSDevice && (
-              <div className="space-y-3 mb-6">
-                {/* Step 1 */}
-                <div className={`p-4 rounded-2xl border flex items-center gap-4 ${
-                  isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F6F5FA] border-[#DAD8E3]'
-                }`}>
-                  <div className="w-9 h-9 rounded-xl bg-[var(--ann-accent)] text-white font-black text-sm flex items-center justify-center shrink-0">
-                    1
-                  </div>
-                  <div className="flex-1 text-sm leading-snug">
-                    Tap the <strong>Share</strong> button in your browser&apos;s menu bar
-                  </div>
-                  <div className={`p-2 rounded-xl border shrink-0 ${
-                    isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#4FC3CF]' : 'bg-white border-[#DAD8E3] text-[var(--ann-accent)]'
-                  }`}>
-                    <Share2 className="w-5 h-5" />
-                  </div>
-                </div>
-
-                {/* Step 2 */}
-                <div className={`p-4 rounded-2xl border flex items-center gap-4 ${
-                  isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F6F5FA] border-[#DAD8E3]'
-                }`}>
-                  <div className="w-9 h-9 rounded-xl bg-[var(--ann-accent)] text-white font-black text-sm flex items-center justify-center shrink-0">
-                    2
-                  </div>
-                  <div className="flex-1 text-sm leading-snug">
-                    Scroll down and tap <strong>Add to Home Screen</strong>
-                  </div>
-                  <div className={`p-2 rounded-xl border shrink-0 ${
-                    isDarkMode ? 'bg-[#13232A] border-[#22363E] text-[#4FC3CF]' : 'bg-white border-[#DAD8E3] text-[var(--ann-accent)]'
-                  }`}>
-                    <Plus className="w-5 h-5" />
-                  </div>
-                </div>
-              </div>
-              )}
-
-              <button
-                onClick={() => setShowIOSInstallModal(false)}
-                className="w-full py-3.5 rounded-2xl bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/25 hover:opacity-95 transition-opacity"
-              >
-                Got It
-              </button>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      {/* Install guide: the full installation page (animated phone + steps)
+          opens over the app when the header Install button is tapped, with
+          nothing but the guide in it - no WhatsApp or web link info. Android
+          gets the install button, iPhone the 2-step guide. */}
+      {showIOSInstallModal && (
+        <div className="fixed inset-0 z-[210] overflow-y-auto" role="dialog" aria-label="Install guide">
+          <button
+            onClick={() => setShowIOSInstallModal(false)}
+            className="fixed top-4 right-4 z-[212] w-10 h-10 rounded-full bg-black/50 text-white flex items-center justify-center text-2xl leading-none shadow-lg"
+            aria-label="Close install guide"
+          >
+            &times;
+          </button>
+          <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Loading install guide…</div>}>
+            <InstallGuide guideOnly />
+          </Suspense>
+        </div>
+      )}
 
       {/* Sharing and Media Overlays */}
       {sharingPost && (
