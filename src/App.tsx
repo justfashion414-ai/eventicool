@@ -63,7 +63,11 @@ export default function App() {
       .catch(() => setAdminState('check-error'))
   }
 
-  if (route === '/app') {
+  // The couple app also lives under its own install scope paths
+  // (/app/lead/<id>/, /app/site/<id>/, /app/demo/), which Chrome opens as the
+  // installed app's start_url. Every /app* path renders the couple app; the
+  // couple's names, template and accent come from the query string.
+  if (route === '/app' || route.startsWith('/app/')) {
     return <Suspense fallback={null}><CoupleApp /></Suspense>
   }
   if (route === '/install') {
