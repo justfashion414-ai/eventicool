@@ -71,7 +71,7 @@ interface Site {
   contact?: string
   city?: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -464,6 +464,22 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       logAudit('Deleted a sample app lead')
       say('Lead deleted')
     } catch { say('Could not delete. Try again') }
+    setBusy(false)
+  }
+
+  // Payment confirmation: once the admin has received the couple's payment,
+  // this marks the account active for one year. The trial chip and its notice
+  // disappear from their app for good and their link becomes permanent.
+  async function confirmPayment(l: LeadDoc) {
+    setBusy(true)
+    try {
+      const at = Date.now()
+      const renews = at + 365 * 864e5
+      await proxyCall('update', { collection: 'leads', id: l.id, data: { activatedAt: at, renewsAt: renews } })
+      setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, activatedAt: at, renewsAt: renews } : x)))
+      logAudit(`Confirmed payment for ${leadName(l)}; app active for one year`)
+      say('Payment confirmed. The account is now active')
+    } catch { say('Could not confirm the payment. Try again') }
     setBusy(false)
   }
 
@@ -1020,10 +1036,15 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const appLink = (l: LeadDoc) => {
       const t = l.template || 'classic'
       const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
-      const exp = l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
+      // A paid, active account gets a permanent link: no trial expiry in it.
+      const exp = !l.activatedAt && l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
       return `${window.location.origin}/app?tpl=${t}&acc=${a}${exp ? `&exp=${exp}` : ''}&lead=${l.id}`
     }
     const planStatus = (l: LeadDoc) => {
+      if (l.activatedAt) {
+        const d = new Date(l.renewsAt || l.activatedAt + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+        return { label: `Active · renews ${d}`, live: true }
+      }
       const left = (l.expiresAt || 0) - now
       if (left > 0) return { label: left >= 3600e3 ? `Trial · ${Math.ceil(left / 3600e3)} h left` : `Trial · ${Math.max(1, Math.ceil(left / 60e3))} min left`, live: true }
       return { label: 'Trial ended', live: false }
@@ -1052,6 +1073,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                         <td><small>{since(l)}</small></td>
                         <td>
                           <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                            {!l.activatedAt && !l.id.startsWith('demo-cust') && (
+                              <button className="chip" disabled={busy} style={{ fontWeight: 700 }} onClick={() => confirmPayment(l)}>Confirm payment</button>
+                            )}
                             <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(appLink(l)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
                           </div>

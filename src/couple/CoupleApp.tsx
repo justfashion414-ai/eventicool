@@ -97,13 +97,13 @@ function SampleChip({ exp, trial }: { exp: number; trial?: boolean }) {
 const SAMPLE_SITE_URL = 'https://eventicor.name.ng';
 const SAMPLE_COMMUNITY_URL = 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2';
 
-function SampleInfoButton({ accent, selfServe }: { accent: string; selfServe?: boolean }) {
+function SampleInfoButton({ accent, selfServe, active }: { accent: string; selfServe?: boolean; active?: boolean }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="About this sample app"
+        aria-label={selfServe ? 'About your app' : 'About this sample app'}
         style={{
           position: 'fixed', right: 12, bottom: 112, zIndex: 90, width: 40, height: 40,
           borderRadius: 999, border: 'none', cursor: 'pointer', padding: 0,
@@ -166,11 +166,13 @@ function SampleInfoButton({ accent, selfServe }: { accent: string; selfServe?: b
         >
           Join the Eventicor community on WhatsApp
         </a>
-        <p style={{ color: '#7a8a91', fontSize: 11.5, lineHeight: 1.5, margin: '14px 0 0' }}>
-          {selfServe
-            ? 'Your free trial is running. Your login details are waiting in your email.'
-            : 'This sample app stops working after the third day. Eventicor is on a free trial for now.'}
-        </p>
+        {!active && (
+          <p style={{ color: '#7a8a91', fontSize: 11.5, lineHeight: 1.5, margin: '14px 0 0' }}>
+            {selfServe
+              ? 'Your free trial is running. Your login details are waiting in your email.'
+              : 'This sample app stops working after the third day. Eventicor is on a free trial for now.'}
+          </p>
+        )}
         <button
           onClick={() => setOpen(false)}
           style={{ marginTop: 12, background: 'none', border: 'none', color: '#93a4ab', fontSize: 12, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer' }}
@@ -205,7 +207,7 @@ export default function CoupleApp() {
     (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
       if (!alive) return;
       window.clearTimeout(bail);
-      if (l && l.expiresAt && Date.now() > l.expiresAt) setLeadExpired(true);
+      if (l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt) setLeadExpired(true);
       setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, weddingDate: l.weddingDate, weddingTime: l.weddingTime } : null);
       setLead(l || null);
     });
@@ -230,7 +232,10 @@ export default function CoupleApp() {
     return () => {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead]);
-  if (expired || leadExpired) return <SampleExpired accent={acc.accent} />;
+  // A confirmed payment makes the account active for a year from that moment:
+  // the trial's expiry (URL exp and the lead's own expiresAt) no longer applies.
+  const activatedAt = (lead as any)?.activatedAt as number | undefined;
+  if ((expired || leadExpired) && !activatedAt) return <SampleExpired accent={acc.accent} />;
   return (
     <div
       className="ev-couple-root"
@@ -241,8 +246,8 @@ export default function CoupleApp() {
           <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={(lead as any)?.source === 'landing'} />
         </Suspense>
       )}
-      {isSample && expRaw > 0 && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
-      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} />}
+      {isSample && expRaw > 0 && lead !== undefined && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
+      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
     </div>
   );
 }
