@@ -88,7 +88,7 @@ document.addEventListener('input',function(e){var t=e.target;if(t.id==='b')P.b=t
 document.addEventListener('keydown',function(e){if((e.key==='Enter'||e.key===' ')&&e.target.dataset&&(e.target.dataset.a==='pick'||e.target.dataset.a==='photo')){e.preventDefault();e.target.click()}});
 document.addEventListener('click',function(e){var rb=e.target.closest?e.target.closest('[data-rm]'):null;if(rb){UPS.splice(+rb.getAttribute('data-rm'),1);upSync();return}var b=e.target.closest('[data-a]');if(!b)return;var a=b.dataset.a,v=b.dataset.v;if((a==='close'||a==='pcc')&&e.target!==b)return;
  if(a==='tp'){P.tp=v;draw()}else if(a==='ac'){P.ac=v||null;draw()}
- else if(a==='photo'){openUpload()}
+ else if(a==='photo'){var uf=document.getElementById('upfile');if(uf)uf.click()}
  else if(a==='pick'){P.tp=v;draw();$('#builder').scrollIntoView({behavior:'smooth'});toast(TPL[v].n+' template applied')}
  
  else if(a==='live'){if(v!==undefined)P.pl=+v;P.step=1;modal()}
@@ -260,18 +260,25 @@ function citybuild(){
   var sel=$('#c'),dd=$('#citydd');if(!sel||!dd)return;
   var lab=$('#citylab'),pan=$('#citypanel'),btn=$('#citybtn');if(!lab||!pan||!btn)return;
   var opts=Array.prototype.slice.call(sel.options).map(function(o){return o.textContent||''});
-  pan.innerHTML=opts.map(function(c){var on=c===sel.value;return '<button type="button" class="copt'+(on?' on':'')+'" data-c="'+esc(c)+'" role="option" aria-selected="'+on+'">'+esc(c)+'</button>'}).join('')+'<div class="ccust"><small class="cch">Cannot find your city? Enter it here</small><div class="crow"><input id="ccity" type="text" placeholder="Type your city" maxlength="30"><button type="button" class="cadd" id="ccityadd">Add</button></div><small class="ctag">Custom</small></div>';
+  pan.innerHTML=opts.map(function(c){var on=c===sel.value;return '<button type="button" class="copt'+(on?' on':'')+'" data-c="'+esc(c)+'" role="option" aria-selected="'+on+'">'+esc(c)+'</button>'}).join('')+'<button type="button" class="ccbtn" data-cst="1">Cannot find your city? Enter it here</button>';
   var close=function(){dd.classList.remove('open');btn.setAttribute('aria-expanded','false')};
   var setc=function(c){sel.value=c;lab.textContent=c;
     pan.querySelectorAll('.copt').forEach(function(b){var on=b.getAttribute('data-c')===c;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false')});
     sel.dispatchEvent(new Event('input',{bubbles:true}));close()};
-  var setCustom=function(){var ip=pan.querySelector('#ccity');if(!ip)return;var v=(ip.value||'').trim();if(!v){toast('Type your city first');return}
+  var setCustom=function(v){v=(v||'').trim();if(!v){toast('Type your city first');return}
     var opt=sel.querySelector('option[data-custom]');if(!opt){opt=document.createElement('option');opt.setAttribute('data-custom','1');sel.appendChild(opt)}opt.value=v;opt.textContent=v;
-    setc(v);ip.value='';toast(v+' saved as your city')};
+    setc(v);toast(v+' saved as your city');var om=document.getElementById('citym');if(om)om.remove()};
+  var cityModal=function(){var old=document.getElementById('citym');if(old)old.remove();
+    var m=document.createElement('div');m.id='citym';m.className='cmm';
+    m.innerHTML='<div class="cbox"><button class="ux" type="button" aria-label="Close">&times;</button><h3>Enter your city</h3><p class="cps">Type the name of your city or town.</p><input id="ccity" type="text" placeholder="e.g. Owu Ate" maxlength="30" autocomplete="off"><button type="button" class="caddb" id="ccadd">Add</button></div>';
+    document.body.appendChild(m);
+    var ip=m.querySelector('#ccity');setTimeout(function(){ip.focus()},80);
+    m.addEventListener('click',function(e){if(e.target===m||e.target.classList.contains('ux'))m.remove()});
+    m.querySelector('#ccadd').addEventListener('click',function(){setCustom(ip.value)});
+    ip.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();setCustom(ip.value)}})};
   btn.addEventListener('click',function(e){e.stopPropagation();var open=dd.classList.toggle('open');btn.setAttribute('aria-expanded',open?'true':'false');
-    if(open){var cur=pan.querySelector('.copt.on');if(cur)cur.scrollIntoView({block:'nearest'});var co=sel.querySelector('option[data-custom]');var ip=pan.querySelector('#ccity');if(ip&&co)ip.value=co.value}});
-  pan.addEventListener('click',function(e){var ad=e.target.closest?e.target.closest('.cadd'):null;if(ad){e.preventDefault();setCustom();return}var b=e.target.closest?e.target.closest('.copt'):null;if(!b)return;setc(b.getAttribute('data-c')||'')});
-  pan.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target&&e.target.id==='ccity'){e.preventDefault();setCustom()}});
+    if(open){var cur=pan.querySelector('.copt.on');if(cur)cur.scrollIntoView({block:'nearest'})}});
+  pan.addEventListener('click',function(e){var cb=e.target.closest?e.target.closest('.ccbtn'):null;if(cb){e.preventDefault();close();cityModal();return}var b=e.target.closest?e.target.closest('.copt'):null;if(!b)return;setc(b.getAttribute('data-c')||'')});
   document.addEventListener('click',function(e){if(!dd.contains(e.target))close()});
   document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
 }
@@ -293,8 +300,8 @@ try{(function(){
 })()}catch(e){}
 
 function upGrid(){var g='';if(!UPS.length){g='<div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div><div class="ui uph">No photos yet</div>'}else{g=UPS.map(function(u,i){return '<div class="ui"><img src="'+u+'" alt=""><button data-u="rm" data-i="'+i+'" aria-label="Remove">&#215;</button></div>'}).join('')+(UPS.length<4?'<div class="ui uph">Add more</div>':'')}return g}
-function upSync(){$('#pc').textContent=UPS.length?(UPS.length+' of 4 added'):'Tap to add up to 4 photos';var pt=document.getElementById('pthumbs');if(pt)pt.innerHTML=UPS.map(function(u,i){return '<span class="upct"><img src="'+u+'" alt="Selected photo"><button type="button" class="uprm" data-rm="'+i+'" aria-label="Remove photo">&times;</button></span>'}).join('');$('#pv').innerHTML=mini(P.tp,1);rvsetup();galbuild()}
-function openUpload(){var old=document.getElementById('upm');if(old)old.remove();var m=document.createElement('div');m.id='upm';m.innerHTML='<div class="upc"><button class="ux" data-u="close" aria-label="Close">&#215;</button><h3>Add photos</h3><p class="ups">You can upload up to 4 images. Pick all of them at once. They become your cover and fill your app preview and feed posts.</p><div class="ug">'+upGrid()+'</div><label class="ubb">Choose images<input type="file" accept="image/*" multiple hidden></label><button class="ubd" data-u="done">Done</button></div>';document.body.appendChild(m);m.querySelector('input').addEventListener('change',function(e){var fs=Array.prototype.slice.call(e.target.files||[]),room=4-UPS.length;if(!fs.length)return;if(room<=0){toast('Up to 4 images only');return}fs.slice(0,room).forEach(function(f){var r=new FileReader();r.onload=function(){UPS.push(String(r.result));m.querySelector('.ug').innerHTML=upGrid();upSync()};r.readAsDataURL(f)})});m.addEventListener('click',function(e){var t=e.target,u=t.getAttribute?t.getAttribute('data-u'):null;if(u==='close'||u==='done'||t===m){m.remove()}else if(u==='rm'){UPS.splice(+t.getAttribute('data-i'),1);m.querySelector('.ug').innerHTML=upGrid();upSync()}})}
+function upSync(){$('#pc').textContent=UPS.length?(UPS.length+' of 4 added'):'Tap to add up to 4 photos';var pt=document.getElementById('pthumbs');if(pt)pt.innerHTML=UPS.length?UPS.map(function(u,i){return '<span class="upth"><img src="'+u+'" alt="Selected photo"><button type="button" class="uprm" data-rm="'+i+'" aria-label="Remove photo">&times;</button></span>'}).join(''):'<span class="upph">No photos yet</span><span class="upph">No photos yet</span><span class="upph">No photos yet</span>';$('#pv').innerHTML=mini(P.tp,1);rvsetup();galbuild()}
+(function(){var uf=document.getElementById('upfile');if(!uf)return;uf.addEventListener('change',function(e){var fs=Array.prototype.slice.call(e.target.files||[]);e.target.value='';if(!fs.length)return;var room=4-UPS.length;if(room<=0){toast('Up to 4 images only');return}fs.slice(0,room).forEach(function(f){var r=new FileReader();r.onload=function(){UPS.push(String(r.result));upSync()};r.readAsDataURL(f)})})})();
 document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;var box=t.closest('.frl');if(!box)return;var v=box.querySelector('video');if(!v)return;var b=t.closest('.rvc');if(!b&&t.tagName!=='VIDEO')return;e.preventDefault();v.muted=!v.muted;v.volume=1;if(!v.muted){var p=v.play();if(p&&p.catch)p.catch(function(){})}var b2=box.querySelector('.rvc');if(b2)b2.innerHTML=v.muted?'&#128263; Tap for sound':'&#128266; Sound on'},true);
 function rsunm(v){v.muted=false;v.volume=1;var p=v.play();if(p&&p.catch)p.catch(function(){v.muted=true;v.volume=1;v.play().catch(function(){})});var b=v.parentElement&&v.parentElement.querySelector('.rvc');if(b)b.innerHTML='&#9834; Sound on'}
 var rsg=false;function rsgo(){if(rsg)return;rsg=true;document.querySelectorAll('#pv .frl video').forEach(function(v){if(v.muted)rsunm(v)})}

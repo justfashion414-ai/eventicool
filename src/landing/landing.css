@@ -245,7 +245,22 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .upcthumbs img{width:64px;height:64px;object-fit:cover;border-radius:12px;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,18,43,.2)}
 #ev-l .upcthumbs .uprm{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#17162e;color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(20,18,43,.35)}
 #ev-l .gocenter{justify-content:center}
-/* Gallery cards: Open Book preview bigger and bolder */
-#ev-l .tc[data-t="book"]{--s:.92}
-#ev-l .tc[data-t="book"] b{font-size:21px}
-#ev-l .tc[data-t="book"] small{font-size:15px}
+/* Open Book: the card back at its former size, the book inside enlarged */
+#ev-l .tc[data-t="book"]{--s:.78}
+#ev-l .tc[data-t="book"] .sc{transform:scale(.94);margin:0 calc((1 - .94)*-136px)}
+
+/* City: custom-entry button + its popup */
+#ev-l .ccbtn{display:block;width:100%;text-align:left;padding:13px 14px 14px;margin-top:4px;border-top:1px solid var(--line);color:var(--acc);font-weight:600;font-size:15px;background:none;border-radius:0 0 18px 18px}
+#ev-l .cmm{position:fixed;inset:0;z-index:140;background:#17162e66;display:flex;align-items:center;justify-content:center;padding:22px}
+#ev-l .cbox{position:relative;width:min(430px,100%);background:var(--card);border-radius:22px;padding:26px 24px 24px;box-shadow:0 30px 60px #17162e44;text-align:left}
+#ev-l .cbox h3{font-size:22px;margin:0 0 6px}
+#ev-l .cbox .cps{margin:0 0 16px;color:var(--mut);font-size:15px}
+#ev-l .cbox input{width:100%;font-size:19px;padding:15px 16px;border-radius:14px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);outline:none}
+#ev-l .cbox input:focus{border-color:var(--acc)}
+#ev-l .cbox .caddb{width:100%;margin-top:14px;padding:15px;border-radius:99px;background:var(--acc);color:var(--on);font-weight:700;font-size:16px}
+#ev-l .cbox .ux{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;background:var(--soft);color:var(--ink);font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center}
+/* Upload card: thumbnails and empty placeholders (card opens the picker directly) */
+#ev-l .upth{position:relative;width:76px;height:58px;border-radius:10px;overflow:hidden;flex:none}
+#ev-l .upth img{width:100%;height:100%;object-fit:cover;display:block}
+#ev-l .uprm{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;border:2px solid var(--card);font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center}
+#ev-l .upph{width:76px;height:58px;flex:none;border:1.5px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:10.5px;text-align:center;line-height:1.25}
