@@ -135,6 +135,7 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
 
   const [installMsg, setInstallMsg] = useState('')
   const [copied, setCopied] = useState(false)
+  const [copyErr, setCopyErr] = useState(false)
   const [waiting, setWaiting] = useState(false)
   const install = () => {
     if (deferred) {
@@ -388,15 +389,33 @@ export default function InstallPage({ guideOnly, names }: { guideOnly?: boolean;
                     <input readOnly value={webUrl} onFocus={(e) => e.currentTarget.select()} style={{ flex: '1 1 220px', minWidth: 0, background: 'rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.2)', borderRadius: 12, color: '#fff', padding: '11px 12px', fontSize: 13 }} />
                     <button
                       onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(webUrl)
+                        // Clipboard first; some browsers block it, so fall back
+                        // to the classic hidden-input copy, and always answer
+                        // the tap with visible feedback either way.
+                        let ok = false
+                        try { await navigator.clipboard.writeText(webUrl); ok = true } catch {
+                          try {
+                            const ta = document.createElement('textarea')
+                            ta.value = webUrl
+                            ta.style.position = 'fixed'
+                            ta.style.opacity = '0'
+                            document.body.appendChild(ta)
+                            ta.select()
+                            ok = document.execCommand('copy')
+                            ta.remove()
+                          } catch { /* give up quietly */ }
+                        }
+                        if (ok) {
                           setCopied(true)
                           window.setTimeout(() => setCopied(false), 1800)
-                        } catch { /* clipboard blocked: the input above still shows the link */ }
+                        } else {
+                          setCopyErr(true)
+                          window.setTimeout(() => setCopyErr(false), 2200)
+                        }
                       }}
                       style={{ border: 'none', cursor: 'pointer', borderRadius: 12, padding: '11px 16px', fontWeight: 700, background: copied ? 'rgba(31,175,84,.35)' : 'rgba(255,255,255,.14)', color: '#fff', fontSize: 13 }}
                     >
-                      {copied ? 'Copied ✓' : 'Copy link'}
+                      {copied ? 'Copied ✓' : copyErr ? 'Copy failed' : 'Copy link'}
                     </button>
 
                   </div>
