@@ -31,6 +31,7 @@ const NAV = [
   { id: 'over', label: 'Overview' },
   { id: 'pipe', label: 'Pipeline' },
   { id: 'leads', label: 'Leads' },
+  { id: 'cust', label: 'Customers' },
   { id: 'onb', label: 'Onboard a couple' },
   { id: 'sites', label: 'Apps' },
   { id: 'ord', label: 'Orders' },
@@ -68,7 +69,7 @@ interface Site {
   tpl?: string
   since: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[] }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -979,7 +980,60 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   const [navOpen, setNavOpen] = useState(initialNavOpen)
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
+  // Customers: couples who built their own app from the landing page. Every
+  // landing signup lands in the leads collection with its email and the plan
+  // the couple picked, so this section reads them straight out of there and
+  // shows the trial countdown next to each one.
+  function customersSection() {
+    const now = Date.now()
+    const mine = (leads || []).filter((l) => !!l.email)
+    const demo = user?.uid === 'demo' && mine.length === 0
+      ? ([
+          { id: 'demo-cust-1', bride: 'Ada', groom: 'Obinna', email: 'ada.obinna@example.com', city: 'Lagos', template: 'halo', plan: 'Complete', createdAt: now - 8 * 3600e3, expiresAt: now + 16 * 3600e3 },
+          { id: 'demo-cust-2', bride: 'Tunde', groom: 'Sade', email: 'tunde.sade@example.com', city: 'Abuja', template: 'classic', plan: 'Essential', createdAt: now - 26 * 3600e3, expiresAt: now - 2 * 3600e3 },
+        ] as LeadDoc[])
+      : []
+    const rows = [...mine, ...demo].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    const since = (l: LeadDoc) => (l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—')
+    const trial = (l: LeadDoc) => {
+      const left = (l.expiresAt || 0) - now
+      if (left <= 0) return 'Trial ended'
+      return left >= 3600e3 ? Math.ceil(left / 3600e3) + ' h of trial left' : Math.max(1, Math.ceil(left / 60e3)) + ' min of trial left'
+    }
+    return (
+      <>
+        {head('Customers', 'Couples who built their own app from the landing page. Each row carries their email, the plan they picked and the countdown to the end of their free trial.')}
+        {rows.length === 0 ? (
+          <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
+        ) : (
+          <div className="card">
+            {rows.map((l) => (
+              <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'center', padding: '13px 0', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <b>{(l.bride || '') + ' & ' + (l.groom || '')}</b>
+                  <div style={{ color: 'var(--mut)', fontSize: 13 }}>{l.email}</div>
+                  <div style={{ color: 'var(--mut)', fontSize: 12.5 }}>
+                    Created {since(l)} · {l.city || '—'} · {(l.template || 'classic')} template
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span style={{
+                    display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700,
+                    background: (l.expiresAt || 0) > now ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)',
+                    color: (l.expiresAt || 0) > now ? '#1f8a5b' : 'var(--mut)',
+                  }}>
+                    {trial(l)}
+                  </span>
+                  <div style={{ color: 'var(--mut)', fontSize: 12.5, marginTop: 6 }}>{l.plan ? `Plan: ${l.plan}` : 'No plan picked'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    )
+  }
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
 
   return (
     <div className="evad">
