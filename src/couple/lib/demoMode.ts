@@ -1,7 +1,16 @@
 // Demo mode for Eventicor couple-app previews: /app renders the wedding-gallery
 // app itself with GENERIC content until a real couple's data is bound to it.
 // No real couple's names, dates, venues or photos ever appear in a preview.
-export const DEMO = true;
+// DEMO is a live binding: previews and marketing samples keep it true, and
+// CoupleApp flips it false (goLive) the moment a real couple's app renders, so
+// every demo branch re-reads it at call time. The content fixtures below stay
+// the same either way.
+export let DEMO = true;
+
+// Flip the couple app from demo fixtures to the real Firebase-backed app.
+// Only real couple apps call this (adminMode 'real'): previews, samples and
+// expired links stay in demo mode.
+export const goLive = () => { DEMO = false; };
 
 export const DEMO_COUPLE = {
   bride: 'Amara',

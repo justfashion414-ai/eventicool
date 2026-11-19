@@ -263,9 +263,27 @@ export default function CoupleApp() {
         catch (e: any) { out.push(`guest sign-in FAILED ${e?.code || String(e)}`); }
         try {
           const shim = await import('./lib/authShim') as any;
-          const c = await shim.signInWithEmailAndPassword(shim.auth, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7');
-          out.push(`shim sign-in OK uid ${c.user.uid}`);
-        } catch (e: any) { out.push(`shim sign-in FAILED ${e?.code || String(e)}`); }
+          // Real couple apps flip the shim to real auth once the lead resolves
+          // (a beat after this effect runs), so wait briefly for that flip and
+          // then test the exact path the admin gate uses.
+          let real = false;
+          for (let i = 0; i < 24; i++) {
+            if ((shim.debugState() as any).realAuth) { real = true; break; }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          if (!real) {
+            out.push('shim sign-in SKIPPED real auth not active (preview)');
+          } else {
+            try { const c = await shim.signInWithEmailAndPassword(shim.auth, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7'); out.push(`shim sign-in OK uid ${c.user.uid}`); }
+            catch (e: any) { out.push(`shim sign-in FAILED ${e?.code || String(e)}`); }
+            try {
+              const { db: coupleDb } = await import('./lib/firebase');
+              const { doc, getDoc } = await import('firebase/firestore');
+              const snap = await getDoc(doc(coupleDb, 'admins', 'authtest.eventicor@mailto.plus'));
+              out.push(`admins read ${snap.exists() ? 'OK' : 'MISSING'}`);
+            } catch (e: any) { out.push(`admins read FAILED ${e?.code || String(e)}`); }
+          }
+        } catch (e: any) { out.push(`shim FAILED ${e?.code || String(e)}`); }
       } catch (e: any) { out.push(`auth init FAILED ${e?.code || String(e)}`); }
       let d = document.getElementById('authtest-banner');
       if (!d) { d = document.createElement('div'); d.id = 'authtest-banner'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#111;color:#4f4;padding:10px;font:12px monospace;white-space:pre-wrap'; document.body.appendChild(d); }
@@ -300,7 +318,10 @@ export default function CoupleApp() {
   const adminMode = ((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as 'real' | 'none' | 'preview';
   // Real couple apps authenticate against Firebase for real: the demo shim's
   // local guest is only for previews and sample apps.
-  if (adminMode === 'real') enableRealAuth();
+  // Real couple apps flip out of demo mode (the demo fixtures and the
+  // Firestore/auth shims all re-read DEMO at call time) and authenticate
+  // against Firebase for real; previews and samples stay demo.
+  if (adminMode === 'real') { goLive(); enableRealAuth(); }
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
   if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" />;
@@ -321,4 +342,4 @@ export default function CoupleApp() {
   );
 }
 
-import { setLeadOverride } from './lib/demoMode';
+import { setLeadOverride, goLive } from './lib/demoMode';

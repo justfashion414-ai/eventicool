@@ -137,39 +137,42 @@ function applyMerge(target: any, data: any) {
   });
 }
 
-export const collection: any = DEMO
-  ? (_db: any, name: string) => ({ kind: 'col', path: name })
-  : FS.collection;
-export const doc: any = DEMO
-  ? (_db: any, ...segs: string[]) => ({ kind: 'doc', path: segs.join('/') })
-  : FS.doc;
-export const query: any = DEMO
-  ? (col: any, ..._clauses: any[]) => ({ ...col, clauses: _clauses })
-  : FS.query;
-export const orderBy: any = DEMO ? (_f: string, _d?: string) => ({ t: 'order' }) : FS.orderBy;
-export const where: any = DEMO ? (_f: string, _o: string, _v: any) => ({ t: 'where' }) : FS.where;
-export const limit: any = DEMO ? (_n: number) => ({ t: 'limit' }) : FS.limit;
-export const serverTimestamp: any = DEMO ? () => ({ __sv: 1 }) : FS.serverTimestamp;
-export const increment: any = DEMO ? (n: number) => ({ __inc: n }) : FS.increment;
+// Every export branches at CALL time on the live DEMO binding: previews keep
+// the demo store, and once goLive() flips DEMO the same calls forward to the
+// real Firebase SDK with the same signatures, so the couple app's reads and
+// writes hit the platform project for real.
+export const collection: any = (db: any, name: string) => DEMO ? { kind: 'col', path: name } : FS.collection(db, name);
+export const doc: any = (db: any, ...segs: string[]) => DEMO ? { kind: 'doc', path: segs.join('/') } : (FS.doc as any)(db, ...segs);
+export const query: any = (col: any, ...clauses: any[]) => DEMO ? { ...col, clauses } : FS.query(col, ...clauses);
+export const orderBy: any = (f: string, d?: string) => DEMO ? { t: 'order' } : FS.orderBy(f, d);
+export const where: any = (f: string, o: string, v: any) => DEMO ? { t: 'where' } : (FS as any).where(f, o, v);
+export const limit: any = (n: number) => DEMO ? { t: 'limit' } : FS.limit(n);
+export const serverTimestamp: any = () => DEMO ? { __sv: 1 } : FS.serverTimestamp();
+export const increment: any = (n: number) => DEMO ? { __inc: n } : FS.increment(n);
 
-export const onSnapshot: any = DEMO
-  ? (ref: any, cb: (s: any) => void, _errCb?: any) => {
-      const entry = { ref, cb };
-      listeners.push(entry);
-      emit(ref, cb);
-      return () => {
-        const i = listeners.indexOf(entry);
-        if (i >= 0) listeners.splice(i, 1);
-      };
-    }
-  : FS.onSnapshot;
+export const onSnapshot: any = (ref: any, cb: (s: any) => void, errCb?: any) => {
+  if (!DEMO) return FS.onSnapshot(ref, cb, errCb);
+  const entry = { ref, cb };
+  listeners.push(entry);
+  emit(ref, cb);
+  return () => {
+    const i = listeners.indexOf(entry);
+    if (i >= 0) listeners.splice(i, 1);
+  };
+};
 
-export const getDoc: any = DEMO
-  ? async (ref: any) => { let out: any; emit(ref, (s) => { out = s; }); return out; }
-  : FS.getDoc;
-export const getDocs: any = DEMO
-  ? async (ref: any) => { let out: any; emit(ref, (s) => { out = s; }); return out; }
-  : FS.getDocs;
+export const getDoc: any = async (ref: any) => {
+  if (!DEMO) return FS.getDoc(ref);
+  let out: any;
+  emit(ref, (s) => { out = s; });
+  return out;
+};
+export const getDocs: any = async (ref: any) => {
+  if (!DEMO) return FS.getDocs(ref);
+  let out: any;
+  emit(ref, (s) => { out = s; });
+  return out;
+};
 
 async function demoSet(docRef: any, data: any, opts?: any) {
   const path = docRef.path || '';
@@ -212,32 +215,30 @@ async function demoDelete(docRef: any) {
   emitAll();
 }
 
-export const setDoc: any = DEMO ? demoSet : FS.setDoc;
-export const updateDoc: any = DEMO ? demoUpdate : FS.updateDoc;
-export const deleteDoc: any = DEMO ? demoDelete : FS.deleteDoc;
-export const addDoc: any = DEMO
-  ? async (colRef: any, data: any) => {
-      const id = 'demo-' + Math.random().toString(36).slice(2, 8);
-      const item = { ...data, id, timestamp: data.timestamp || ts(new Date()) };
-      if ((colRef.path || '') === 'posts') store.posts.unshift(item);
-      emitAll();
-      return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
-    }
-  : FS.addDoc;
-export const writeBatch: any = DEMO
-  ? () => {
-      const ops: { kind: string; ref: any; data?: any; opts?: any }[] = [];
-      return {
-        set: (ref: any, data: any, opts?: any) => { ops.push({ kind: 'set', ref, data, opts }); },
-        update: (ref: any, data: any) => { ops.push({ kind: 'update', ref, data }); },
-        delete: (ref: any) => { ops.push({ kind: 'delete', ref }); },
-        commit: async () => {
-          for (const op of ops) {
-            if (op.kind === 'set') await demoSet(op.ref, op.data, op.opts);
-            else if (op.kind === 'update') await demoUpdate(op.ref, op.data);
-            else await demoDelete(op.ref);
-          }
-        },
-      };
-    }
-  : FS.writeBatch;
+export const setDoc: any = (ref: any, data: any, opts?: any) => DEMO ? demoSet(ref, data, opts) : FS.setDoc(ref, data, opts);
+export const updateDoc: any = (ref: any, data: any) => DEMO ? demoUpdate(ref, data) : FS.updateDoc(ref, data);
+export const deleteDoc: any = (ref: any) => DEMO ? demoDelete(ref) : FS.deleteDoc(ref);
+export const addDoc: any = async (colRef: any, data: any) => {
+  if (!DEMO) return FS.addDoc(colRef, data);
+  const id = 'demo-' + Math.random().toString(36).slice(2, 8);
+  const item = { ...data, id, timestamp: data.timestamp || ts(new Date()) };
+  if ((colRef.path || '') === 'posts') store.posts.unshift(item);
+  emitAll();
+  return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
+};
+export const writeBatch: any = (db?: any) => {
+  if (!DEMO) return FS.writeBatch(db);
+  const ops: { kind: string; ref: any; data?: any; opts?: any }[] = [];
+  return {
+    set: (ref: any, data: any, opts?: any) => { ops.push({ kind: 'set', ref, data, opts }); },
+    update: (ref: any, data: any) => { ops.push({ kind: 'update', ref, data }); },
+    delete: (ref: any) => { ops.push({ kind: 'delete', ref }); },
+    commit: async () => {
+      for (const op of ops) {
+        if (op.kind === 'set') await demoSet(op.ref, op.data, op.opts);
+        else if (op.kind === 'update') await demoUpdate(op.ref, op.data);
+        else await demoDelete(op.ref);
+      }
+    },
+  };
+};
