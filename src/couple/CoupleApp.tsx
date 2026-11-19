@@ -261,6 +261,11 @@ export default function CoupleApp() {
         catch (e: any) { out.push(`password sign-in FAILED ${e?.code || String(e)}`); }
         try { const g = await signInAnonymously(a); out.push(`guest sign-in OK uid ${g.user.uid}`); }
         catch (e: any) { out.push(`guest sign-in FAILED ${e?.code || String(e)}`); }
+        try {
+          const shim = await import('./lib/authShim') as any;
+          const c = await shim.signInWithEmailAndPassword(shim.auth, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7');
+          out.push(`shim sign-in OK uid ${c.user.uid}`);
+        } catch (e: any) { out.push(`shim sign-in FAILED ${e?.code || String(e)}`); }
       } catch (e: any) { out.push(`auth init FAILED ${e?.code || String(e)}`); }
       let d = document.getElementById('authtest-banner');
       if (!d) { d = document.createElement('div'); d.id = 'authtest-banner'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#111;color:#4f4;padding:10px;font:12px monospace;white-space:pre-wrap'; document.body.appendChild(d); }
