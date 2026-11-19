@@ -109,7 +109,8 @@ function SampleChip({ exp, trial }: { exp: number; trial?: boolean }) {
     const t = window.setInterval(() => setNow(Date.now()), 30000);
     return () => window.clearInterval(t);
   }, []);
-  const ms = Math.max(0, exp * 1000 - now);
+  const expMs = exp > 1e12 ? exp : exp * 1000; // sample links carry unix seconds, real couple links the lead's ms expiresAt
+  const ms = Math.max(0, expMs - now);
   const d = Math.floor(ms / 864e5);
   const h = Math.floor((ms % 864e5) / 36e5);
   const m = Math.floor((ms % 36e5) / 6e4);
@@ -227,7 +228,7 @@ export default function CoupleApp() {
   const leadId = params.get('lead') || '';
   const siteId = params.get('site') || '';
   const isSample = expRaw > 0 || !!leadId;
-  const expired = expRaw > 0 && Date.now() / 1000 > expRaw;
+  const expired = expRaw > 0 && Date.now() > (expRaw > 1e12 ? expRaw : expRaw * 1000);
   // The lead is resolved before the app renders so its names and uploaded
   // images are in place from the first paint; a lookup that cannot settle
   // (offline, or a lead id we cannot read) falls back to the generic demo.

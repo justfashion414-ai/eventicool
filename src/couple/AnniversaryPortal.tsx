@@ -1943,9 +1943,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               >
                 <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
-                  {DEMO ? demoBride() : 'Dara'}
+                  {demoBride()}
                   <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
-                  {DEMO ? demoGroom() : 'Femi'}
+                  {demoGroom()}
                 </h1>
                 <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
@@ -2072,9 +2072,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               }}>
                 <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
                 <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  {DEMO ? demoBride() : 'Dara'}
+                  {demoBride()}
                   <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  {DEMO ? demoGroom() : 'Femi'}
+                  {demoGroom()}
                 </h2>
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
 
@@ -4542,10 +4542,10 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
       </div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
-        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? demoBride() : 'Dara'}</h2>
+        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
-          <span>{DEMO ? demoGroom() : 'Femi'}</span>
+          <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
@@ -4566,10 +4566,10 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
-        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? demoBride() : 'Dara'}</h2>
+        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
-          <span>{DEMO ? demoGroom() : 'Femi'}</span>
+          <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
