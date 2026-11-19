@@ -9,6 +9,9 @@ import * as FA from 'firebase/auth';
 
 let realAuth = false;
 export const enableRealAuth = () => { realAuth = true; };
+// Debug-only (behind ?authdebug=1): reports whether the shim flipped to real
+// auth and which listener path the last onAuthStateChanged subscription took.
+export const debugState = () => ({ realAuth, listenerMode });
 
 const demoUser: any = {
   uid: 'demo-guest',
@@ -50,6 +53,7 @@ function localSignOut() {
 }
 
 function localOnAuthStateChanged(_auth: any, cb: (u: any) => void) {
+  (debugState as any).listenerMode = 'local';
   authListeners.push(cb);
   setTimeout(() => cb(current), 0);
   return () => {
@@ -59,7 +63,10 @@ function localOnAuthStateChanged(_auth: any, cb: (u: any) => void) {
 }
 
 export const onAuthStateChanged: any = DEMO
-  ? (...args: any[]) => (realAuth ? FA.onAuthStateChanged(realAuthInstance(), args[1]) : localOnAuthStateChanged(args[0], args[1]))
+  ? (...args: any[]) => {
+      if (realAuth) { (debugState as any).listenerMode = 'real'; return FA.onAuthStateChanged(realAuthInstance(), args[1]); }
+      return localOnAuthStateChanged(args[0], args[1]);
+    }
   : FA.onAuthStateChanged;
 
 export const signInAnonymously: any = DEMO
