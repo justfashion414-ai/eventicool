@@ -45,7 +45,9 @@ import {
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
+import { APP_ID, lsKey, scopedPath } from './lib/appScope';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -499,10 +501,10 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
 
 export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
-    try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
+    try { return localStorage.getItem(lsKey('last-tab')) || 'home'; } catch { return 'home'; }
   });
   const [feedSubTab, setFeedSubTab] = useState<'post' | 'reels'>(() => {
-    try { return (localStorage.getItem('ann-last-feedtab') as 'post' | 'reels') || 'post'; } catch { return 'post'; }
+    try { return (localStorage.getItem(lsKey('last-feedtab')) as 'post' | 'reels') || 'post'; } catch { return 'post'; }
   });
   const [videoOrientations, setVideoOrientations] = useState<Record<string, 'portrait' | 'landscape'>>({});
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
@@ -510,7 +512,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [footerImages, setFooterImages] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem('ann-footer-images');
+      const stored = localStorage.getItem(lsKey('footer-images'));
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -524,10 +526,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // land on the same look; a choice saved in the dashboard always wins.
   const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee'>(() => {
     try {
-      const saved = localStorage.getItem('ann-footer-style');
+      const saved = localStorage.getItem(lsKey('footer-style'));
       if (saved === 'wall' || saved === 'marquee') return saved;
       const pick = Math.random() < 0.5 ? 'wall' : 'marquee';
-      localStorage.setItem('ann-footer-style', pick);
+      localStorage.setItem(lsKey('footer-style'), pick);
       return pick;
     } catch { return Math.random() < 0.5 ? 'wall' : 'marquee'; }
   });
@@ -559,8 +561,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Firebase & Profile State
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [displayName, setDisplayName] = useState(localStorage.getItem('ann-profile-name') || '');
-  const [avatar, setAvatar] = useState(localStorage.getItem('ann-profile-avatar') || '');
+  const [displayName, setDisplayName] = useState(localStorage.getItem(lsKey('profile-name')) || '');
+  const [avatar, setAvatar] = useState(localStorage.getItem(lsKey('profile-avatar')) || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
@@ -593,6 +595,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     adminTapCountRef.current += 1;
     if (adminTapCountRef.current < 3) return;
     adminTapCountRef.current = 0;
+    // A signed-in admin goes straight back into the dashboard without signing
+    // in again; the session timeout (Settings > Security) is what protects it.
+    if (user && !user.isAnonymous && isAdmin) { goAdminPage(); return; }
     shortcutLoginRef.current = true;
     setAuthScreen('signin');
   };
@@ -649,7 +654,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
   const [heroImages, setHeroImages] = useState<string[]>(() => {
     try {
-      const cached = localStorage.getItem('ann-hero-images');
+      const cached = localStorage.getItem(lsKey('hero-images'));
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length) return parsed;
@@ -676,7 +681,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const [bookmarks, setBookmarks] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('ann-bookmarks') || '[]');
+      return JSON.parse(localStorage.getItem(lsKey('bookmarks')) || '[]');
     } catch {
       return [];
     }
@@ -684,6 +689,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
   const sessionWarningRef = useRef(false);
+  // Session length (minutes) for THIS admin; the value lives on their admins
+  // record on the server and is enforced there too. Default 30 minutes.
+  const sessionMinutesRef = useRef(30);
   const [userLikes, setUserLikes] = useState<Record<string, boolean>>({});
   const [userLoves, setUserLoves] = useState<Record<string, boolean>>({});
   const [reactionsLoading, setReactionsLoading] = useState(true);
@@ -714,7 +722,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // Keep the visitor where they were across refreshes
   useEffect(() => {
-    try { localStorage.setItem('ann-last-tab', activeTab); } catch {}
+    try { localStorage.setItem(lsKey('last-tab'), activeTab); } catch {}
   }, [activeTab]);
   // The phone's back button walks the app's own history instead of quitting the app.
   const viewStackRef = useRef<string[]>([]);
@@ -745,7 +753,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    try { localStorage.setItem('ann-last-feedtab', feedSubTab); } catch {}
+    try { localStorage.setItem(lsKey('last-feedtab'), feedSubTab); } catch {}
   }, [feedSubTab]);
 
   // Reopen the admin dashboard where it was left after a refresh
@@ -757,8 +765,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return;
     }
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
-      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, open: isAdminModalOpen }));
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+      localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, open: isAdminModalOpen }));
     } catch {}
   }, [isAdminModalOpen]);
   useEffect(() => {
@@ -776,7 +784,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   useEffect(() => {
     if (!user || !isAdmin) return;
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       if (storedAdminUi && storedAdminUi.open) {
         setIsAdminDashboardOpen(true);
         setRoute('/admin');
@@ -927,7 +935,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (!currUser.isAnonymous) {
           const idToken = await currUser.getIdTokenResult();
           const authTime = (idToken.claims.auth_time as any) || Math.floor(new Date(currUser.metadata.lastSignInTime || Date.now()).getTime() / 1000);
-          const expiresAt = (Number(authTime) + 1800) * 1000; // 30 minutes
+          const sessionMinutes = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
+          const expiresAt = (Number(authTime) + sessionMinutes * 60) * 1000;
           const now = Date.now();
           
           if (now >= expiresAt) {
@@ -995,7 +1004,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const isSuper = user.email === "justfashion414@gmail.com";
 
     // Sync profile (real wedding apps only: the demo stub db has no residents)
-    const profileUnsub = DEMO ? null : onSnapshot(doc(db, 'residents', user.uid), (snap) => {
+    const profileUnsub = DEMO ? null : onSnapshot(doc(db, scopedPath('residents'), user.uid), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.displayName) setDisplayName(data.displayName);
@@ -1008,15 +1017,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     // Sync admin status
     setAdminSync('sub:' + (user.email || 'anonymous'));
-    getDoc(doc(platformDb, 'admins', user.email || 'anonymous')).then((d) => setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')), (e: any) => setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))));
-    const adminUnsub = onSnapshot(doc(platformDb, 'admins', user.email || 'anonymous'), (snap) => {
+    getDoc(doc(platformDb, scopedPath('admins'), user.email || 'anonymous')).then((d) => setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')), (e: any) => setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))));
+    const adminUnsub = onSnapshot(doc(platformDb, scopedPath('admins'), user.email || 'anonymous'), (snap) => {
       if (snap.exists()) {
         setAdminSync('exists');
         setIsAdmin(true);
         setAdminPermissions(snap.data().permissions);
         setMustSetPassword(!!snap.data().mustSetPassword);
+        const mins = Number(snap.data().sessionMinutes);
+        if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else if (isSuper) {
+        // The platform owner gets provisioned into every app they open, so the
+        // server-side session and role checks recognise them here too.
+        setDoc(doc(platformDb, scopedPath('admins'), user.email || ''), {
+          email: user.email, role: 'owner', mustSetPassword: false, status: 'active',
+          permissions: { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
+        }, { merge: true }).catch(() => {});
         setMustSetPassword(false);
         setIsAdmin(true);
         setAdminPermissions({ 
@@ -1058,8 +1075,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const otherTypeActive = type === 'like' ? !!userLoves[postId] : !!userLikes[postId];
     
     const batch = writeBatch(db);
-    const reactionRef = doc(db, 'posts', postId, 'reactions', user.uid);
-    const postRef = doc(db, 'posts', postId);
+    const reactionRef = doc(db, scopedPath('posts'), postId, 'reactions', user.uid);
+    const postRef = doc(db, scopedPath('posts'), postId);
 
     try {
       // 1. Update the reaction document (merge)
@@ -1112,19 +1129,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) {
       // Previews run offline: hydrate anything saved in this preview session.
       try {
-        const saved = JSON.parse(localStorage.getItem('ann-demo-cfg') || 'null');
+        const saved = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || 'null');
         if (saved && Array.isArray(saved.events) && saved.events.length) setCfgEvents(saved.events);
         if (saved && typeof saved.story === 'string' && saved.story.trim()) setCfgStory(saved.story);
         if (saved && saved.weddingDetails && typeof saved.weddingDetails === 'object') setCfgDetails(saved.weddingDetails);
       } catch {}
       try {
-        const demoCode = localStorage.getItem('ann-demo-code');
+        const demoCode = localStorage.getItem(lsKey('demo-code'));
         setActiveAccessCode(normalizeCode(demoCode || DEMO_ACCESS_CODE));
       } catch { setActiveAccessCode(normalizeCode(DEMO_ACCESS_CODE)); }
       setConfigLoaded(true);
       return;
     }
-    const unsub = onSnapshot(doc(db, 'app_config', 'main'), (snap) => {
+    const unsub = onSnapshot(doc(db, scopedPath('app_config'), 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.activeAccessCode) {
@@ -1133,7 +1150,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (!DEMO && Array.isArray(data.heroImages)) {
           setHeroImages(data.heroImages);
           try {
-            localStorage.setItem('ann-hero-images', JSON.stringify(data.heroImages));
+            localStorage.setItem(lsKey('hero-images'), JSON.stringify(data.heroImages));
           } catch {
             // Ignore storage quota error
           }
@@ -1141,14 +1158,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (Array.isArray(data.footerImages)) {
           setFooterImages(data.footerImages);
           try {
-            localStorage.setItem('ann-footer-images', JSON.stringify(data.footerImages));
+            localStorage.setItem(lsKey('footer-images'), JSON.stringify(data.footerImages));
           } catch {
             // Ignore storage quota error
           }
         }
         if (data.footerStyle === 'wall' || data.footerStyle === 'marquee') {
           setFooterStyle(data.footerStyle);
-          try { localStorage.setItem('ann-footer-style', data.footerStyle); } catch {}
+          try { localStorage.setItem(lsKey('footer-style'), data.footerStyle); } catch {}
         }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
@@ -1190,7 +1207,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 2c. Residents (guest profiles + vendor requests). Public read per rules.
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'residents'), (snap) => {
+    const unsub = onSnapshot(collection(db, scopedPath('residents')), (snap) => {
       const arr: any[] = [];
       snap.forEach((d) => arr.push({ uid: d.id, ...d.data() }));
       setResidents(arr);
@@ -1208,10 +1225,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     
     const initConfig = async () => {
       try {
-        const snap = await getDoc(doc(db, 'app_config', 'main'));
+        const snap = await getDoc(doc(db, scopedPath('app_config'), 'main'));
+        if (snap.exists() && snap.data().activeAccessCode === DEMO_ACCESS_CODE) {
+          const derived = (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : '';
+          if (derived && derived !== DEMO_ACCESS_CODE) {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), { activeAccessCode: derived }, { merge: true });
+          }
+        }
         if (!snap.exists()) {
-          await setDoc(doc(db, 'app_config', 'main'), {
-            activeAccessCode: DEMO_ACCESS_CODE,
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+            activeAccessCode: (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : DEMO_ACCESS_CODE,
             createdAt: serverTimestamp(),
             events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
             story: demoStory(),
@@ -1219,7 +1242,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             heroImages: demoHeroImages()
           });
         } else if (!Array.isArray(snap.data().events)) {
-          await setDoc(doc(db, 'app_config', 'main'), {
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), {
             events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
             story: snap.data().story || demoStory(),
             weddingDetails: snap.data().weddingDetails || detailsData()
@@ -1236,11 +1259,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     // Also sync all admins if super admin
     if (user?.email === "justfashion414@gmail.com") {
-      const unsubAdmins = onSnapshot(collection(db, 'admins'), (snap) => {
+      const unsubAdmins = onSnapshot(collection(db, scopedPath('admins')), (snap) => {
         setAllAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
 
-      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+      const unsubDeleted = onSnapshot(collection(db, scopedPath('deleted_posts')), (snap) => {
         const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setDeletedPosts(docs);
         
@@ -1251,7 +1274,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const deletedAt = dp.deletedAt?.toDate?.() || new Date(dp.deletedAt);
           if (now - deletedAt.getTime() > threeDaysMs) {
             try {
-              await deleteDoc(doc(db, 'deleted_posts', dp.id));
+              await deleteDoc(doc(db, scopedPath('deleted_posts'), dp.id));
               console.log("Auto-purged old deleted post:", dp.id);
             } catch (err) {
               console.error("Purge error:", err);
@@ -1266,7 +1289,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       };
     } else if (isAdmin) {
       // Just sync deleted posts for regular admins with permission
-      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+      const unsubDeleted = onSnapshot(collection(db, scopedPath('deleted_posts')), (snap) => {
         setDeletedPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
       return () => unsubDeleted();
@@ -1323,7 +1346,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setSetPasswordBusy(true);
     try {
       if (user) await updatePassword(user, newPassword);
-      if (user?.email) await setDoc(doc(platformDb, 'admins', user.email), { mustSetPassword: false }, { merge: true });
+      if (user?.email) await setDoc(doc(platformDb, scopedPath('admins'), user.email), { mustSetPassword: false }, { merge: true });
       setMustSetPassword(false);
       setNewPassword('');
       setConfirmNewPassword('');
@@ -1371,7 +1394,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const normalizedDemo = normalizeCode(newCode);
       if (!normalizedDemo || normalizedDemo.length < 4) return;
       setActiveAccessCode(normalizedDemo);
-      try { localStorage.setItem('ann-demo-code', normalizedDemo); } catch {}
+      try { localStorage.setItem(lsKey('demo-code'), normalizedDemo); } catch {}
       showToast('Access code saved for this preview.');
       return;
     }
@@ -1380,7 +1403,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (!normalized || normalized.length < 4) return;
 
     try {
-      await setDoc(doc(db, 'app_config', 'main'), {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         activeAccessCode: normalized,
         lastUpdated: serverTimestamp()
       }, { merge: true });
@@ -1395,14 +1418,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const updateWedding = async (events: WeddingEvent[], story: string, details: any) => {
     if (DEMO) {
-      try { localStorage.setItem('ann-demo-cfg', JSON.stringify({ events, story, weddingDetails: details })); } catch {}
+      try { localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ events, story, weddingDetails: details })); } catch {}
       setCfgEvents(events); setCfgStory(story); setCfgDetails(details);
       showToast('Saved for this preview.');
       return;
     }
     if (!isAdmin || !isAdminSessionValid) return;
     try {
-      await setDoc(doc(db, 'app_config', 'main'), {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         events,
         story,
         weddingDetails: details,
@@ -1422,7 +1445,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const updatePeople = async (patch: { vendors?: string[]; blockedUids?: string[] }) => {
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Failed to update.', 'error');
@@ -1433,9 +1456,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
       const next = approve ? Array.from(new Set([...(vendors || []), uid])) : (vendors || []).filter((u: any) => u !== uid);
-      await setDoc(doc(db, 'app_config', 'main'), { vendors: next, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { vendors: next, lastUpdated: serverTimestamp() }, { merge: true });
       try {
-        await updateDoc(doc(db, 'residents', uid), { vendorRequest: { status: approve ? 'approved' : 'declined', decidedAt: serverTimestamp() } });
+        await updateDoc(doc(db, scopedPath('residents'), uid), { vendorRequest: { status: approve ? 'approved' : 'declined', decidedAt: serverTimestamp() } });
       } catch (err: any) {
         console.error('Vendor request status update needs superadmin:', err?.message || err);
       }
@@ -1450,7 +1473,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) { showToast('Saved for this preview.'); return; }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
       showToast(okMsg);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
@@ -1462,7 +1485,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const updateHeroLabels = async (map: Record<string, string>) => {
     setHeroImageLabels(map);
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { heroImageLabels: map, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { heroImageLabels: map, lastUpdated: serverTimestamp() }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save the label.', 'error');
@@ -1474,8 +1497,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const updateWeddingSection = async (patch: Record<string, any>) => {
     if (DEMO) {
       try {
-        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
-        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, ...patch }));
+        const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+        localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, ...patch }));
       } catch {}
       if ('events' in patch) setCfgEvents(patch.events);
       if ('story' in patch) setCfgStory(patch.story);
@@ -1485,7 +1508,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
     if (!isAdmin || !isAdminSessionValid) return;
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
       if ('events' in patch) setCfgEvents(patch.events);
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
@@ -1499,11 +1522,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Giant footer style (dashboard setting; couples pick the look).
   const updateFooterStyle = async (style: 'wall' | 'marquee') => {
     setFooterStyle(style);
-    try { localStorage.setItem('ann-footer-style', style); } catch {}
+    try { localStorage.setItem(lsKey('footer-style'), style); } catch {}
     if (DEMO) { showToast('Giant footer style saved for this preview.'); return; }
     if (!isAdmin) return;
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
       showToast('Giant footer style saved.');
     } catch (err) {
       console.error('Update footer style error:', err);
@@ -1518,14 +1541,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setCfgEvents(next as any);
     if (DEMO) {
       try {
-        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
-        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, events: next }));
+        const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+        localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, events: next }));
       } catch {}
       showToast('Saved for this preview.');
       return;
     }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { events: next, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { events: next, lastUpdated: serverTimestamp() }, { merge: true });
       showToast('Event photos saved.');
     } catch (err) {
       console.error('Update event photos error:', err);
@@ -1536,7 +1559,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const approvePost = async (postId: string) => {
     try {
-      await updateDoc(doc(db, 'posts', postId), { pending: false });
+      await updateDoc(doc(db, scopedPath('posts'), postId), { pending: false });
       showToast('Approved. Guests can now see it', 'success');
     } catch (err) {
       console.error(err);
@@ -1598,10 +1621,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const deleteAllGuestData = async () => {
     if (!isAdmin || adminPermissions?.canDeletePosts === false) { showToast('You do not have permission to delete posts.', 'error'); return; }
     try {
-      const snap = await getDocs(collection(db, 'posts'));
+      const snap = await getDocs(collection(db, scopedPath('posts')));
       let n = 0;
       for (const d of snap.docs) {
-        await deleteDoc(doc(db, 'posts', d.id));
+        await deleteDoc(doc(db, scopedPath('posts'), d.id));
         n += 1;
       }
       showToast(`Deleted ${n} ${n === 1 ? 'post' : 'posts'}.`);
@@ -1723,7 +1746,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) {
       setPosts(demoSeedPosts() as any); setIsPostsLoading(false); return;
     } // Previews read seeded demo posts only
-    const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
+    const q = query(collection(db, scopedPath('posts')), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snapshot) => {
       if (snapshot.empty) {
         // Until the couple's first real post, a real app shows the same lively
@@ -1828,11 +1851,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 3. Handle Local Persistence
   useEffect(() => {
-    localStorage.setItem('ann-profile-name', displayName);
+    localStorage.setItem(lsKey('profile-name'), displayName);
   }, [displayName]);
 
   useEffect(() => {
-    localStorage.setItem('ann-profile-avatar', avatar);
+    localStorage.setItem(lsKey('profile-avatar'), avatar);
   }, [avatar]);
 
   // Handle profile save to Firestore
@@ -1850,7 +1873,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         finalAvatarUrl = url;
       }
 
-      await setDoc(doc(db, 'residents', user.uid), {
+      await setDoc(doc(db, scopedPath('residents'), user.uid), {
         displayName,
         photoUrl: finalAvatarUrl,
         updatedAt: serverTimestamp()
@@ -1904,7 +1927,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   }, [fontSize]);
 
   useEffect(() => {
-    localStorage.setItem('ann-bookmarks', JSON.stringify(bookmarks));
+    localStorage.setItem(lsKey('bookmarks'), JSON.stringify(bookmarks));
   }, [bookmarks]);
 
   const toggleBookmark = (id: string) => {
@@ -2686,12 +2709,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const capped = urls.slice(0, 14);
           setHeroImages(capped);
           try {
-            localStorage.setItem('ann-hero-images', JSON.stringify(capped));
+            localStorage.setItem(lsKey('hero-images'), JSON.stringify(capped));
           } catch {
             // Ignore quota error
           }
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               heroImages: capped,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2706,12 +2729,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const capped = urls.slice(0, 40);
           setFooterImages(capped);
           try {
-            localStorage.setItem('ann-footer-images', JSON.stringify(capped));
+            localStorage.setItem(lsKey('footer-images'), JSON.stringify(capped));
           } catch {
             // Ignore quota error
           }
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               footerImages: capped,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2733,7 +2756,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         reelAds={reelAds}
         onUpdatePostAds={async (ads: AdItem[]) => {
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               postAds: ads,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2745,7 +2768,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         }}
         onUpdateReelAds={async (ads: AdItem[]) => {
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               reelAds: ads,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -3027,7 +3050,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           const url = await uploadToCloudinary(tempAvatar, 'residents');
                           finalAvatarUrl = url;
                           // Update residents collection too
-                          await setDoc(doc(db, 'residents', user.uid), {
+                          await setDoc(doc(db, scopedPath('residents'), user.uid), {
                             displayName,
                             photoUrl: finalAvatarUrl,
                             updatedAt: serverTimestamp()
@@ -3081,7 +3104,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           setUploadingPost((prev) => prev ? { ...prev, uploadProgress: Math.min(99, Math.round((uploadedCount / totalFiles) * 100)) } : prev);
                         }
 
-                        await addDoc(collection(db, 'posts'), {
+                        await addDoc(collection(db, scopedPath('posts')), {
                           authorUid: user.uid,
                           authorName: displayName || 'Guest',
                           authorPhoto: finalAvatarUrl || null,
@@ -3614,7 +3637,7 @@ function Post({
 
   useEffect(() => {
     if (!user || !id) return;
-    const reactionRef = doc(db, 'posts', id, 'reactions', user.uid);
+    const reactionRef = doc(db, scopedPath('posts'), id, 'reactions', user.uid);
     const unsub = onSnapshot(reactionRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -4018,7 +4041,7 @@ function ReelCard({
 
   useEffect(() => {
     if (isSample || !user || !reel.id) return;
-    const reactionRef = doc(db, 'posts', reel.id, 'reactions', user.uid);
+    const reactionRef = doc(db, scopedPath('posts'), reel.id, 'reactions', user.uid);
     const unsub = onSnapshot(reactionRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -4379,7 +4402,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
 
   useEffect(() => {
     if (isSample || DEMO || !post?.id) return;
-    const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'asc'));
+    const q = query(collection(db, scopedPath('posts'), post.id, 'comments'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     }, (err) => console.error('comments load failed', err));
@@ -4394,14 +4417,14 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
       if (isSample || DEMO) {
         setComments((prev) => [...prev, { authorName: displayName || 'Guest', text: body, timeAgo: 'Just now' }]);
       } else {
-        await addDoc(collection(db, 'posts', post.id, 'comments'), {
+        await addDoc(collection(db, scopedPath('posts'), post.id, 'comments'), {
           authorUid: user?.uid || null,
           authorName: displayName || 'Guest',
           authorPhoto: avatar || null,
           text: body,
           createdAt: serverTimestamp(),
         });
-        await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(1) });
+        await updateDoc(doc(db, scopedPath('posts'), post.id), { commentCount: increment(1) });
       }
       setText('');
       if (showToast) showToast('Comment added');
@@ -4419,8 +4442,8 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
       return;
     }
     try {
-      await deleteDoc(doc(db, 'posts', post.id, 'comments', c.id));
-      await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(-1) });
+      await deleteDoc(doc(db, scopedPath('posts'), post.id, 'comments', c.id));
+      await updateDoc(doc(db, scopedPath('posts'), post.id), { commentCount: increment(-1) });
     } catch (err) {
       console.error('comment delete failed', err);
     }
@@ -5039,7 +5062,7 @@ function AdminDashboardModal({
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       const storedTab = storedAdminUi?.tab;
       return storedTab && ['overview', 'moderation', 'posts', 'events', 'hero', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
@@ -5051,8 +5074,8 @@ function AdminDashboardModal({
 
   useEffect(() => {
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
-      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, tab: activeAdminTab }));
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+      localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, tab: activeAdminTab }));
     } catch {}
   }, [activeAdminTab]);
 
@@ -5060,14 +5083,14 @@ function AdminDashboardModal({
   // uploader's name and the upload date.
   useEffect(() => {
     if (!isOpen) return;
-    const q = query(collection(db, 'albums'), orderBy('uploadedAt', 'desc'));
+    const q = query(collection(db, scopedPath('albums')), orderBy('uploadedAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => setAlbums(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), (err) => console.error('Albums load error:', err));
     return () => unsub();
   }, [isOpen]);
 
   // Photographers and vendors see and do exactly one thing here: Photo albums.
   const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail);
-  const restrictedRole = myAdminDoc?.role === 'photographer' || myAdminDoc?.role === 'vendor';
+  const restrictedRole = ['photographer', 'videographer', 'vendor'].includes(myAdminDoc?.role);
   useEffect(() => {
     if (restrictedRole && activeAdminTab !== 'albums') setActiveAdminTab('albums');
   }, [restrictedRole, activeAdminTab]);
@@ -5081,7 +5104,7 @@ function AdminDashboardModal({
     for (const file of list) {
       try {
         const url = await uploadToCloudinary(file, 'albums');
-        await addDoc(collection(db, 'albums'), {
+        await addDoc(collection(db, scopedPath('albums')), {
           mediaUrl: url,
           mediaType: kind === 'video' ? 'video' : 'image',
           uploaderName,
@@ -5099,7 +5122,7 @@ function AdminDashboardModal({
 
   const deleteAlbumMedia = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'albums', id));
+      await deleteDoc(doc(db, scopedPath('albums'), id));
       if (showToast) showToast('Removed from the album.', 'success');
     } catch (err) {
       console.error('Album delete error:', err);
@@ -5108,7 +5131,7 @@ function AdminDashboardModal({
   };
 
   const handleAdminSignOut = () => {
-    try { localStorage.removeItem('ann-admin-ui'); } catch {}
+    try { localStorage.removeItem(lsKey('admin-ui')); } catch {}
     signOut(auth);
     onClose();
   };
@@ -5159,7 +5182,7 @@ function AdminDashboardModal({
 
   const applyInviteRole = (r: string) => {
     setInviteRole(r);
-    setInvitePerms(r === 'couple'
+    setInvitePerms(['couple', 'bride', 'groom'].includes(r)
       ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
       : { canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
   };
@@ -5215,21 +5238,24 @@ function AdminDashboardModal({
     try {
       const currentUser = auth.currentUser;
       const token = currentUser ? await currentUser.getIdToken() : '';
-      const tempPassword = 'DF' + Math.random().toString(36).slice(2, 10);
+      const tempPassword = 'EV' + Math.random().toString(36).slice(2, 10);
       const res = await fetch('/api/auth-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'invite', email, password: tempPassword, role: inviteRole })
+        body: JSON.stringify({ action: 'invite', email, password: tempPassword, role: inviteRole, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         const rolePerms: any = { ...perms };
         try {
-          await setDoc(doc(db, 'admins', email.toLowerCase().trim()), {
+          await setDoc(doc(db, scopedPath('admins'), email.toLowerCase().trim()), {
             email: email.toLowerCase().trim(),
             role: inviteRole,
             mustSetPassword: true,
             permissions: rolePerms,
+            mustSetPassword: true,
+            status: 'active',
+            sessionMinutes: 30,
             addedAt: serverTimestamp(),
             addedBy: currentUserEmail
           }, { merge: true });
@@ -5369,7 +5395,7 @@ function AdminDashboardModal({
   };
   const handleDismissReport = async (id: string) => {
     try {
-      await updateDoc(doc(db, 'posts', id), { reports: 0 });
+      await updateDoc(doc(db, scopedPath('posts'), id), { reports: 0 });
       showToast('Report dismissed', 'success');
     } catch (err) {
       console.error('Dismiss error:', err);
@@ -5412,7 +5438,7 @@ function AdminDashboardModal({
   const handleAddAdmin = async () => {
     if (!newAdminEmail.trim() || !newAdminEmail.includes('@')) return;
     try {
-      await setDoc(doc(db, 'admins', newAdminEmail.toLowerCase().trim()), {
+      await setDoc(doc(db, scopedPath('admins'), newAdminEmail.toLowerCase().trim()), {
         email: newAdminEmail.toLowerCase().trim(),
         permissions: {
           canDeletePosts: true,
@@ -5429,10 +5455,33 @@ function AdminDashboardModal({
     }
   };
 
+  // Team actions run through the auth-admin function so the invited person's
+  // login account is created, suspended or deleted alongside their record here.
+  const authAdminCall = async (action: string, extra: Record<string, any> = {}) => {
+    const cu = auth.currentUser;
+    const token = cu ? await cu.getIdToken() : '';
+    const res = await fetch('/api/auth-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, app: APP_ID, ...extra })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'That did not go through. Try again.');
+    return data;
+  };
+  const handleSuspendAdmin = async (email: string, suspend: boolean) => {
+    try {
+      await authAdminCall(suspend ? 'suspend' : 'reinstate', { email });
+      showToast(suspend ? `${email} can no longer sign in.` : `${email} can sign in again.`);
+    } catch (err: any) {
+      console.error('Suspend admin error:', err);
+      showToast(err?.message || 'Could not update that administrator.', 'error');
+    }
+  };
   const handleRemoveAdmin = async (email: string) => {
-    if (confirm(`Remove ${email} from administrators?`)) {
+    if (confirm(`Remove ${email} from administrators? They lose access immediately.`)) {
       try {
-        await deleteDoc(doc(db, 'admins', email));
+        await authAdminCall('remove', { email });
         showToast(`${email} removed from administrators.`);
       } catch (err) {
         console.error("Remove admin error:", err);
@@ -5443,7 +5492,7 @@ function AdminDashboardModal({
 
   const togglePermission = async (email: string, perm: string, currentVal: boolean) => {
     try {
-      const adminRef = doc(db, 'admins', email);
+      const adminRef = doc(db, scopedPath('admins'), email);
       await setDoc(adminRef, {
         permissions: {
           [perm]: !currentVal
@@ -5455,6 +5504,50 @@ function AdminDashboardModal({
       showToast('Could not update the permission.', 'error');
     }
   };
+
+  // --- Security: change password and session length ---
+  const [pwForm, setPwForm] = useState({ cur: '', next: '', confirm: '' });
+  const [pwShow, setPwShow] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [sessionChoice, setSessionChoice] = useState<number>(30);
+  useEffect(() => {
+    const mins = Number(myAdminDoc?.sessionMinutes);
+    if (mins >= 5) setSessionChoice(Math.min(mins, 10080));
+  }, [myAdminDoc?.sessionMinutes]);
+  const sessionLabel = (m: number) => m < 60 ? `${m} minutes` : m < 1440 ? (m === 60 ? '1 hour' : `${m / 60} hours`) : m < 10080 ? (m === 1440 ? '1 day' : `${m / 1440} days`) : '1 week';
+  const handleChangePassword = async () => {
+    if (!pwForm.cur || !pwForm.next || !pwForm.confirm) { showToast('Fill in all three password fields.', 'error'); return; }
+    if (pwForm.next !== pwForm.confirm) { showToast('The new passwords do not match.', 'error'); return; }
+    if (pwForm.next.length < 8) { showToast('Use at least 8 characters for the new password.', 'error'); return; }
+    setPwBusy(true);
+    try {
+      const cu = auth.currentUser as any;
+      if (!cu?.email) throw new Error('Sign in again to change your password.');
+      await reauthenticateWithCredential(cu, EmailAuthProvider.credential(cu.email, pwForm.cur));
+      await updatePassword(cu, pwForm.next);
+      setPwForm({ cur: '', next: '', confirm: '' });
+      showToast('Password updated.');
+    } catch (err: any) {
+      const code = err?.code || '';
+      const msg = code === 'auth/wrong-password' || code === 'auth/invalid-credential' ? 'The current password is not correct.'
+        : code === 'auth/weak-password' ? 'That password is too weak.'
+        : code === 'auth/too-many-requests' ? 'Too many attempts. Try again shortly.'
+        : (err?.message || 'Could not update the password.');
+      showToast(msg, 'error');
+    } finally { setPwBusy(false); }
+  };
+  const handleUpdateSession = async (mins: number) => {
+    setSessionChoice(mins);
+    try {
+      await setDoc(doc(db, scopedPath('admins'), currentUserEmail || ''), { sessionMinutes: mins }, { merge: true });
+      sessionMinutesRef.current = mins;
+      showToast(`Auto sign-out set: ${sessionLabel(mins)}.`);
+    } catch (err) {
+      console.error('Session update error:', err);
+      showToast('Could not save the session length.', 'error');
+    }
+  };
+  const roleLabel = (r?: string) => (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
   
   return (
     <AnimatePresence>
@@ -5518,7 +5611,7 @@ function AdminDashboardModal({
                           { id: 'posts', label: 'All posts', icon: Film },
                           { id: 'events', label: 'Events & details', icon: Calendar },
                           { id: 'hero', label: 'Hero photos', icon: ImageIcon },
-                          { id: 'albums', label: 'Photo albums', icon: Images },
+                          { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
@@ -5587,7 +5680,7 @@ function AdminDashboardModal({
                     { id: 'posts', label: 'All posts', icon: Film },
                     { id: 'events', label: 'Events & details', icon: Calendar },
                     { id: 'hero', label: 'Hero photos', icon: ImageIcon },
-                    { id: 'albums', label: 'Photo albums', icon: Images },
+                    { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
                   ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                     <button
@@ -5729,7 +5822,7 @@ function AdminDashboardModal({
                               <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              <button onClick={async () => { try { await updateDoc(doc(db, 'posts', p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : 'Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
+                              <button onClick={async () => { try { await updateDoc(doc(db, scopedPath('posts'), p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : 'Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
                               <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Reject</button>
                             </div>
                           </div>
@@ -6111,7 +6204,7 @@ function AdminDashboardModal({
               {activeAdminTab === 'albums' && (
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Photo albums</h3>
+                    <h3 className="font-black font-display text-lg mb-1">Vendor albums</h3>
                     <p className="text-sm opacity-60">Photos and videos from the photographers and vendors, each stamped with the upload date and the name of who added it.</p>
                   </div>
                   {([['photo', 'Photos', 'Add photos', 'image/*'], ['video', 'Videos', 'Add videos', 'video/*']] as [string, string, string, string][]).map(([kind, label, btnLabel, accept]) => {
@@ -6186,6 +6279,45 @@ function AdminDashboardModal({
                     )}
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security</h3>
+                    <p className="text-sm opacity-60 mb-4">Change your password and choose how long your admin session stays open.</p>
+                    <div className="space-y-2 mb-4">
+                      {([['cur', 'Current password'], ['next', 'New password'], ['confirm', 'Confirm new password']] as ['cur' | 'next' | 'confirm', string][]).map(([k, label]) => (
+                        <div key={k} className="relative">
+                          <input
+                            type={pwShow ? 'text' : 'password'}
+                            value={pwForm[k]}
+                            onChange={(e) => setPwForm((prev) => ({ ...prev, [k]: e.target.value }))}
+                            placeholder={label}
+                            autoComplete="new-password"
+                            className={`${inputCls} w-full pr-12`}
+                          />
+                          <button type="button" aria-label={pwShow ? 'Hide passwords' : 'Show passwords'} onClick={() => setPwShow((v) => !v)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                            {pwShow ? <EyeOff className="w-4 h-4 opacity-60" /> : <Eye className="w-4 h-4 opacity-60" />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={handleChangePassword} disabled={pwBusy} className={`w-full py-3.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest mb-1 ${pwBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>
+                      {pwBusy ? 'Updating…' : 'Update password'}
+                    </button>
+                    <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
+                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select
+                        value={sessionChoice}
+                        onChange={(e) => handleUpdateSession(Number(e.target.value))}
+                        className={`${inputCls} max-w-[220px] appearance-none pr-8`}
+                      >
+                        {[[30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [720, '12 hours'], [1440, '1 day'], [10080, '1 week']].map(([m, label]) => (
+                          <option key={m} value={m}>{label}</option>
+                        ))}
+                      </select>
+                      <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
+                    </div>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
                     <div className="space-y-4">
                       {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
@@ -6235,21 +6367,30 @@ function AdminDashboardModal({
                           <div className="flex items-center justify-between mb-3 gap-2">
                             <span className="font-bold text-sm break-all">{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
                             {!adm.isSelf && (
-                              <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {adm.status === 'suspended' ? (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, false)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)]">Reinstate</button>
+                                ) : (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, true)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#C8932A] text-[#C8932A]">Suspend</button>
+                                )}
+                                <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${adm.role === 'couple' || !adm.role || adm.role === 'admin' ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
-                              {adm.role === 'photographer' ? 'Photographer' : adm.role === 'vendor' ? 'Vendor' : 'Couple'}
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${!adm.role || ['couple', 'admin', 'bride', 'groom'].includes(adm.role) ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
+                              {roleLabel(adm.role)}
                             </span>
-                            {adm.mustSetPassword === true ? (
+                            {adm.status === 'suspended' ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
+                            ) : adm.mustSetPassword === true ? (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
                             )}
-                            {(!adm.role || adm.role === 'couple' || adm.role === 'admin') && [
+                            {(!adm.role || ['couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
                               { id: 'canDeletePosts', label: 'Delete Posts' },
                               { id: 'canUploadImages', label: 'Upload Images' },
                               { id: 'canSetAccessCode', label: 'Access Code' }
@@ -6294,8 +6435,8 @@ function AdminDashboardModal({
                                   </button>
                                 </div>
                                 <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Who are they?</label>
-                                <div className="grid grid-cols-3 gap-2 mb-4">
-                                  {([['couple', 'Couple', 'Full dashboard'], ['photographer', 'Photographer', 'Photo albums'], ['vendor', 'Vendor', 'Photo albums']] as [string, string, string][]).map(([r, label, sub]) => (
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                  {([['bride', 'Bride', 'Full dashboard'], ['groom', 'Groom', 'Full dashboard'], ['photographer', 'Photographer', 'Vendor albums only'], ['videographer', 'Videographer', 'Vendor albums only']] as [string, string, string][]).map(([r, label, sub]) => (
                                     <button key={r} type="button" onClick={() => applyInviteRole(r)} className={`p-3 rounded-2xl border text-left transition-all ${inviteRole === r ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)] shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
                                       <span className="block text-[0.65rem] font-black uppercase tracking-widest">{label}</span>
                                       <span className={`block text-[0.6rem] mt-1 ${inviteRole === r ? 'text-white/70' : 'opacity-50'}`}>{sub}</span>

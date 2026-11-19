@@ -171,6 +171,59 @@ export default async (req) => {
     return json(401, { error: 'Invalid or expired token' })
   }
 
+  // Server-side enforcement for per-app data. Every couple app's data lives
+  // under apps/<app>/...; admins of that app are named in apps/<app>/admins.
+  // Suspended admins are refused outright, admin sessions expire by the
+  // length each admin set (enforced here, not just in the browser), vendors
+  // (photographer / videographer) may touch only the vendor albums, and
+  // non-admin users (guests) may only write posts and resident profiles.
+  const APPS_RE = /^apps\/([^/]+)\//
+  const colPath = String(body.collection || '')
+  const appMatch = APPS_RE.exec(colPath)
+  if (appMatch) {
+    const email = String(decoded.email || '').toLowerCase()
+    if (email) {
+      let adminDoc = null
+      try {
+        adminDoc = await getFirestore().collection('apps').doc(appMatch[1]).collection('admins').doc(email).get()
+      } catch {}
+      if (adminDoc && adminDoc.exists) {
+        const a = adminDoc.data() || {}
+        if (a.status === 'suspended') return json(403, { error: 'This admin access is suspended.' })
+        const mins = Math.max(5, Math.min(Number(a.sessionMinutes) || 30, 60 * 24 * 7))
+        const authTime = Number(decoded.auth_time) || 0
+        if (authTime && Date.now() / 1000 > authTime + mins * 60) {
+          return json(401, { error: 'Your admin session expired. Sign in again.' })
+        }
+        const restricted = ['photographer', 'videographer', 'vendor'].includes(a.role)
+        if (restricted && !colPath.replace(/^apps\/[^/]+\//, '').startsWith('albums')) {
+          return json(403, { error: 'Your role is limited to the vendor albums.' })
+        }
+      } else {
+        // A signed-in user who is not an admin of this app is a guest: they may
+        // add to the feed and keep their own profile, nothing else.
+        const writeOp = ['add', 'set', 'update', 'delete'].includes(body.op)
+        const tail = colPath.replace(APPS_RE, '')
+        if (writeOp && !tail.startsWith('posts') && !tail.startsWith('residents')) {
+          return json(403, { error: 'You do not have access to do that here.' })
+        }
+      }
+    }
+  } else if (!['platform', 'leads', 'events', 'health'].includes(colPath)) {
+    // Outside app data: only the platform's own admins (top-level admins docs)
+    // may read or write legacy collections through the proxy.
+    const email = String(decoded.email || '').toLowerCase()
+    if (email) {
+      let adm = null
+      try {
+        adm = await getFirestore().collection('admins').doc(email).get()
+      } catch {}
+      if (!adm || !adm.exists) return json(403, { error: 'You do not have access to do that here.' })
+    } else {
+      return json(403, { error: 'Sign in with an admin account to do that.' })
+    }
+  }
+
   const { op, collection, id, data, field, value, limit } = body
   if (!collection || typeof collection !== 'string' || collection.startsWith('_')) {
     return json(400, { error: 'A collection name is required' })

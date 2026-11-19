@@ -92,6 +92,10 @@ const store: { config: any; posts: any[]; residents: any[] } = {
   store.posts.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
 })();
 
+// Real apps address their data under apps/<app>/...; the demo store matches
+// on the tail collection name, so strip the app prefix before comparing.
+const normPath = (p: string) => String(p || '').replace(/^apps\/[^/]+\//, '');
+
 const listeners: { ref: any; cb: (s: any) => void }[] = [];
 
 function sortedPosts() {
@@ -99,7 +103,7 @@ function sortedPosts() {
 }
 
 function emit(ref: any, cb: (s: any) => void) {
-  const path = ref.path || '';
+  const path = normPath(ref.path);
   if (ref.kind === 'doc') {
     if (path === 'app_config/main') { cb(new DocSnap('main', { ...store.config }, true)); return; }
     const parts = path.split('/');
@@ -175,7 +179,7 @@ export const getDocs: any = async (ref: any) => {
 };
 
 async function demoSet(docRef: any, data: any, opts?: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path === 'app_config/main') {
     if (opts && opts.merge) applyMerge(store.config, data);
     else Object.assign(store.config, data);
@@ -194,7 +198,7 @@ async function demoSet(docRef: any, data: any, opts?: any) {
 }
 
 async function demoUpdate(docRef: any, data: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path === 'app_config/main') applyMerge(store.config, data);
   else if (path.startsWith('posts/')) {
     const i = store.posts.findIndex((p) => p.id === path.split('/')[1]);
@@ -207,7 +211,7 @@ async function demoUpdate(docRef: any, data: any) {
 }
 
 async function demoDelete(docRef: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path.startsWith('posts/')) {
     const i = store.posts.findIndex((p) => p.id === path.split('/')[1]);
     if (i >= 0) store.posts.splice(i, 1);
@@ -222,7 +226,7 @@ export const addDoc: any = async (colRef: any, data: any) => {
   if (!DEMO) return FS.addDoc(colRef, data);
   const id = 'demo-' + Math.random().toString(36).slice(2, 8);
   const item = { ...data, id, timestamp: data.timestamp || ts(new Date()) };
-  if ((colRef.path || '') === 'posts') store.posts.unshift(item);
+  if (normPath(colRef.path) === 'posts') store.posts.unshift(item);
   emitAll();
   return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
 };

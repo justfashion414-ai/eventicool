@@ -92,6 +92,12 @@ export const DEMO_REELS = [
 // demo code, never the real couple's code from Firebase.
 export const DEMO_ACCESS_CODE = 'AMARA26';
 
+// Guest access code derived from the couple's own names: the first three
+// letters of each name, then 26. Sol & Okx -> SOLOKX26. Every app's code is
+// its own; the couple can change it in the dashboard.
+export const nameCode = (bride?: string, groom?: string) =>
+  (((bride || '').replace(/[^a-zA-Z]/g, '').slice(0, 3)) + ((groom || '').replace(/[^a-zA-Z]/g, '').slice(0, 3)) + '26').toUpperCase();
+
 // ---- Lead sample override -------------------------------------------------
 // A lead sample is a marketing app an admin builds in the console. Its link
 // (?lead=<id>) carries the admin's chosen names and hero uploads; CoupleApp
