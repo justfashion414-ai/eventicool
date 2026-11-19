@@ -247,50 +247,7 @@ export default function CoupleApp() {
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);
-  // Temporary sign-in self-test (?authtest=1): reports which Firebase project the
-  // browser is on and whether password and guest sign-in work, right on screen.
-  useEffect(() => {
-    if (!new URLSearchParams(window.location.search).has('authtest')) return;
-    (async () => {
-      const out: string[] = [];
-      try {
-        const { getAuth, signInWithEmailAndPassword, signInAnonymously } = await import('firebase/auth');
-        const a = getAuth();
-        const opts: any = (a as any).app?.options || {};
-        out.push(`project ${opts.projectId} key ...${String(opts.apiKey || '').slice(-6)}`);
-        try { const c = await signInWithEmailAndPassword(a, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7'); out.push(`password sign-in OK uid ${c.user.uid}`); }
-        catch (e: any) { out.push(`password sign-in FAILED ${e?.code || String(e)}`); }
-        try { const g = await signInAnonymously(a); out.push(`guest sign-in OK uid ${g.user.uid}`); }
-        catch (e: any) { out.push(`guest sign-in FAILED ${e?.code || String(e)}`); }
-        try {
-          const shim = await import('./lib/authShim') as any;
-          // Real couple apps flip the shim to real auth once the lead resolves
-          // (a beat after this effect runs), so wait briefly for that flip and
-          // then test the exact path the admin gate uses.
-          let real = false;
-          for (let i = 0; i < 24; i++) {
-            if ((shim.debugState() as any).realAuth) { real = true; break; }
-            await new Promise((r) => setTimeout(r, 500));
-          }
-          if (!real) {
-            out.push('shim sign-in SKIPPED real auth not active (preview)');
-          } else {
-            try { const c = await shim.signInWithEmailAndPassword(shim.auth, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7'); out.push(`shim sign-in OK uid ${c.user.uid}`); }
-            catch (e: any) { out.push(`shim sign-in FAILED ${e?.code || String(e)}`); }
-            try {
-              const { db: coupleDb } = await import('./lib/firebase');
-              const { doc, getDoc } = await import('firebase/firestore');
-              const snap = await getDoc(doc(coupleDb, 'admins', 'authtest.eventicor@mailto.plus'));
-              out.push(`admins read ${snap.exists() ? 'OK' : 'MISSING'}`);
-            } catch (e: any) { out.push(`admins read FAILED ${e?.code || String(e)}`); }
-          }
-        } catch (e: any) { out.push(`shim FAILED ${e?.code || String(e)}`); }
-      } catch (e: any) { out.push(`auth init FAILED ${e?.code || String(e)}`); }
-      let d = document.getElementById('authtest-banner');
-      if (!d) { d = document.createElement('div'); d.id = 'authtest-banner'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#111;color:#4f4;padding:10px;font:12px monospace;white-space:pre-wrap'; document.body.appendChild(d); }
-      d.textContent = 'AUTHTEST\n' + out.join('\n');
-    })();
-  }, []);
+
 
   // The service worker keeps every app working offline. The per-lead manifest
   // (and with it the browser's install prompt) is ONLY for a customer's own
