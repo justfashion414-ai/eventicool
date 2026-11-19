@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import BootLoader from './BootLoader'
 
 // The installation page: the last step of the landing's self-serve flow.
 // An Android / iPhone toggle sits at the top; the phone screen on the left
@@ -56,7 +57,9 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const osOverride = params.get('os')
   const onDesktop = !/iphone|ipad|ipod|android/i.test(navigator.userAgent || '')
 
-  const [lead, setLead] = useState<LeadData | null>(null)
+  // undefined = still fetching the couple's details: hold the page behind the
+  // branded loader instead of flashing "Bride & Groom" placeholders at them.
+  const [lead, setLead] = useState<LeadData | null | undefined>(leadId && installableProp === undefined ? undefined : null)
   const [deferred, setDeferred] = useState<any>(null)
   const [installed, setInstalled] = useState(false)
   const [os, setOs] = useState<Os>(() => {
@@ -88,7 +91,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const initials = (bride.charAt(0) + groom.charAt(0)).toUpperCase()
 
   useEffect(() => {
-    if (leadId) loadLead(leadId).then(setLead)
+    if (leadId) loadLead(leadId).then((l) => setLead(l || null))
     // The service worker keeps the app working offline. The manifest is what
     // makes the browser's install prompt work, and the installed app carries
     // the couple's names and their first photo as its icon. It is injected
@@ -289,6 +292,8 @@ export default function InstallPage({ guideOnly, names, installable: installable
       <div style={{ position: 'absolute', left: '50%', bottom: 6, transform: 'translateX(-50%)', width: 96, height: 4, borderRadius: 99, background: 'rgba(255,255,255,.55)', zIndex: 5 }} />
     </div>
   )
+
+  if (lead === undefined) return <BootLoader />
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(160deg,#0d0b1f 0%,#171129 55%,#0d0b1f 100%)', color: '#fff', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>

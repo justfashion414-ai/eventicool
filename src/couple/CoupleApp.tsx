@@ -276,7 +276,7 @@ export default function CoupleApp() {
       className="ev-couple-root"
       style={{ ['--ann-accent' as any]: acc.accent, ['--ann-hero' as any]: acc.hero, ['--ann-soft' as any]: acc.soft }}
     >
-      {lead === undefined ? null : (
+      {lead === undefined ? <BootLoader /> : (
         <Suspense fallback={<BootLoader />}>
           <AnniversaryPortal previewMode onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={(lead as any)?.source === 'landing'} />
         </Suspense>
