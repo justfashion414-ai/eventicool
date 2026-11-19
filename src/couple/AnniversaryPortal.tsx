@@ -4544,7 +4544,6 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
 // drifting at different speeds, and a small photo-count chip.
 function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void }) {
   const rows = footerRows(images, 4);
-  const count = images.length > 0 ? images.length : (DEMO ? DEMO_PHOTOS.length : PLACEHOLDER_IMAGES.length);
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
@@ -4571,9 +4570,6 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
             ))}
           </div>
         ))}
-      </div>
-      <div className="flex justify-start px-4 pb-4">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 text-white text-[0.72rem] font-bold">{count} · Photo Wall</span>
       </div>
     </section>
   );

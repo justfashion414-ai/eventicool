@@ -241,7 +241,7 @@
 .ev-fw-cell img { display: block; height: 116px; width: auto; aspect-ratio: 0.92 / 1; object-fit: cover; filter: saturate(0.45); }
 .ev-fw-row-lg { gap: 10px; }
 .ev-fw-cell-lg { border: 0; background: none; padding: 0; cursor: zoom-in; flex: 0 0 auto; }
-.ev-fw-cell-lg img { display: block; height: 148px; width: auto; aspect-ratio: 1.05 / 1; object-fit: cover; border-radius: 14px; }
+.ev-fw-cell-lg img { display: block; width: min(calc((100vw - 40px) / 5), 250px); height: auto; aspect-ratio: 1.05 / 1; object-fit: cover; border-radius: 14px; }
 @keyframes ev-fw-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 /* Style 1 · photo wall: tiles sit grey; the row scan lights one line at a time */

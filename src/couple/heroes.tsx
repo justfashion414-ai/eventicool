@@ -190,7 +190,10 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
    that turns on its own and follows the finger when dragged. */
 export function DeckHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
-  const n = Math.max(6, Math.min(imgs.length, 9));
+  // Cards sit evenly around the ring, so n must equal the number of images
+  // shown: padding it up to 6 leaves an empty sector between the last image
+  // and the first, which is the gap the couple sees after the scroll.
+  const n = Math.max(1, Math.min(imgs.length, 9));
   const { angle, handlers } = useSpin(11);
   const step = 360 / n;
   return (

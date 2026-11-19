@@ -280,7 +280,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? <BootLoader /> : (
         <Suspense fallback={<BootLoader />}>
-          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={!!(lead as any)?.activatedAt} />
+          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={!!lead && (lead as any).source === 'landing'} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && lead !== undefined && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}

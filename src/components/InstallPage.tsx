@@ -401,22 +401,24 @@ export default function InstallPage({ guideOnly, names, installable: installable
                     ))}
                   </ol>
                 )}
-                {!installable && (
-                  <div style={{ marginTop: 24, padding: '18px 20px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
-                    <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.6, fontWeight: 700 }}>
-                      This one is only a sample. Your own app is created on the Eventicor website: enter your names, wedding date and city, add your photos, and your app goes live in minutes with its own link to share.
-                    </p>
-                    <p style={{ margin: '10px 0 0', fontSize: 14, lineHeight: 1.6, opacity: .85 }}>
-                      It installs on your phone the same way this sample shows, and stays on your home screen permanently.
-                    </p>
-                    <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 14, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 800, fontSize: 14.5 }}>
-                      Create your own app
-                    </a>
-                  </div>
-                )}
               </>
           </div>
         </div>
+        {/* Sample guide: the create-your-own-app instruction sits full width at
+            the bottom of the screen, below the phone and the install text. */}
+        {!installable && (
+          <div style={{ marginTop: 30, padding: '18px 20px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
+            <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.6, fontWeight: 700 }}>
+              This one is only a sample. Your own app is created on the Eventicor website: enter your names, wedding date and city, add your photos, and your app goes live in minutes with its own link to share.
+            </p>
+            <p style={{ margin: '10px 0 0', fontSize: 14, lineHeight: 1.6, opacity: .85 }}>
+              It installs on your phone the same way this sample shows, and stays on your home screen permanently.
+            </p>
+            <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 14, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 800, fontSize: 14.5 }}>
+              Create your own app
+            </a>
+          </div>
+        )}
         {!guideOnly && (
           <div className="ip-below">
                 {!installed && onDesktop && installable && (
