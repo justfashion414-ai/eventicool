@@ -954,7 +954,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
     });
     return () => unsub();
-  }, []);
+  }, [adminMode]);
 
   // 1b. Session Expiry Timers & Visibility Checks
   useEffect(() => {
