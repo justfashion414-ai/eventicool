@@ -40,26 +40,36 @@ const ROLE_LABEL = (r) =>
   r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer'
   : r === 'videographer' ? 'Videographer' : r === 'owner' ? 'Owner' : r === 'couple' ? 'Owner' : 'Vendor'
 
-async function zeptoSend(token, fromAddress, fromName, to, subject, html) {
-  if (!token || !fromAddress) return { ok: false, why: 'not configured' }
-  try {
-    const res = await fetch('https://api.zeptomail.com/v1.1/email', {
-      method: 'POST',
-      headers: { Authorization: token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: { address: fromAddress, name: fromName || 'Eventicor' },
-        to: [{ email_address: { address: to } }],
-        subject,
-        htmlbody: html,
-      }),
-    })
+const authOf = (t) => (t.startsWith('Zoho-enczapikey') ? t : 'Zoho-enczapikey ' + t)
+async function zeptoSend(fromAddress, fromName, to, subject, html) {
+  const candidates = [...new Set(
+    [process.env.ZEPTOMAIL_SEND_MAIL_TOKEN, process.env.ZEPTOMAIL_API]
+      .filter(Boolean).map(authOf)
+  )]
+  if (!candidates.length) return { ok: false, why: 'not configured' }
+  const payload = JSON.stringify({
+    from: { address: fromAddress, name: fromName || 'Eventicor' },
+    to: [{ email_address: { address: to } }],
+    subject,
+    htmlbody: html,
+  })
+  let res = null
+  for (const tok of candidates) {
+    try {
+      res = await fetch('https://api.zeptomail.com/v1.1/email', {
+        method: 'POST',
+        headers: { Authorization: tok, 'Content-Type': 'application/json' },
+        body: payload,
+      })
+    } catch (e) {
+      return { ok: false, why: String(e && e.message ? e.message : e) }
+    }
     if (res.ok) return { ok: true }
-    let detail = 'status ' + res.status
-    try { detail = (await res.json()).message || detail } catch {}
-    return { ok: false, why: detail }
-  } catch (e) {
-    return { ok: false, why: String(e && e.message ? e.message : e) }
+    if (res.status !== 401) break
   }
+  let detail = 'status ' + (res ? res.status : '?')
+  try { detail = (await res.json()).message || detail } catch {}
+  return { ok: false, why: detail }
 }
 
 const RULES = String.raw`rules_version = '2';
@@ -210,7 +220,6 @@ export default async (req) => {
         <p style="color:#888;font-size:13px">Eventicor - wedding memories, kept for life.</p>
       </div>`
       const mailed = await zeptoSend(
-        process.env.ZEPTOMAIL_SEND_MAIL_TOKEN || process.env.ZEPTOMAIL_API || '',
         process.env.ZEPTOMAIL_FROM_ADDRESS || '',
         process.env.ZEPTOMAIL_FROM_NAME || 'Eventicor',
         email,
