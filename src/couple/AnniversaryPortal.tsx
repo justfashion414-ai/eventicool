@@ -246,6 +246,24 @@ const detailsData = (): any => {
     d.churchVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
     d.receptionVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
   }
+  d.hashtag = derivedHashtag();
+  return d;
+};
+
+// The couple's own hashtag, derived from their names (#SolAndOkx), is the
+// default everywhere a hashtag shows. The details field stays editable, so a
+// hashtag they type themselves always wins over the derived one.
+const derivedHashtag = (): string => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const b = cap(demoBride()) || 'Amara';
+  const g = cap(demoGroom()) || 'Daniel';
+  return `#${b}And${g}`;
+};
+// A saved hashtag that is still the demo placeholder (or empty) falls back to
+// the couple's own derived one; anything they typed themselves stays.
+const withDerivedHashtag = (d: any): any => {
+  if (!d || typeof d !== 'object') return d;
+  if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
   return d;
 };
 
@@ -502,7 +520,12 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
 
 export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
-    try { return localStorage.getItem(lsKey('last-tab')) || 'home'; } catch { return 'home'; }
+    // ?home=1 (the dashboard's preview popup) always opens Home, whatever tab
+    // the visitor last viewed.
+    try {
+      if (new URLSearchParams(window.location.search).has('home')) return 'home';
+      return localStorage.getItem(lsKey('last-tab')) || 'home';
+    } catch { return 'home'; }
   });
   const [feedSubTab, setFeedSubTab] = useState<'post' | 'reels'>(() => {
     try { return (localStorage.getItem(lsKey('last-feedtab')) as 'post' | 'reels') || 'post'; } catch { return 'post'; }
@@ -1367,7 +1390,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // seeded defaults before their first save.
   const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : eventsData();
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = cfgDetails || detailsData();
+  const DETAILS: any = withDerivedHashtag(cfgDetails || detailsData());
 
   // The couple's chosen wedding day wins: the church service, else the
   // reception, else the latest saved event date. Until they save anything,
@@ -1694,7 +1717,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const res = await fetch('/api/admin-post-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ action, postId })
+      body: JSON.stringify({ action, postId, appId: APP_ID })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || 'Action failed.');
@@ -4731,6 +4754,116 @@ function AvatarZoomModal({ src, onClose }: { src: string; onClose: () => void })
   );
 }
 
+// ---- Branded time + date pickers (dashboard) -------------------------------
+// The dashboard never shows the browser's native pickers: a time opens the
+// app's own hour / minute / AM-PM sheet, a date opens the app's own calendar
+// with month navigation. Both write back the same text formats the app
+// already stores ("3:00 pm", "2027-03-06").
+
+function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
+  const [open, setOpen] = useState(false);
+  const parse = (raw: string) => {
+    const m = String(raw || '').trim().match(/^(\d{1,2})(?:\s*[:. ]\s*(\d{1,2}))?\s*([ap]\.?m\.?)?$/i);
+    if (!m) return { h: 10, m: 0, ap: 'am' as 'am' | 'pm' };
+    let h = parseInt(m[1], 10);
+    if (h === 0) h = 12; else if (h > 12) h = h - 12;
+    return { h, m: Math.min(55, Math.max(0, parseInt(m[2] || '0', 10))), ap: (/p/i.test(m[3] || '') ? 'pm' : 'am') as 'am' | 'pm' };
+  };
+  const fmt = (d: { h: number; m: number; ap: string }) => `${d.h}:${String(d.m).padStart(2, '0')} ${d.ap}`;
+  const [draft, setDraft] = useState(() => parse(value));
+  useEffect(() => { if (open) setDraft(parse(value)); }, [open, value]);
+  const chipCls = (active: boolean) => `py-1.5 rounded-lg text-[0.72rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{String(value || '').trim() || fmt(parse(value))}</button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className={`absolute z-[100] left-0 right-0 mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            <div className="flex gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Hour</p>
+                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                    <button key={h} type="button" onClick={() => setDraft((d: any) => ({ ...d, h }))} className={chipCls(draft.h === h)}>{h}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Minute</p>
+                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                  {Array.from({ length: 12 }, (_, i) => i * 5).map((mm) => (
+                    <button key={mm} type="button" onClick={() => setDraft((d: any) => ({ ...d, m: mm }))} className={chipCls(draft.m === mm)}>{String(mm).padStart(2, '0')}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <div className="flex flex-1 rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
+                {(['am', 'pm'] as const).map((ap) => (
+                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2 text-[0.65rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { onChange(fmt(draft)); setOpen(false); }} className="px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
+  const [open, setOpen] = useState(false);
+  const parse = (raw: string) => {
+    if (raw && /^\d{4}-\d{2}-\d{2}$/.test(String(raw))) {
+      const d = new Date(`${raw}T12:00:00`);
+      return { y: d.getFullYear(), m: d.getMonth(), day: d.getDate() };
+    }
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth(), day: 0 };
+  };
+  const [view, setView] = useState(() => parse(value));
+  useEffect(() => { if (open) setView(parse(value)); }, [open, value]);
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const shift = (delta: number) => setView((v: any) => { const d = new Date(v.y, v.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth(), day: 0 }; });
+  const startDow = new Date(view.y, view.m, 1).getDay();
+  const daysIn = new Date(view.y, view.m + 1, 0).getDate();
+  const iso = (day: number) => `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const nice = (raw: string) => {
+    if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) return String(raw || 'Pick a date');
+    return new Date(`${raw}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{nice(String(value || ''))}</button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className={`absolute z-[100] left-0 right-0 mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={() => shift(-1)} className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 text-base" aria-label="Previous month">‹</button>
+              <p className="font-black font-display text-sm">{MONTHS[view.m]} {view.y}</p>
+              <button type="button" onClick={() => shift(1)} className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 text-base" aria-label="Next month">›</button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, wi) => (<span key={wi} className="text-[0.55rem] font-black uppercase opacity-40">{w}</span>))}
+              {Array.from({ length: startDow }).map((_, i) => (<span key={`b${i}`} />))}
+              {Array.from({ length: daysIn }, (_, i) => i + 1).map((day) => (
+                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <button type="button" onClick={() => { onChange(''); setOpen(false); }} className="text-[0.65rem] font-black uppercase tracking-widest opacity-50">Clear</button>
+              <button type="button" disabled={!view.day} onClick={() => { if (view.day) onChange(iso(view.day)); setOpen(false); }} className={`px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest ${!view.day ? 'opacity-50' : ''}`}>Done</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any) {
   return (
     <AnimatePresence>
@@ -4753,7 +4886,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
               <Trash2 className="w-8 h-8" />
             </div>
             <h3 className="text-lg font-black font-display tracking-tight mb-2">Delete Post?</h3>
-            <p className="text-sm opacity-60 mb-6">This action cannot be undone. This memory will be removed from the community wall.</p>
+            <p className="text-sm opacity-60 mb-6">This action cannot be undone. This memory will be removed from the guest wall.</p>
             
             <div className="flex gap-3">
               <button 
@@ -5297,11 +5430,11 @@ function AdminDashboardModal({
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(weddingDetails);
+  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag(weddingDetails));
   const [weddingBusy, setWeddingBusy] = useState(false);
   useEffect(() => { setEvDraft(events); }, [events]);
   useEffect(() => { setStoryDraft(story); }, [story]);
-  useEffect(() => { setDetDraft(weddingDetails); }, [weddingDetails]);
+  useEffect(() => { setDetDraft(withDerivedHashtag(weddingDetails)); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
   // The photos the hero actually shows right now: the admin's list when one
@@ -5352,7 +5485,19 @@ function AdminDashboardModal({
   const previewSite = async () => {
     setWeddingBusy(true);
     try { await onSaveWedding(evDraft, storyDraft, detDraft); } finally { setWeddingBusy(false); }
-    window.open('/', '_blank');
+    // Preview opens here in a popup, not a new tab: a full-height iframe of the
+    // app itself, forced to the Home section, showing the settings just saved.
+    setSitePreviewOpen(true);
+  };
+
+  // The popup loads the couple app on the same origin with the same app
+  // parameters (site / template / accent / sample lead) plus ?home=1, which
+  // forces the Home tab instead of the visitor's last one.
+  const previewSrc = () => {
+    const qs = new URLSearchParams(window.location.search);
+    const keep: string[] = [];
+    ['site', 'tpl', 'acc', 'lead', 'exp'].forEach((k) => { const v = qs.get(k); if (v) keep.push(`${k}=${encodeURIComponent(v)}`); });
+    return `/app?${[...keep, 'home=1'].join('&')}`;
   };
 
   const saveWedding = async () => {
@@ -5369,6 +5514,7 @@ function AdminDashboardModal({
   const [postTypeFilter, setPostTypeFilter] = useState<string>('all');
   // Recycle bin: confirm before restoring or permanently removing a post.
   const [binConfirm, setBinConfirm] = useState<{ id: string; action: 'restore' | 'remove' } | null>(null);
+  const [sitePreviewOpen, setSitePreviewOpen] = useState(false);
   // Photo albums: media uploaded by photographers and vendors.
   const [albums, setAlbums] = useState<any[]>([]);
   const [albumBusy, setAlbumBusy] = useState(false);
@@ -5967,30 +6113,34 @@ function AdminDashboardModal({
                       <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; details</h2>
                       <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
                     </div>
-                    {/* Saves everything, then opens the live website in a new tab. */}
-                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then opens the app in a new tab" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
-                      {weddingBusy ? 'Saving…' : 'Preview site'}
+                    {/* Saves everything, then opens the preview popup. */}
+                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then previews the app here" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
+                      {weddingBusy ? 'Saving…' : 'Preview app'}
                     </button>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <div className="flex items-center justify-between gap-3 mb-3">
-                      <h3 className="font-black font-display text-lg">Our story</h3>
+                    <h3 className="font-black font-display text-lg mb-3">Our story</h3>
+                    <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                    <div className="mt-3 flex justify-end">
                       <button onClick={saveStory} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
                     </div>
-                    <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <div className="flex items-center justify-between gap-3 mb-3">
-                      <h3 className="font-black font-display text-lg">Wedding day details</h3>
-                      <button onClick={saveDetails} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
-                    </div>
+                    <h3 className="font-black font-display text-lg mb-3">Wedding day details</h3>
                     <div className="grid sm:grid-cols-2 gap-3">
                       {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['asoEbi', 'Aso-ebi'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
-                        <label key={k} className="block">
+                        <div key={k}>
                           <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">{label}</span>
-                          <input value={detDraft?.[k] || ''} onChange={(e) => setDetDraft({ ...(detDraft || {}), [k]: e.target.value })} className={inputCls} />
-                        </label>
+                          {k === 'churchTime' || k === 'receptionTime' ? (
+                            <BrandedTimeField value={detDraft?.[k] || ''} onChange={(v: string) => setDetDraft({ ...(detDraft || {}), [k]: v })} isDarkMode={isDarkMode} inputCls={inputCls} />
+                          ) : (
+                            <input value={detDraft?.[k] || ''} onChange={(e) => setDetDraft({ ...(detDraft || {}), [k]: e.target.value })} className={inputCls} />
+                          )}
+                        </div>
                       ))}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button onClick={saveDetails} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
                     </div>
                   </div>
                   <div>
@@ -6003,10 +6153,10 @@ function AdminDashboardModal({
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Event</span>
                               <input value={e.name} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, name: ev.target.value } : x))} className={inputCls} />
                             </label>
-                            <label className="block">
+                            <div>
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Date</span>
-                              <input type="date" value={e.date} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, date: ev.target.value } : x))} className={inputCls} />
-                            </label>
+                              <BrandedDateField value={e.date} onChange={(v: string) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, date: v } : x))} isDarkMode={isDarkMode} inputCls={inputCls} />
+                            </div>
                             <label className="block">
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Venue</span>
                               <input value={e.venue || ''} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, venue: ev.target.value } : x))} className={inputCls} />
@@ -6060,6 +6210,21 @@ function AdminDashboardModal({
                   </div>
                 </div>
               )}
+
+              <AnimatePresence>
+                {sitePreviewOpen && (
+                  <>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSitePreviewOpen(false)} className="fixed inset-0 bg-black/70 z-[140] backdrop-blur-sm" />
+                    <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="fixed inset-x-0 top-0 bottom-0 z-[141] flex flex-col">
+                      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[#0B171C] shrink-0">
+                        <p className="font-display text-white text-sm font-bold">Preview · your saved changes</p>
+                        <button onClick={() => setSitePreviewOpen(false)} className="px-4 py-2 rounded-full bg-white/10 text-white text-[0.65rem] font-black uppercase tracking-widest active:bg-white/20" aria-label="Close preview">Close</button>
+                      </div>
+                      <iframe title="App preview" src={previewSrc()} className="flex-1 w-full bg-white" />
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
 
               {activeAdminTab === 'hero' && (
                 <div className="space-y-8">
