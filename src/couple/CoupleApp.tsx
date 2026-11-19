@@ -315,8 +315,8 @@ export default function CoupleApp() {
           <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={adminMode} installable={!!lead && (lead as any).source === 'landing'} />
         </Suspense>
       )}
-      {isSample && expRaw > 0 && lead !== undefined && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
-      {isSample && lead !== undefined && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
+      {isSample && expRaw > 0 && !!lead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
+      {isSample && !!lead && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
     </div>
   );
 }

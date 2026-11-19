@@ -44,6 +44,7 @@ import {
   Images
 } from 'lucide-react';
 import { db, auth } from './lib/firebase';
+import { db as platformDb } from '../firebase';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
@@ -1008,7 +1009,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     });
 
     // Sync admin status
-    const adminUnsub = onSnapshot(doc(db, 'admins', user.email || 'anonymous'), (snap) => {
+    const adminUnsub = onSnapshot(doc(platformDb, 'admins', user.email || 'anonymous'), (snap) => {
       if (snap.exists()) {
         setIsAdmin(true);
         setAdminPermissions(snap.data().permissions);
@@ -1318,7 +1319,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setSetPasswordBusy(true);
     try {
       if (user) await updatePassword(user, newPassword);
-      if (user?.email) await setDoc(doc(db, 'admins', user.email), { mustSetPassword: false }, { merge: true });
+      if (user?.email) await setDoc(doc(platformDb, 'admins', user.email), { mustSetPassword: false }, { merge: true });
       setMustSetPassword(false);
       setNewPassword('');
       setConfirmNewPassword('');
