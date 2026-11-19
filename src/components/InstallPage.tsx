@@ -366,6 +366,11 @@ export default function InstallPage({ guideOnly, names, installable: installable
                     ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
                     : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
                 </p>
+                {leadId && lead === null && (
+                  <p style={{ marginTop: 16, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
+                    This link did not carry your app's details, so the couple's names could not load here. Open the install link from your welcome email again.
+                  </p>
+                )}
                 {installed && (
                   <p style={{ marginTop: 16, padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 15, fontWeight: 800, lineHeight: 1.5 }}>
                     Your app is installed. Check your home screen for the {appName} icon.
