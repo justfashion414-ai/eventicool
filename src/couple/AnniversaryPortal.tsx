@@ -1010,6 +1010,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     });
 
     // Sync admin status
+    setAdminSync('sub:' + (user.email || 'anonymous'));
+    getDoc(doc(platformDb, 'admins', user.email || 'anonymous')).then((d) => setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')), (e: any) => setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))));
     const adminUnsub = onSnapshot(doc(platformDb, 'admins', user.email || 'anonymous'), (snap) => {
       if (snap.exists()) {
         setAdminSync('exists');
@@ -2783,7 +2785,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       {/* Temporary debug banner: only renders with ?authdebug=1 */}
       {new URLSearchParams(window.location.search).has('authdebug') && (
         <div style={{position:'fixed',left:8,bottom:8,zIndex:99999,background:'#111',color:'#4f4',padding:'8px 10px',fontSize:'11px',fontFamily:'monospace',whiteSpace:'pre-wrap',maxWidth:'70vw',borderRadius:8}}>
-          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen + '\nadmins ' + adminSync}
+          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen + '\nadmins ' + adminSync + ' pid ' + ((platformDb as any).app?.options?.projectId || '-')}
         </div>
       )}
 
