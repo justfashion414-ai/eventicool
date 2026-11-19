@@ -1063,6 +1063,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   const [navOpen, setNavOpen] = useState(initialNavOpen)
+  const [custTab, setCustTab] = useState<'active' | 'expired' | 'deleted'>('active')
 
   // Customers: couples who built their own app from the landing page. Every
   // landing signup lands in the leads collection with its email and the plan
@@ -1100,6 +1101,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       if (left > 0) return { label: left >= 3600e3 ? `Trial · ${Math.ceil(left / 3600e3)} h left` : `Trial · ${Math.max(1, Math.ceil(left / 60e3))} min left`, live: true }
       return { label: 'Trial ended', live: false }
     }
+    const custBucket = (l: LeadDoc): 'active' | 'expired' | 'deleted' => {
+      if (l.status === 'deleted' || l.status === 'suspended') return 'deleted'
+      if (l.activatedAt || (l.expiresAt || 0) > now) return 'active'
+      return 'expired'
+    }
+    const counts = { active: 0, expired: 0, deleted: 0 } as Record<typeof custTab, number>
+    rows.forEach((l) => { counts[custBucket(l)]++ })
+    const shown = rows.filter((l) => custBucket(l) === custTab)
     return (
       <>
         {head('Customers', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
@@ -1107,11 +1116,23 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
         ) : (
           <div className="card">
+            <div className="row" style={{ marginBottom: 12 }}>
+              {(['active', 'expired', 'deleted'] as const).map((k) => (
+                <button key={k} className={`chip ${custTab === k ? 'on' : ''}`} onClick={() => setCustTab(k)}>
+                  {k[0].toUpperCase() + k.slice(1)} · {counts[k]}
+                </button>
+              ))}
+            </div>
+            {shown.length === 0 ? (
+              <p style={{ color: 'var(--mut)', margin: 0 }}>
+                {custTab === 'active' ? 'No active customers right now.' : custTab === 'expired' ? 'No expired trials right now.' : 'No deleted apps here.'}
+              </p>
+            ) : (
             <div className="ov">
               <table className="tb">
                 <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th>ACTIONS</th></tr></thead>
                 <tbody>
-                  {rows.map((l) => {
+                  {shown.map((l) => {
                     const st = planStatus(l)
                     return (
                       <tr key={l.id}>
@@ -1138,6 +1159,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
       </>

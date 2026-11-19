@@ -2300,8 +2300,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   style={{ top: activeTab === 'feed' && feedSubTab === 'reels' ? '0px' : '61px' }}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.8rem] font-bold leading-snug">You're viewing sample content</p>
-                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">Everything here is placeholder data. As the admin, you'll replace it all from your dashboard. This notice stays until the first real post.</p>
+                    <p className="text-[0.8rem] font-bold leading-snug">Everything here is placeholder data</p>
+                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">As the admin, you can post and your post takes effect immediately. Your guests can post too, and their posts take effect immediately, but guests need the access code shown in your admin dashboard. This notice stays until the first real post.</p>
                   </div>
                 </div>
               )}
@@ -4560,7 +4560,7 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
           <span className="flex-1 border-t border-dashed border-white/60" />
         </div>
       </div>
-      <div className="flex flex-col gap-[10px] py-[16px]">
+      <div className="flex flex-col gap-[6px] py-[14px]">
         {rows.map((row, r) => (
           <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s` }}>
             {[...row, ...row].map((src, i) => (
