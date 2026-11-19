@@ -78,7 +78,7 @@
 .hv3-ring {
   --dw: clamp(178px, 52vw, 268px);
   --dh: calc(var(--dw) * 1.52);
-  --dr: clamp(216px, 58vw, 360px);
+  --dr: calc(clamp(178px, 52vw, 268px) * var(--rs, 1.094));
   position: absolute; left: 50%; top: 53%;
   width: 0; height: 0; transform-style: preserve-3d;
   transform: rotateY(var(--spin, 0deg));

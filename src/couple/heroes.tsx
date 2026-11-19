@@ -196,11 +196,15 @@ export function DeckHero({ images, names, eventNames = [] }: { images: string[];
   const n = Math.max(1, Math.min(imgs.length, 9));
   const { angle, handlers } = useSpin(11);
   const step = 360 / n;
+  // Ring radius follows the card count: 2·R·sin(180°/n) is the arc between
+  // neighbours, so R = 0.475·width / sin(180°/n) keeps the visual gap between
+  // cards the same tight spacing no matter how many photos the couple added.
+  const rs = n <= 2 ? 1.2 : (0.475 / Math.sin(Math.PI / n)).toFixed(4);
   return (
     <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[86vh] sm:h-[88vh] overflow-hidden hv-deck mb-10">
       <div className="hv3-names">{names || DEMO_COUPLE.header}</div>
       <div className="hv3-stage" {...handlers} style={{ ['--spin' as any]: `${angle}deg` } as Img}>
-        <div className="hv3-ring">
+        <div className="hv3-ring" style={{ ['--rs' as any]: rs } as Img}>
           {imgs.slice(0, n).map((img, i) => (
             <div key={i} className="hv3-card" style={{ ['--a' as any]: `${i * step}deg`, backgroundImage: `url(${img})` } as Img}>
               {eventNames.length ? <span className="hv2-tag hv3-tag">{eventNames[i % eventNames.length]}</span> : null}
