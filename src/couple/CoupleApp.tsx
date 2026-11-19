@@ -245,6 +245,28 @@ export default function CoupleApp() {
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);
+  // Temporary sign-in self-test (?authtest=1): reports which Firebase project the
+  // browser is on and whether password and guest sign-in work, right on screen.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('authtest')) return;
+    (async () => {
+      const out: string[] = [];
+      try {
+        const { getAuth, signInWithEmailAndPassword, signInAnonymously } = await import('firebase/auth');
+        const a = getAuth();
+        const opts: any = (a as any).app?.options || {};
+        out.push(`project ${opts.projectId} key ...${String(opts.apiKey || '').slice(-6)}`);
+        try { const c = await signInWithEmailAndPassword(a, 'authtest.eventicor@mailto.plus', 'Ev-Authtest7'); out.push(`password sign-in OK uid ${c.user.uid}`); }
+        catch (e: any) { out.push(`password sign-in FAILED ${e?.code || String(e)}`); }
+        try { const g = await signInAnonymously(a); out.push(`guest sign-in OK uid ${g.user.uid}`); }
+        catch (e: any) { out.push(`guest sign-in FAILED ${e?.code || String(e)}`); }
+      } catch (e: any) { out.push(`auth init FAILED ${e?.code || String(e)}`); }
+      let d = document.getElementById('authtest-banner');
+      if (!d) { d = document.createElement('div'); d.id = 'authtest-banner'; d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#111;color:#4f4;padding:10px;font:12px monospace;white-space:pre-wrap'; document.body.appendChild(d); }
+      d.textContent = 'AUTHTEST\n' + out.join('\n');
+    })();
+  }, []);
+
   // The service worker keeps every app working offline. The per-lead manifest
   // (and with it the browser's install prompt) is ONLY for a customer's own
   // app, created on the landing page: sample links carry no manifest, so they
