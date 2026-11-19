@@ -60,6 +60,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   // undefined = still fetching the couple's details: hold the page behind the
   // branded loader instead of flashing "Bride & Groom" placeholders at them.
   const [lead, setLead] = useState<LeadData | null | undefined>(leadId && installableProp === undefined ? undefined : null)
+  const [leadLoaded, setLeadLoaded] = useState(false)
   const [deferred, setDeferred] = useState<any>(null)
   const [installed, setInstalled] = useState(false)
   const [os, setOs] = useState<Os>(() => {
@@ -91,7 +92,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const initials = (bride.charAt(0) + groom.charAt(0)).toUpperCase()
 
   useEffect(() => {
-    if (leadId) loadLead(leadId).then((l) => setLead(l || null))
+    if (leadId) loadLead(leadId).then((l) => { setLead(l || null); setLeadLoaded(true) }).catch(() => setLeadLoaded(true))
     // The service worker keeps the app working offline. The manifest is what
     // makes the browser's install prompt work, and the installed app carries
     // the couple's names and their first photo as its icon. It is injected
@@ -380,7 +381,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
                     ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
                     : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
                 </p>
-                {leadId && lead === null && (
+                {leadId && lead === null && leadLoaded && (
                   <p style={{ marginTop: 16, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
                     This link did not carry your app's details, so the couple's names could not load here. Open the install link from your welcome email again.
                   </p>
