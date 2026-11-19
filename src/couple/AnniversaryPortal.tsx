@@ -557,6 +557,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return pick;
     } catch { return Math.random() < 0.5 ? 'wall' : 'marquee'; }
   });
+  // Hero style: which of the four hero designs the app shows. The link's
+  // template decides the starting look; a choice saved in the dashboard always
+  // wins and persists like the footer style does.
+  const [heroTpl, setHeroTpl] = useState<'classic' | 'halo' | 'hero' | 'book'>(() => {
+    try {
+      const saved = localStorage.getItem(lsKey('hero-tpl'));
+      if (saved === 'classic' || saved === 'halo' || saved === 'hero' || saved === 'book') return saved;
+    } catch { /* ignore */ }
+    return (template || 'classic') as 'classic' | 'halo' | 'hero' | 'book';
+  });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [newPostText, setNewPostText] = useState('');
@@ -1191,6 +1201,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setFooterStyle(data.footerStyle);
           try { localStorage.setItem(lsKey('footer-style'), data.footerStyle); } catch {}
         }
+        if (data.heroTemplate === 'classic' || data.heroTemplate === 'halo' || data.heroTemplate === 'hero' || data.heroTemplate === 'book') {
+          setHeroTpl(data.heroTemplate);
+          try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
+        }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
         if (typeof data.story === 'string' && data.story.trim()) setCfgStory(data.story);
@@ -1406,7 +1420,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const wed = ((ov?.weddingDate || church?.date || reception?.date || latestDate) as string | undefined);
     recomputeWed(wed, ov?.weddingTime || church?.time || reception?.time || undefined);
   }
-  const heroTemplate = template || 'classic';
+  const heroTemplate = heroTpl || template || 'classic';
   const _heroWed = new Date(`${WEDDING_DATE}T12:00:00`);
   const heroDateShort = _heroWed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const _hpd = (x: number) => (x < 10 ? '0' : '') + x;
@@ -1555,6 +1569,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     } catch (err) {
       console.error('Update footer style error:', err);
       showToast('Failed to save the footer style.', 'error');
+    }
+  };
+
+  // Hero style (dashboard setting): which of the four hero designs the app
+  // shows. The four templates differ only by their hero, so this switches the
+  // look without touching anything else.
+  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book') => {
+    setHeroTpl(t);
+    try { localStorage.setItem(lsKey('hero-tpl'), t); } catch {}
+    if (DEMO) { showToast('Hero style saved for this preview.'); return; }
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { heroTemplate: t, lastUpdated: serverTimestamp() }, { merge: true });
+      showToast('Hero style saved.');
+    } catch (err) {
+      console.error('Update hero style error:', err);
+      showToast('Failed to save the hero style.', 'error');
     }
   };
 
@@ -2729,6 +2760,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onSaveWeddingSection={updateWeddingSection}
         onUpdateFooterStyle={updateFooterStyle}
         footerStyle={footerStyle}
+        onUpdateHeroTemplate={updateHeroTemplate}
+        heroTpl={heroTpl}
         onUpdateHeroImages={async (urls: string[]) => {
           const capped = urls.slice(0, 14);
           setHeroImages(capped);
@@ -5158,6 +5191,8 @@ function AdminDashboardModal({
   onUpdateFooterImages,
   onUpdateFooterStyle,
   footerStyle,
+  onUpdateHeroTemplate,
+  heroTpl,
   allAdmins,
   deletedPosts,
   onRestorePost,
@@ -6345,6 +6380,19 @@ function AdminDashboardModal({
                       <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
                     </div>
                   )}
+
+                  <div>
+                    <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
+                    <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the app switches to it.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {([['classic', 'Polaroid fan'], ['halo', 'Fan arc'], ['hero', 'Card stack'], ['book', 'Flip book']] as [string, string][]).map(([tk, label]) => (
+                        <button key={tk} type="button" onClick={() => onUpdateHeroTemplate && onUpdateHeroTemplate(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTpl === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[0.7rem] opacity-50 mt-2">Polaroid fan · Classic · Fan arc · Halo · Card stack · Hero Deck · Flip book · Open Book</p>
+                  </div>
 
                   {adminPermissions?.canUploadImages && (
                     <div>
