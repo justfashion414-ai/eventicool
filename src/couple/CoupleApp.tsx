@@ -217,7 +217,9 @@ function SampleInfoButton({ accent, selfServe, active }: { accent: string; selfS
 export default function CoupleApp() {
   const params = new URLSearchParams(window.location.search);
   const tplRaw = params.get('tpl') || 'classic';
-  const tpl = ['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic';
+  // The landing names Hero Deck 'carousel'; normalize it onto the app's 'hero'
+  // key so a Hero Deck app never falls back to Classic.
+  const tpl: string = tplRaw === 'carousel' ? 'hero' : (['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic');
   const accKey = ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight');
   const acc = ACCENTS[accKey];
   const expRaw = Number(params.get('exp') || 0);

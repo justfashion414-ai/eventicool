@@ -117,6 +117,10 @@ export default function InstallPage({ guideOnly, names, installable: installable
     const onInstalled = () => {
       setInstalled(true)
       setDeferred(null)
+      if (!onInstallStart) {
+        setSelfToast('App installed!')
+        window.setTimeout(() => setSelfToast(null), 4000)
+      }
     }
     window.addEventListener('beforeinstallprompt', onPrompt)
     window.addEventListener('appinstalled', onInstalled)
@@ -151,6 +155,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const steps = os === 'ios' ? iosSteps : androidSteps
 
   const [installMsg, setInstallMsg] = useState('')
+  const [selfToast, setSelfToast] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copyErr, setCopyErr] = useState(false)
   const [waiting, setWaiting] = useState(false)
@@ -164,18 +169,26 @@ export default function InstallPage({ guideOnly, names, installable: installable
       setInstallMsg('')
       setWaiting(false)
       onInstallStart?.()
+      if (!onInstallStart) setSelfToast('Installing…')
       p.prompt()
         .then(async () => {
           const { outcome } = await p.userChoice
-          if (outcome !== 'accepted') onInstallDismiss?.()
+          if (outcome !== 'accepted') {
+            if (!onInstallStart) setSelfToast(null)
+            onInstallDismiss?.()
+          }
         })
-        .catch(() => onInstallDismiss?.())
+        .catch(() => {
+          if (!onInstallStart) setSelfToast(null)
+          onInstallDismiss?.()
+        })
       return
     }
     // Chrome offers its install popup a moment after the page loads; wait for it.
     setInstallMsg('')
     setWaiting(true)
     onInstallStart?.()
+    if (!onInstallStart) setSelfToast('Installing…')
   }
   useEffect(() => {
     if (!waiting) return
@@ -188,6 +201,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
     const t = window.setTimeout(() => {
       setWaiting(false)
       // Nothing to install into: drop the sticky "Installing…" toast too.
+      if (!onInstallStart) setSelfToast(null)
       onInstallDismiss?.()
       setInstallMsg(onDesktop
         ? 'Open this page on your phone in Chrome, then tap Install app.'
@@ -376,20 +390,25 @@ export default function InstallPage({ guideOnly, names, installable: installable
                     Your app is installed. Check your home screen for the {appName} icon.
                   </p>
                 )}
-                <ol style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 14 }}>
-                  {steps.map((s, i) => (
-                    <li key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                      <span style={{ flex: '0 0 34px', height: 34, borderRadius: 999, background: acc.accent, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 }}>{i + 1}</span>
-                      <b style={{ fontSize: 16.5, lineHeight: 1.5, paddingTop: 4 }}>{s}</b>
-                    </li>
-                  ))}
-                </ol>
+                {installable && (
+                  <ol style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 14 }}>
+                    {steps.map((s, i) => (
+                      <li key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                        <span style={{ flex: '0 0 34px', height: 34, borderRadius: 999, background: acc.accent, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 }}>{i + 1}</span>
+                        <b style={{ fontSize: 16.5, lineHeight: 1.5, paddingTop: 4 }}>{s}</b>
+                      </li>
+                    ))}
+                  </ol>
+                )}
                 {!installable && (
-                  <div style={{ marginTop: 20, padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
-                    <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, fontWeight: 700 }}>
-                      This is exactly how your own app will download and stay saved on your phone permanently, once you create it yourself on the Eventicor website. This one is only a sample, so there is nothing to install here yet.
+                  <div style={{ marginTop: 24, padding: '18px 20px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
+                    <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.6, fontWeight: 700 }}>
+                      This one is only a sample. Your own app is created on the Eventicor website: enter your names, wedding date and city, add your photos, and your app goes live in minutes with its own link to share.
                     </p>
-                    <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 12, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '13px 22px', borderRadius: 999, fontWeight: 800, fontSize: 14 }}>
+                    <p style={{ margin: '10px 0 0', fontSize: 14, lineHeight: 1.6, opacity: .85 }}>
+                      It installs on your phone the same way this sample shows, and stays on your home screen permanently.
+                    </p>
+                    <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 14, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 800, fontSize: 14.5 }}>
                       Create your own app
                     </a>
                   </div>
@@ -471,6 +490,18 @@ export default function InstallPage({ guideOnly, names, installable: installable
           </div>
         )}
       </main>
+      {!onInstallStart && selfToast && (
+        <div
+          style={{
+            position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)', zIndex: 90,
+            background: 'rgba(10,10,22,.85)', color: '#fff', fontSize: 13.5, fontWeight: 700,
+            padding: '10px 18px', borderRadius: 999, boxShadow: '0 8px 24px rgba(6,6,14,.4)',
+            maxWidth: 'calc(100vw - 32px)', textAlign: 'center',
+          }}
+        >
+          {selfToast}
+        </div>
+      )}
     </div>
   )
 }

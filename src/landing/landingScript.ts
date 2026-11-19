@@ -3,7 +3,7 @@ export function runLandingScript() {
 
 var TP={midnight:{n:'Midnight',b:'#14122b',f:'#f4e9d3',a:'#d8b06a',h:'#0a0917'},blush:{n:'Blush',b:'#fbe1e8',f:'#4a1530',a:'#d6285f',h:'#8f1c42'},emerald:{n:'Emerald',b:'#0c4a36',f:'#f2f8ee',a:'#f4b393',h:'#07301f'},royal:{n:'Royal',b:'#2236b4',f:'#ffffff',a:'#f6d36b',h:'#151f63'},sunset:{n:'Sunset',b:'#2b1a12',f:'#fdeedd',a:'#e07a4f',h:'#2b1a12'},sage:{n:'Sage',b:'#1f2b25',f:'#eef5ef',a:'#8fbfa3',h:'#1f2b25'}};
 var TPL={classic:{n:'Classic',d:'The signature look'},halo:{n:'Halo Arc',d:'A crown of photos above your names'},carousel:{n:'Hero Deck',d:'A sliding cover of your best moments'},book:{n:'Open Book',d:'A hardback book of your photos that turns its own pages'}};
-var ACC={classic:'midnight',halo:'blush',carousel:'emerald',book:'royal'};
+var ACC={classic:'midnight',halo:'blush',carousel:'emerald',book:'royal'};var TMAP={carousel:'hero'};
 var P={b:'Amara',g:'Daniel',c:'Lagos',tp:'classic',ac:'royal',ph:3,cur:0,at:0,step:1,slug:''};
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -99,7 +99,7 @@ document.addEventListener('click',function(e){var rb=e.target.closest?e.target.c
  else if(a==='pl'){P.pl=+v;modal()}
  else if(a==='back'){P.step=Math.max(1,P.step-1);modal()}
  else if(a==='retry'){buildApp()}
- else if(a==='go'){if(!P.j){toast('Still creating your app, one moment');return}var j=P.j;location.href='/install?lead='+j.id+'&tpl='+encodeURIComponent(P.tp)+(P.ac?'&acc='+encodeURIComponent(P.ac):'')+'&exp='+j.exp}
+ else if(a==='go'){if(!P.j){toast('Still creating your app, one moment');return}var j=P.j;location.href='/install?lead='+j.id+'&tpl='+encodeURIComponent(TMAP[P.tp]||P.tp)+(P.ac?'&acc='+encodeURIComponent(P.ac):'')+'&exp='+j.exp}
  else if(a==='close'){P.step=0;modal()}else if(a==='wa'){window.open('https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2','_blank','noopener')}
  else if(a==='cur'){P.cur=+v;document.querySelectorAll('[data-a=cur]').forEach(function(x){x.classList.toggle('on',x===b)});pricing()}
  
@@ -120,7 +120,7 @@ function creationAnim(){for(var i=0;i<4;i++){(function(i){setTimeout(function(){
 function finishBuild(){var st=document.getElementById('cstat');if(st)st.textContent='Login details are on their way to '+(P.em||'your email')+'.';var mc=document.querySelector('#m .mc');if(mc&&!document.getElementById('crow')){var rw=document.createElement('div');rw.id='crow';rw.className='row';rw.style.marginTop='14px';rw.innerHTML='<button class="btn" data-a="go">Continue</button>';mc.appendChild(rw)}}
 function buildApp(){UPLOADED=null;P.j=null;P.step=4;modal();creationAnim();
  uploadAll().then(function(urls){
-  return fetch('/api/proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'create-lead',data:{email:P.em||'',bride:P.b||'',groom:P.g||'',city:P.c||'',template:P.tp,accent:P.ac||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',heroImages:urls,wedding_date:P.d||'',trialHours:24}})}).then(function(r){return r.json()}).then(function(j){if(!j||!j.id)throw new Error(j&&j.error==='slug-taken'?'That name has been selected. Pick another one':j&&j.error==='email-taken'?'There is already an account for that email':(j&&j.error)||'Could not create the app');return j})
+  return fetch('/api/proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'create-lead',data:{email:P.em||'',bride:P.b||'',groom:P.g||'',city:P.c||'',template:TMAP[P.tp]||P.tp,accent:P.ac||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',heroImages:urls,wedding_date:P.d||'',trialHours:24}})}).then(function(r){return r.json()}).then(function(j){if(!j||!j.id)throw new Error(j&&j.error==='slug-taken'?'That name has been selected. Pick another one':j&&j.error==='email-taken'?'There is already an account for that email':(j&&j.error)||'Could not create the app');return j})
  }).then(function(j){P.j=j;finishBuild();sendSignup()})
  .catch(function(err){$('#m').innerHTML='<div class="md" data-a="close"><div class="mc" role="dialog" aria-modal="true"><h3>We could not create your app</h3><p class="sub" style="margin:8px 0 14px">'+esc(String(err&&err.message||err))+'</p><div class="row"><button class="btn" data-a="retry">Try again</button><button class="btn g" data-a="close">Close</button></div></div></div>'})}
 function sendSignup(){var body={email:P.em||'',source:'signup',bride:P.b||'',groom:P.g||'',wedding_date:P.d||'',city:P.c||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',trial_hours:24,preview_url:location.origin+'/'};

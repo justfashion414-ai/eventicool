@@ -245,9 +245,8 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .upcthumbs img{width:64px;height:64px;object-fit:cover;border-radius:12px;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,18,43,.2)}
 #ev-l .upcthumbs .uprm{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#17162e;color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(20,18,43,.35)}
 #ev-l .gocenter{justify-content:center}
-/* Open Book: the card back at its former size, the book inside enlarged */
-#ev-l .tc[data-t="book"]{--s:.78}
-#ev-l .tc[data-t="book"] .sc{transform:scale(.94);margin:0 calc((1 - .94)*-136px)}
+/* Open Book: the same card size as the others at every width, the book inside kept larger */
+#ev-l .tc[data-t="book"] .sc{transform:scale(calc(var(--s)*1.2));margin:0 calc((1 - var(--s)*1.2)*-136px)}
 
 /* City: custom-entry button + its popup */
 #ev-l .ccbtn{display:block;width:100%;text-align:left;padding:13px 14px 14px;margin-top:4px;border-top:1px solid var(--line);color:var(--acc);font-weight:600;font-size:15px;background:none;border-radius:0 0 18px 18px}

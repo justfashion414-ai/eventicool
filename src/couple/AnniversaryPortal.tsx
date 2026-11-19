@@ -522,10 +522,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
   // Journey dropdown: which event card is expanded (one at a time).
   const [openEventId, setOpenEventId] = useState<string | null>(null);
-  const [evImgBusy, setEvImgBusy] = useState<string | null>(null);
-  // Giant footer look, chosen by the couple in the dashboard.
+  // Giant footer look, chosen by the couple in the dashboard. A brand-new app
+  // gets one of the two styles at random (stored once), so users do not all
+  // land on the same look; a choice saved in the dashboard always wins.
   const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee'>(() => {
-    try { return localStorage.getItem('ann-footer-style') === 'marquee' ? 'marquee' : 'wall'; } catch { return 'wall'; }
+    try {
+      const saved = localStorage.getItem('ann-footer-style');
+      if (saved === 'wall' || saved === 'marquee') return saved;
+      const pick = Math.random() < 0.5 ? 'wall' : 'marquee';
+      localStorage.setItem('ann-footer-style', pick);
+      return pick;
+    } catch { return Math.random() < 0.5 ? 'wall' : 'marquee'; }
   });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
@@ -689,7 +696,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // PWA Install, Launch Follow-up Splash & Offline State
   const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => {
     if (previewMode) return false;
-    try { return !localStorage.getItem('ann-last-tab'); } catch { return true; }
+    // The entry banner (couple's names + Eventicor branding + Tap to enter) shows
+    // on every fresh open of the app, new session included; within one session a
+    // refresh keeps the visitor where they were instead of re-showing it.
+    try { return sessionStorage.getItem('ev-entered') !== '1'; } catch { return true; }
   });
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt || null : null));
   const [isPWAInstalled, setIsPWAInstalled] = useState(false);
@@ -698,12 +708,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-  useEffect(() => {
-    const splashTimer = setTimeout(() => {
-      setShowLaunchSplash(false);
-    }, 5000);
-    return () => clearTimeout(splashTimer);
-  }, []);
+  const enterApp = () => {
+    try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
+    setShowLaunchSplash(false);
+  };
 
   // Keep the visitor where they were across refreshes
   useEffect(() => {
@@ -1516,34 +1524,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
-  const addEventPhotos = async (eventId: string, files: File[]) => {
-    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
-    const existing: string[] = ev?.images || [];
-    const room = 2 - existing.length;
-    if (room <= 0) { showToast('Each step holds 2 photos. Remove one first.', 'info'); return; }
-    const use = files.slice(0, room);
-    if (files.length > room) showToast(`Only ${room} slot${room === 1 ? '' : 's'} left on this step.`, 'info');
-    if (!use.length) return;
-    setEvImgBusy(eventId);
-    try {
-      const urls: string[] = [];
-      for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
-      await saveEventStepPhotos(eventId, [...existing, ...urls].slice(0, 2));
-    } catch (err: any) {
-      console.error('Event photo upload error:', err);
-      showToast(err?.message || 'Photo upload failed.', 'error');
-    } finally {
-      setEvImgBusy(null);
-    }
-  };
-
-  const removeEventPhoto = async (eventId: string, idx: number) => {
-    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
-    const imgs = [...((ev?.images || []) as string[])];
-    if (idx < 0 || idx >= imgs.length) return;
-    imgs.splice(idx, 1);
-    await saveEventStepPhotos(eventId, imgs);
-  };
 
   const approvePost = async (postId: string) => {
     try {
@@ -1940,7 +1920,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 1.04, filter: 'blur(8px)' }}
             transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-            onClick={() => setShowLaunchSplash(false)}
+            onClick={() => enterApp()}
             className="fixed inset-0 z-[500] overflow-hidden flex items-center justify-center bg-[var(--ann-hero)] cursor-pointer select-none"
           >
             {/* SPLASH: DARA & FEMI */}
@@ -1958,15 +1938,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </h1>
                 <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.75 }}
-                transition={{ delay: 0.9, duration: 0.8 }}
-                className="mt-10 text-[0.8rem] text-white"
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.9, duration: 0.6 }}
+                className="mt-10"
               >
-                Tap to enter
-              </motion.p>
+                <span className="inline-flex items-center px-8 py-3.5 rounded-full bg-white/15 border border-white/35 text-white text-[0.75rem] font-black uppercase tracking-[0.28em]">Tap to enter</span>
+              </motion.div>
             </div>
+            {/* EVENTICOR BRANDING, BOTTOM OF THE ENTRY BANNER */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.9 }}
+              transition={{ delay: 1.1, duration: 0.8 }}
+              className="absolute bottom-8 left-0 right-0 z-10 flex flex-col items-center pointer-events-none"
+            >
+              <span className="font-serif-display italic text-white text-[1.4rem]">Eventicor</span>
+            </motion.div>
           </motion.section>
         )}
       </AnimatePresence>
@@ -2142,7 +2131,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     const open = openEventId === e.id;
                     const stepImgs: string[] = ((e as any).images || []);
                     const daysTo = Math.ceil((new Date(`${e.date}T${e.time || '12:00'}:00`).getTime() - Date.now()) / 86400000);
-                    const canManagePhotos = DEMO || isAdmin;
                     const tagCls = st === 'done'
                       ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
                       : st === 'next'
@@ -2186,20 +2174,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                                   {stepImgs.map((u, ii) => (
                                     <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
                                       <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={() => setFooterLightbox(u)} className="w-full h-full object-cover cursor-zoom-in" />
-                                      {canManagePhotos && (
-                                        <button type="button" onClick={(ev) => { ev.stopPropagation(); removeEventPhoto(e.id, ii); }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove photo">×</button>
-                                      )}
                                     </div>
                                   ))}
-                                </div>
-                              )}
-                              {canManagePhotos && stepImgs.length < 2 && (
-                                <div>
-                                  <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest cursor-pointer">
-                                    <input type="file" accept="image/*" multiple hidden disabled={evImgBusy === e.id} onChange={(ev) => { const fs = Array.from((ev.target as HTMLInputElement).files || []); (ev.target as HTMLInputElement).value = ''; addEventPhotos(e.id, fs); }} />
-                                    {evImgBusy === e.id ? 'Uploading…' : stepImgs.length ? '+ Add photo' : '+ Add photos (up to 2)'}
-                                  </label>
-                                  <p className={`text-[0.7rem] mt-1.5 opacity-60 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photos you add here show for every guest who opens this event.</p>
                                 </div>
                               )}
                             </div>
@@ -4548,15 +4524,15 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
       </div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
-        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? demoBride() : 'Dara'}</h2>
+        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? demoBride() : 'Dara'}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
-        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
+        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
           <span>{DEMO ? demoGroom() : 'Femi'}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
-          <span className="text-[clamp(0.7rem,2.6vw,1rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
+          <span className="text-[clamp(0.85rem,3.1vw,1.3rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
         </div>
       </div>
@@ -4573,15 +4549,15 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
-        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? demoBride() : 'Dara'}</h2>
+        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? demoBride() : 'Dara'}</h2>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
-        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
+        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
           <span>{DEMO ? demoGroom() : 'Femi'}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
           <span className="flex-1 border-t border-dashed border-white/60" />
-          <span className="text-[clamp(0.65rem,2.4vw,0.9rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
+          <span className="text-[clamp(0.8rem,2.9vw,1.15rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
           <span className="flex-1 border-t border-dashed border-white/60" />
         </div>
       </div>
