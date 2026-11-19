@@ -553,6 +553,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [mustSetPassword, setMustSetPassword] = useState(false);
+  const [adminSync, setAdminSync] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -1011,6 +1012,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // Sync admin status
     const adminUnsub = onSnapshot(doc(platformDb, 'admins', user.email || 'anonymous'), (snap) => {
       if (snap.exists()) {
+        setAdminSync('exists');
         setIsAdmin(true);
         setAdminPermissions(snap.data().permissions);
         setMustSetPassword(!!snap.data().mustSetPassword);
@@ -1025,11 +1027,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         });
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else {
+        setAdminSync('missing');
         setIsAdmin(false);
         setAdminPermissions(null);
         adminAutoOpenedRef.current = false;
       }
     }, (err) => {
+      setAdminSync('err:' + ((err as any).code || String(err)));
       handleFirestoreError(err, OperationType.GET, `admins/${user.email}`);
     });
 
@@ -2779,7 +2783,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       {/* Temporary debug banner: only renders with ?authdebug=1 */}
       {new URLSearchParams(window.location.search).has('authdebug') && (
         <div style={{position:'fixed',left:8,bottom:8,zIndex:99999,background:'#111',color:'#4f4',padding:'8px 10px',fontSize:'11px',fontFamily:'monospace',whiteSpace:'pre-wrap',maxWidth:'70vw',borderRadius:8}}>
-          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen}
+          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen + '\nadmins ' + adminSync}
         </div>
       )}
 
