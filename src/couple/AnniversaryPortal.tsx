@@ -198,25 +198,26 @@ function recomputeWed(date?: string, time?: string) {
   WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
 }
 
-const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
-  { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
-  { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: '2026-07-18', desc: 'The ring, the yes and the first big celebration together.' },
-  { id: 'court', name: 'Court Wedding', type: 'Registry', date: '2026-08-28', desc: 'Signing the register with our closest people.' },
-  { id: 'shower', name: 'Bridal Shower', type: "Dara's party", date: '2026-11-21', desc: 'An afternoon of games, gifts and girls with the bride.' },
-  { id: 'stag', name: "Groom's Party", type: "Femi's party", date: '2026-11-28', desc: 'The groomsmen send Femi off in style.' },
-  { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: '2026-12-12', time: '11:00', desc: 'Vows before God, family and friends.' },
-  { id: 'reception', name: 'Reception', type: 'Hall celebration', date: '2026-12-12', time: '15:00', desc: 'Food, music, aso-ebi and the first dance.' },
-  { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: '2026-12-13', desc: 'We close the weekend giving thanks together.' },
-];
+// Journey events are generic until the couple edits them in the dashboard.
+// demoEvents() substitutes the bound couple's names at call time, so a real
+// app never shows placeholder names baked in at module load.
+const eventsData = (): WeddingEvent[] => demoEvents() as any[];
+
+// The seed feed sample apps and pre-setup real apps show: the couple's own
+// names and hero photos across the posts, with the demo reels on the Reels tab.
+const demoSeedPosts = () => {
+  const fi = demoFeedImages();
+  return fi === DEMO_PHOTOS ? DEMO_POSTS : (DEMO_POSTS as any[]).map((sp, i) => (String(sp.id || '').startsWith('demo-seed-p') ? { ...sp, mediaUrls: [fi[i % fi.length]], text: demoText(String(sp.text || '')) } : sp));
+};
 
 // Journey status is SET BY THE COUPLE in the dashboard (Done / Next up / Upcoming).
 // This helper only seeds statuses the first time the config is written; it is
 // never used to compute what guests see at render time.
-const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
+const seedEventStatuses = (events: WeddingEvent[]): Record<string, 'done' | 'next' | 'up'> => {
   const now = Date.now();
   let nextFound = false;
   const out: Record<string, 'done' | 'next' | 'up'> = {};
-  EVENTS_DATA.forEach((e) => {
+  events.forEach((e) => {
     const t = new Date(`${e.date}T${e.time || '12:00'}:00`).getTime();
     if (t < now) { out[e.id] = 'done'; return; }
     if (!nextFound) { nextFound = true; out[e.id] = 'next'; return; }
@@ -228,19 +229,14 @@ const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
 const fmtEventDate = (e: { date: string; time?: string }) =>
   new Date(`${e.date}T${e.time || '12:00'}:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
-const DEFAULT_STORY = DEMO ? demoText(DEMO_STORY) : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
+// The story text is computed at call time: a bound couple's names replace
+// the placeholder ones before anything is shown or seeded into their config.
+const demoStory = () => demoText(DEMO_STORY);
 
-const DEFAULT_DETAILS: any = (() => {
-  if (!DEMO) return {
-    churchTime: '11:00 am',
-    churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
-    receptionTime: '3:00 pm',
-    receptionVenue: 'The Grand Hall, Victoria Island, Lagos',
-    asoEbi: 'emerald green and gold',
-    hashtag: '#DaraAndFemi2026',
-  };
-  // Under a bound couple, the details card shows THEIR city instead of the
-  // demo venues: no invented hall names, just their chosen location.
+// Details are generic until the couple edits them. Under a bound couple the
+// venue lines point at THEIR city (no invented hall names) and the hashtag
+// renders through demoText, so their names win everywhere.
+const detailsData = (): any => {
   const d = { ...DEMO_DETAILS };
   const ov = leadOverride();
   if (ov && ov.city) {
@@ -248,7 +244,7 @@ const DEFAULT_DETAILS: any = (() => {
     d.receptionVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
   }
   return d;
-})();
+};
 
 // Local placeholder photos used until real ones are uploaded (hero + footer grid)
 const PLACEHOLDER_IMAGES = [
@@ -652,17 +648,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero photos tab and stored on app_config/main.
   const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
   const [heroImages, setHeroImages] = useState<string[]>(() => {
-    if (DEMO) return demoHeroImages();
     try {
       const cached = localStorage.getItem('ann-hero-images');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length) return parsed;
       }
     } catch {
       // Ignore parse error
     }
-    return [];
+    // Until the couple saves hero photos of their own, the uploads they made
+    // on the landing page show in the hero on real apps too.
+    return demoHeroImages();
   });
   const [postAds, setPostAds] = useState<AdItem[]>([]);
   const [reelAds, setReelAds] = useState<AdItem[]>([]);
@@ -1214,17 +1211,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         const snap = await getDoc(doc(db, 'app_config', 'main'));
         if (!snap.exists()) {
           await setDoc(doc(db, 'app_config', 'main'), {
-            activeAccessCode: 'DARAFEMI26',
+            activeAccessCode: DEMO_ACCESS_CODE,
             createdAt: serverTimestamp(),
-            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
-            story: DEFAULT_STORY,
-            weddingDetails: DEFAULT_DETAILS
+            events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
+            story: demoStory(),
+            weddingDetails: detailsData(),
+            heroImages: demoHeroImages()
           });
         } else if (!Array.isArray(snap.data().events)) {
           await setDoc(doc(db, 'app_config', 'main'), {
-            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
-            story: snap.data().story || DEFAULT_STORY,
-            weddingDetails: snap.data().weddingDetails || DEFAULT_DETAILS
+            events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
+            story: snap.data().story || demoStory(),
+            weddingDetails: snap.data().weddingDetails || detailsData()
           }, { merge: true });
         }
 
@@ -1343,9 +1341,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // Derived wedding content: Firestore values when the couple has saved them,
   // seeded defaults before their first save.
-  const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : EVENTS_DATA;
-  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : DEFAULT_STORY;
-  const DETAILS: any = cfgDetails || DEFAULT_DETAILS;
+  const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : eventsData();
+  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
+  const DETAILS: any = cfgDetails || detailsData();
 
   // The couple's chosen wedding day wins: the church service, else the
   // reception, else the latest saved event date. Until they save anything,
@@ -1552,7 +1550,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
    */
   const sharePost = async (p: any) => {
     const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
-    const title = p.text || p.caption || (DEMO ? 'A memory from Amara & Daniel' : 'A memory from Dara & Femi');
+    const title = p.text || p.caption || demoText('A memory from Amara & Daniel');
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try { await (navigator as any).share({ title: demoHeader(), text: title, url }); return; } catch { return; }
     }
@@ -1723,14 +1721,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // 3. Handle Posts Sync
   useEffect(() => {
     if (DEMO) {
-      const fi = demoFeedImages();
-      const seeded = fi === DEMO_PHOTOS ? DEMO_POSTS : (DEMO_POSTS as any[]).map((sp, i) => (String(sp.id || '').startsWith('demo-seed-p') ? { ...sp, mediaUrls: [fi[i % fi.length]], text: demoText(String(sp.text || '')) } : sp));
-      setPosts(seeded as any); setIsPostsLoading(false); return;
+      setPosts(demoSeedPosts() as any); setIsPostsLoading(false); return;
     } // Previews read seeded demo posts only
     const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(q, (snapshot) => {
-      const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setPosts(p);
+      if (snapshot.empty) {
+        // Until the couple's first real post, a real app shows the same lively
+        // seed content sample apps get: their names, their hero photos and the
+        // demo reels. The first real post replaces all of it.
+        setPosts(demoSeedPosts() as any);
+      } else {
+        setPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
       setIsPostsLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'posts');
@@ -2113,16 +2115,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                               </div>
 
-              {!DEMO && !isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
-                <div className={`rounded-[20px] p-[18px] mt-4 border flex items-center gap-3 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                  <div className="w-10 h-10 rounded-full bg-[#C8932A]/20 text-[#C8932A] grid place-items-center shrink-0"><User className="w-5 h-5" /></div>
-                  <div className="flex-1 min-w-0">
-                    <b className="block text-[0.95rem]">Complete your profile</b>
-                    <small className={`block text-[0.85rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Add your name and photo so the couple knows who you are.</small>
-                  </div>
-                  <button onClick={() => setActiveTab('settings')} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest shrink-0">Set up</button>
-                </div>
-              )}
 
               {/* OUR STORY */}
               <section className="mt-8">
@@ -3338,7 +3330,7 @@ function WhatsAppIcon({ className = "w-7 h-7" }: { className?: string }) {
 
 function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
   const shareUrl = `${window.location.origin}${window.location.pathname}?post=${post.id || post.uid}`;
-  const title = post.text || (DEMO ? "Check out this memory from Amara & Daniel's wedding!" : "Check out this memory from Dara & Femi's wedding!");
+  const title = post.text || demoText("Check out this memory from Amara & Daniel's wedding!");
 
   const shareOptions = [
     { 
@@ -5490,7 +5482,7 @@ function AdminDashboardModal({
                 <button onClick={() => setMobileAdminNavOpen(true)} className="p-2 rounded-xl bg-white/10 text-white active:bg-white/20" aria-label="Open menu">
                   <Menu className="w-5 h-5" />
                 </button>
-                <p className="font-display text-white text-base font-medium">{DEMO ? demoHeader() : 'Dara & Femi'}</p>
+                <p className="font-display text-white text-base font-medium">{demoHeader()}</p>
                 <div className="relative ml-auto">
                   <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
                   {profileMenuOpen && (
@@ -5516,7 +5508,7 @@ function AdminDashboardModal({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="mb-6">
-                        <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
+                        <p className="font-display text-[1.25rem] font-medium">{demoHeader()}</p>
                         <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                       </div>
                       <nav className="flex flex-col gap-1">
@@ -5572,7 +5564,7 @@ function AdminDashboardModal({
               <aside className="hidden md:flex flex-col w-[250px] shrink-0 bg-[#0B171C] text-white p-5 overflow-y-auto">
                 <div className="mb-6 flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
+                    <p className="font-display text-[1.25rem] font-medium">{demoHeader()}</p>
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
@@ -5639,7 +5631,7 @@ function AdminDashboardModal({
               {activeAdminTab === 'overview' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, {DEMO ? demoHeader() : 'Dara & Femi'}</h2>
+                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, {demoHeader()}</h2>
                     <p className="text-sm opacity-60 mt-0.5">{daysToWedding} days to the wedding. Here is what needs you.</p>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -6845,7 +6837,7 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
   });
 
   const currentImage = images.length > 0 ? images[imgIdx % images.length] : PLACEHOLDER_IMAGES[imgIdx % PLACEHOLDER_IMAGES.length];
-  const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : (EVENTS_DATA.length > 0 ? EVENTS_DATA[(imgIdx + imgOffset) % EVENTS_DATA.length].name : undefined);
+  const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : ((() => { const eds = eventsData(); return eds.length > 0 ? eds[(imgIdx + imgOffset) % eds.length].name : undefined; })());
 
   return (
     <motion.div
