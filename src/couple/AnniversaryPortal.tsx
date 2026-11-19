@@ -920,7 +920,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 1. Handle Auth & Session
   useEffect(() => {
-    if (DEMO) return; // Previews run fully offline: no anonymous sign-in, no Firebase
+    if (DEMO && adminMode !== 'real') return; // Previews and sample apps run fully offline; a real couple's app runs the real auth flow (guest anonymous sign-in, admin sign-in state)
     const unsub = onAuthStateChanged(auth, async (currUser) => {
       if (currUser) {
         setUser(currUser);
@@ -992,12 +992,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.isAnonymous) return;
 
     const isSuper = user.email === "justfashion414@gmail.com";
 
-    // Sync profile
-    const profileUnsub = onSnapshot(doc(db, 'residents', user.uid), (snap) => {
+    // Sync profile (real wedding apps only: the demo stub db has no residents)
+    const profileUnsub = DEMO ? null : onSnapshot(doc(db, 'residents', user.uid), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.displayName) setDisplayName(data.displayName);
@@ -1034,7 +1034,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     });
 
     return () => {
-      profileUnsub();
+      if (profileUnsub) profileUnsub();
       adminUnsub();
     };
   }, [user]);
