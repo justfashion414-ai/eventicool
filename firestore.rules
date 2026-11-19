@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Marketing sample apps: anyone opening a sample link may read the lead.
+    // All other client access stays denied; the app writes through /api/proxy.
+    match /leads/{leadId} {
+      allow read: if true;
+    }
+    // First sign-in flow: the couple signs in with the emailed temporary
+    // password, the app reads their own admins doc to show the
+    // set-permanent-password screen, and saving the new password flips
+    // mustSetPassword in place. Docs are only ever created server-side.
+    match /admins/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow update: if request.auth != null && request.auth.token.email == email;
+      allow create, delete: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
