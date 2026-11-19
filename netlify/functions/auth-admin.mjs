@@ -41,7 +41,7 @@ const ROLE_LABEL = (r) =>
   : r === 'videographer' ? 'Videographer' : r === 'owner' ? 'Owner' : r === 'couple' ? 'Owner' : 'Vendor'
 
 async function zeptoSend(token, fromAddress, fromName, to, subject, html) {
-  if (!token || !fromAddress) return false
+  if (!token || !fromAddress) return { ok: false, why: 'not configured' }
   try {
     const res = await fetch('https://api.zeptomail.com/v1.1/email', {
       method: 'POST',
@@ -53,9 +53,12 @@ async function zeptoSend(token, fromAddress, fromName, to, subject, html) {
         htmlbody: html,
       }),
     })
-    return res.ok
-  } catch {
-    return false
+    if (res.ok) return { ok: true }
+    let detail = 'status ' + res.status
+    try { detail = (await res.json()).message || detail } catch {}
+    return { ok: false, why: detail }
+  } catch (e) {
+    return { ok: false, why: String(e && e.message ? e.message : e) }
   }
 }
 
@@ -214,7 +217,7 @@ export default async (req) => {
         'Your Eventicor admin invite',
         html
       )
-      return json(200, { ok: true, uid: cu.uid, emailed: mailed, tempPassword: password })
+      return json(200, { ok: true, uid: cu.uid, emailed: mailed.ok, mailError: mailed.ok ? undefined : mailed.why, tempPassword: password })
     }
 
     if (action === 'suspend' || action === 'reinstate') {

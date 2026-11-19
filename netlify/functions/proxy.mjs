@@ -163,9 +163,10 @@ export default async (req) => {
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
   if (!token) return json(401, { error: 'Missing bearer token' })
 
+  let decoded = null
   try {
     init()
-    const decoded = await getAuth().verifyIdToken(token)
+    decoded = await getAuth().verifyIdToken(token)
     body.uid = decoded.uid
   } catch {
     return json(401, { error: 'Invalid or expired token' })
