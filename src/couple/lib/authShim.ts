@@ -11,7 +11,7 @@ let realAuth = false;
 export const enableRealAuth = () => { realAuth = true; };
 // Debug-only (behind ?authdebug=1): reports whether the shim flipped to real
 // auth and which listener path the last onAuthStateChanged subscription took.
-export const debugState = () => ({ realAuth, listenerMode });
+export const debugState = () => ({ realAuth, listenerMode: (debugState as any).listenerMode });
 
 const demoUser: any = {
   uid: 'demo-guest',
