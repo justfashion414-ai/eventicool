@@ -133,10 +133,7 @@ async function shrinkToDataUrl(file: File): Promise<string> {
 
 async function uploadOneLead(file: File, kind: string): Promise<string> {
   const folder = `eventicor-leads-${kind}`
-  // Interim signer: this site's Cloudinary env is still pending, so the signed
-  // route falls back to the wedding-gallery signer (same Cloudinary account).
-  // Drop this entry once CLOUDINARY_* env vars are set here.
-  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`, `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`]) {
+  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`]) {
     try {
       // The interim signer is cross-origin and sends no cookies, so omit credentials there.
       const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })

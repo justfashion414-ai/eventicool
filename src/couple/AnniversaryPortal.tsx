@@ -333,9 +333,7 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
 
   const signatureEndpoints = [
     `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
-    // Interim signer while this site's Cloudinary env is pending (same account).
-    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
   for (const sigEndpoint of signatureEndpoints) {
@@ -403,9 +401,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   // Strategy 1: Direct signed upload to Cloudinary API (works on both Express /api/upload-signature and Netlify /.netlify/functions/upload-signature)
   const signatureEndpoints = [
     `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
-    // Interim signer while this site's Cloudinary env is pending (same account).
-    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
   for (const sigEndpoint of signatureEndpoints) {
@@ -656,6 +652,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isPosting, setIsPosting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAdminSessionValid, setIsAdminSessionValid] = useState(false);
+  // True once the auth listener has reported for this page load, so a refresh
+  // never flashes the sign-in screen while the session is being restored.
+  const [authChecked, setAuthChecked] = useState(false);
+  // Eventicor admin contact + payment details saved in app_config.
+  const [cfgContact, setCfgContact] = useState<any>(null);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -962,6 +963,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   useEffect(() => {
     if (DEMO && adminMode !== 'real') return; // Previews and sample apps run fully offline; a real couple's app runs the real auth flow (guest anonymous sign-in, admin sign-in state)
     const unsub = onAuthStateChanged(auth, async (currUser) => {
+      setAuthChecked(true);
       if (currUser) {
         setUser(currUser);
         
@@ -1209,6 +1211,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
         if (typeof data.story === 'string' && data.story.trim()) setCfgStory(data.story);
         if (data.weddingDetails && typeof data.weddingDetails === 'object') setCfgDetails(data.weddingDetails);
+        setCfgContact({
+          adminWhatsapp: typeof data.adminWhatsapp === 'string' ? data.adminWhatsapp : '',
+          payBankName: typeof data.payBankName === 'string' ? data.payBankName : '',
+          payAccountNumber: typeof data.payAccountNumber === 'string' ? data.payAccountNumber : '',
+          payAccountName: typeof data.payAccountName === 'string' ? data.payAccountName : ''
+        });
         if (typeof data.archiveMode === 'boolean') setArchiveMode(data.archiveMode);
         if (Array.isArray(data.blockedUids)) setBlockedUids(data.blockedUids);
         if (Array.isArray(data.vendors)) setVendors(data.vendors);
@@ -1402,9 +1410,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // Derived wedding content: Firestore values when the couple has saved them,
   // seeded defaults before their first save.
-  const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : eventsData();
+  // Stable identities: these wrap in useMemo so the dashboard draft-sync
+  // effects only re-run when saved data actually changes. A fresh object per
+  // render used to reset the details form while the couple was still typing,
+  // so edits in Events & details snapped back before they could save.
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = withDerivedHashtag(cfgDetails || detailsData());
+  const DETAILS: any = useMemo(() => withDerivedHashtag(cfgDetails || detailsData()), [cfgDetails]);
 
   // The couple's chosen wedding day wins: the church service, else the
   // reception, else the latest saved event date. Until they save anything,
@@ -1461,7 +1473,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       showToast('Saved for this preview.');
       return;
     }
-    if (!isAdmin || !isAdminSessionValid) return;
+    if (!isAdmin || !isAdminSessionValid) {
+      showToast('Sign in again to save your changes.', 'error');
+      return;
+    }
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         events,
@@ -1544,7 +1559,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       showToast('Saved for this preview.');
       return;
     }
-    if (!isAdmin || !isAdminSessionValid) return;
+    if (!isAdmin || !isAdminSessionValid) {
+      showToast('Sign in again to save your changes.', 'error');
+      return;
+    }
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
       if ('events' in patch) setCfgEvents(patch.events);
@@ -2426,7 +2444,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         <>
                           <p className={`py-6 text-center text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>Sample memories · real guest posts appear here</p>
                           {SAMPLE_POSTS.filter((sp) => sp.mediaType !== 'reel').map((sp) => (
-                            <SamplePostCard key={sp.id} post={sp} isDarkMode={isDarkMode} liked={!!sampleLiked[sp.id]} onLike={() => setSampleLiked((m) => ({ ...m, [sp.id]: !m[sp.id] }))} onComment={() => setCommentsPost(sp)} onShare={() => setSharingPost(sp)} />
+                            <SamplePostCard key={sp.id} post={{ ...sp, text: sampleCoupleText(sp.text) }} isDarkMode={isDarkMode} liked={!!sampleLiked[sp.id]} onLike={() => setSampleLiked((m) => ({ ...m, [sp.id]: !m[sp.id] }))} onComment={() => setCommentsPost(sp)} onShare={() => setSharingPost(sp)} />
                           ))}
                         </>
                       );
@@ -2525,7 +2543,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                     const finalReels = filteredReels.length > 0
                       ? filteredReels
-                      : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel');
+                      : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel').map((sp) => ({ ...sp, text: sampleCoupleText(sp.text) }));
 
                     const activeReelAds = shuffledReelAds.length > 0 ? shuffledReelAds : reelAds;
                     if (activeReelAds.length === 0) return finalReels;
@@ -2642,6 +2660,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </div>
 
               
+              {!DEMO && cfgContact && (cfgContact.adminWhatsapp || cfgContact.payBankName || cfgContact.payAccountNumber) && (
+                <>
+                  <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Payments & support</h2>
+                  <div className={`p-[24px_18px] rounded-[24px] border mb-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    {cfgContact.payBankName ? (
+                      <div className="space-y-1.5 text-sm">
+                        <p className="font-black font-display text-base">Pay Eventicor</p>
+                        <p>Bank: <b>{cfgContact.payBankName}</b></p>
+                        <p>Account number: <b>{cfgContact.payAccountNumber}</b></p>
+                        <p>Account name: <b>{cfgContact.payAccountName}</b></p>
+                      </div>
+                    ) : null}
+                    {cfgContact.adminWhatsapp ? (
+                      <a href={`https://wa.me/${String(cfgContact.adminWhatsapp).replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-3 px-4 py-2.5 rounded-full bg-[#25d366] text-white text-[0.7rem] font-black uppercase tracking-widest">WhatsApp the admin</a>
+                    ) : null}
+                  </div>
+                </>
+              )}
               <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Appearance</h2>
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4">
@@ -2758,6 +2794,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         heroImageLabels={heroImageLabels}
         onUpdateHeroLabels={updateHeroLabels}
         onSaveWeddingSection={updateWeddingSection}
+        contactSettings={cfgContact}
         onUpdateFooterStyle={updateFooterStyle}
         footerStyle={footerStyle}
         onUpdateHeroTemplate={updateHeroTemplate}
@@ -2838,20 +2875,28 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       />
       )}
 
-      {/* /admin sign-in screen for signed-out visitors */}
+      {/* /admin sign-in screen for signed-out visitors. While the auth
+          listener is still restoring the session after a refresh, show a boot
+          loader instead, never the sign-in screen. */}
       {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
-        <AuthScreen
-          screen={authScreen ?? 'signin'}
-          setScreen={setAuthScreen}
-          coupleLabel={demoHeader()}
-          onClose={leaveAdminPage}
-          onSignIn={handleAdminLogin}
-          onForgot={handleForgotPassword}
-          busy={authBusy}
-          error={authError}
-          clearError={() => setAuthError('')}
-          isDarkMode={isDarkMode}
-        />
+        authChecked ? (
+          <AuthScreen
+            screen={authScreen ?? 'signin'}
+            setScreen={setAuthScreen}
+            coupleLabel={demoHeader()}
+            onClose={leaveAdminPage}
+            onSignIn={handleAdminLogin}
+            onForgot={handleForgotPassword}
+            busy={authBusy}
+            error={authError}
+            clearError={() => setAuthError('')}
+            isDarkMode={isDarkMode}
+          />
+        ) : (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#0B171C]">
+            <div className="w-9 h-9 rounded-full border-4 border-[var(--ann-accent)] border-t-transparent animate-spin" />
+          </div>
+        )
       )}
 
       {/* Temporary debug banner: only renders with ?authdebug=1 */}
@@ -4338,6 +4383,10 @@ const SAMPLE_POSTS = [
   { id: 'sample-7', authorName: 'Dara', role: 'couple', eventName: 'Introduction', mediaType: 'reel', text: 'Dancing in before the families. Look at my mum!', likeCount: 58, commentCount: 0, timeAgo: '20 Jun 2026, 17:10' },
 ];
 
+// Sample captions keep the placeholder couple (Dara/Femi) at rest; render
+// them with the bound couple's names so real apps never show placeholders.
+const sampleCoupleText = (t: string) => String(t || '').replace(/\bDara\b/g, demoBride()).replace(/\bFemi\b/g, demoGroom());
+
 const SAMPLE_COMMENTS: Record<string, Array<{ authorName: string; timeAgo: string; text: string }>> = {
   'sample-3': [
     { authorName: 'Aunty Ronke', timeAgo: '18 Jul 2026, 13:02', text: 'I screamed so loud, my neck is still sore!' },
@@ -5186,6 +5235,7 @@ function AdminDashboardModal({
   heroImageLabels,
   onUpdateHeroLabels,
   onSaveWeddingSection,
+  contactSettings,
   onUpdateHeroImages,
   footerImages,
   onUpdateFooterImages,
@@ -5485,6 +5535,25 @@ function AdminDashboardModal({
   const saveStory = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ story: storyDraft }); } finally { setWeddingBusy(false); } };
   const saveDetails = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ weddingDetails: detDraft }); } finally { setWeddingBusy(false); } };
   const saveEvents = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ events: evDraft }); } finally { setWeddingBusy(false); } };
+  // Eventicor admin contact + payment account details (super admin only).
+  const [contactDraft, setContactDraft] = useState<any>(null);
+  useEffect(() => {
+    if (contactSettings && !contactDraft) setContactDraft({
+      adminWhatsapp: contactSettings.adminWhatsapp || '',
+      payBankName: contactSettings.payBankName || '',
+      payAccountNumber: contactSettings.payAccountNumber || '',
+      payAccountName: contactSettings.payAccountName || ''
+    });
+  }, [contactSettings]);
+  const saveContactSettings = async () => {
+    if (!contactDraft) return;
+    await onSaveWeddingSection({
+      adminWhatsapp: (contactDraft.adminWhatsapp || '').trim(),
+      payBankName: (contactDraft.payBankName || '').trim(),
+      payAccountNumber: (contactDraft.payAccountNumber || '').trim(),
+      payAccountName: (contactDraft.payAccountName || '').trim()
+    });
+  };
   // Journey step photos (dashboard): up to 2 images per event step, uploaded
   // two at a time, saved with the rest of the journey.
   const [evUpBusy, setEvUpBusy] = useState<string | null>(null);
@@ -5517,11 +5586,9 @@ function AdminDashboardModal({
     setWeddingBusy(true);
     try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
   };
-  const previewSite = async () => {
-    setWeddingBusy(true);
-    try { await onSaveWedding(evDraft, storyDraft, detDraft); } finally { setWeddingBusy(false); }
-    // Preview opens here in a popup, not a new tab: a full-height iframe of the
-    // app itself, forced to the Home section, showing the settings just saved.
+  const previewSite = () => {
+    // Preview is only a look, never a save: it opens the in-dashboard popup
+    // right away without writing anything.
     setSitePreviewOpen(true);
   };
 
@@ -6006,7 +6073,7 @@ function AdminDashboardModal({
                               <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              <button onClick={async () => { try { await updateDoc(doc(db, scopedPath('posts'), p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : 'Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
+                              <button onClick={async () => { try { await updateDoc(doc(db, scopedPath('posts'), p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : `Approved. ${demoHeader()}\u2019s guests can now see it`, 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
                               <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Reject</button>
                             </div>
                           </div>
@@ -6149,8 +6216,8 @@ function AdminDashboardModal({
                       <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
                     </div>
                     {/* Saves everything, then opens the preview popup. */}
-                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then previews the app here" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
-                      {weddingBusy ? 'Saving…' : 'Preview app'}
+                    <button onClick={previewSite} title="Previews the app here" className="px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">
+                      Preview app
                     </button>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -6526,6 +6593,38 @@ function AdminDashboardModal({
               )}
               {activeAdminTab === 'settings' && (
                 <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Eventicor admin & payments</h3>
+                    {isSuper ? (
+                      <>
+                        <p className="text-sm opacity-60 mb-4">The WhatsApp number couples see when they need help, and the account your customers pay into. Shown to users in the app's Settings page.</p>
+                        <div className="grid gap-3 sm:grid-cols-2 mb-4">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Admin WhatsApp number</span>
+                            <input type="tel" value={contactDraft?.adminWhatsapp ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: e.target.value.replace(/[^0-9+]/g, ''), payBankName: contactDraft?.payBankName || '', payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: contactDraft?.payAccountName || '' })} placeholder="2348012345678" className={`${inputCls} w-full`} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
+                            <input type="text" value={contactDraft?.payBankName ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: e.target.value, payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: contactDraft?.payAccountName || '' })} placeholder="GTBank" className={`${inputCls} w-full`} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
+                            <input type="text" inputMode="numeric" value={contactDraft?.payAccountNumber ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: contactDraft?.payBankName || '', payAccountNumber: e.target.value.replace(/[^0-9]/g, ''), payAccountName: contactDraft?.payAccountName || '' })} placeholder="0123456789" className={`${inputCls} w-full`} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
+                            <input type="text" value={contactDraft?.payAccountName ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: contactDraft?.payBankName || '', payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: e.target.value })} placeholder="Eventicor" className={`${inputCls} w-full`} />
+                          </div>
+                        </div>
+                        <button onClick={saveContactSettings} className="px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save details</button>
+                      </>
+                    ) : (
+                      <div className="text-sm opacity-70 space-y-1">
+                        <p>Admin WhatsApp: {contactSettings?.adminWhatsapp || 'not set yet'}</p>
+                        {contactSettings?.payBankName ? <p>Payments: {contactSettings.payBankName} · {contactSettings.payAccountNumber} ({contactSettings.payAccountName})</p> : <p>Payment account details are set by Eventicor.</p>}
+                      </div>
+                    )}
+                  </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
                     <p className="text-sm opacity-60 mb-4">Guests enter this once before their first post. Anyone can browse without it.</p>

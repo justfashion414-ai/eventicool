@@ -20,7 +20,7 @@ const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush',
 // lead needs no email: it opens on its own, shows the admin's uploaded
 // placeholder images and names, and after 3 days it points back to the
 // Eventicor landing page to create their own app.
-interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number; status?: string }
+interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number; status?: string; adminWhatsapp?: string }
 
 async function loadLead(id: string): Promise<LeadData | null> {
   // Sample apps built in the demo console live in this browser only.
@@ -79,7 +79,8 @@ function SampleExpired({ accent }: { accent: string }) {
 // to contact an Eventicor admin on WhatsApp. ADMIN_WHATSAPP holds that number.
 const ADMIN_WHATSAPP = '2349030064109';
 
-function AccountScreen({ accent, kind }: { accent: string; kind: 'deleted' | 'suspended' }) {
+function AccountScreen({ accent, kind, adminWhatsapp }: { accent: string; kind: 'deleted' | 'suspended'; adminWhatsapp?: string }) {
+  const wa = (adminWhatsapp || ADMIN_WHATSAPP).replace(/[^0-9]/g, '');
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 28, background: '#faf7f2' }}>
       <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 32, lineHeight: 1.15, color: accent, fontWeight: 600 }}>
@@ -90,8 +91,8 @@ function AccountScreen({ accent, kind }: { accent: string; kind: 'deleted' | 'su
           ? 'The link you followed has been removed. If you think this is a mistake, contact the couple or an Eventicor admin.'
           : 'This account is not available right now. Contact an Eventicor admin to have it restored.'}
       </p>
-      {kind === 'suspended' && ADMIN_WHATSAPP && (
-        <a href={`https://wa.me/${ADMIN_WHATSAPP}`} target="_blank" rel="noreferrer" style={{ marginTop: 22, background: '#25d366', color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14 }}>
+      {kind === 'suspended' && wa && (
+        <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{ marginTop: 22, background: '#25d366', color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14 }}>
           Contact an Eventicor admin on WhatsApp
         </a>
       )}
@@ -282,7 +283,7 @@ export default function CoupleApp() {
   if (adminMode === 'real') { goLive(); enableRealAuth(); }
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
-  if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" />;
+  if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" adminWhatsapp={lead.adminWhatsapp} />;
   if ((expired || leadExpired) && !activatedAt) return <SampleExpired accent={acc.accent} />;
   return (
     <div

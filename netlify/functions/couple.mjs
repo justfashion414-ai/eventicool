@@ -30,7 +30,13 @@ export default async (req) => {
     const doc = await getFirestore().collection('events').doc(siteId).get()
     if (!doc.exists) return json(404, { error: 'not found' })
     const d = doc.data()
+    let cfg = {}
+    try {
+      const cfgSnap = await getFirestore().collection('apps').doc(siteId).collection('app_config').doc('main').get()
+      if (cfgSnap.exists) cfg = cfgSnap.data() || {}
+    } catch {}
     return json(200, {
+      adminWhatsapp: typeof cfg.adminWhatsapp === 'string' ? cfg.adminWhatsapp : '',
       bride: d.bride || '',
       groom: d.groom || '',
       city: d.city || '',
