@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
 
 import AnniversaryPortal from './AnniversaryPortal';
+import { enableRealAuth } from './lib/authShim';
 import BootLoader from '../components/BootLoader';
 
 // Six Eventicor accents, mapped onto the couple app's palette.
@@ -291,6 +292,10 @@ export default function CoupleApp() {
   const activatedAt = (lead as any)?.activatedAt as number | undefined;
   // Suspended and deleted accounts answer before any expiry logic: their link
   // resolves but the app itself is no longer served.
+  const adminMode = ((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as 'real' | 'none' | 'preview';
+  // Real couple apps authenticate against Firebase for real: the demo shim's
+  // local guest is only for previews and sample apps.
+  if (adminMode === 'real') enableRealAuth();
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
   if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" />;
@@ -302,7 +307,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? <BootLoader /> : (
         <Suspense fallback={<BootLoader />}>
-          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={((lead as any)?.source === 'landing' ? 'real' : lead ? 'none' : 'preview') as any} installable={!!lead && (lead as any).source === 'landing'} />
+          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={adminMode} installable={!!lead && (lead as any).source === 'landing'} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && lead !== undefined && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
