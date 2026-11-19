@@ -2779,7 +2779,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       {/* Temporary debug banner: only renders with ?authdebug=1 */}
       {new URLSearchParams(window.location.search).has('authdebug') && (
         <div style={{position:'fixed',left:8,bottom:8,zIndex:99999,background:'#111',color:'#4f4',padding:'8px 10px',fontSize:'11px',fontFamily:'monospace',whiteSpace:'pre-wrap',maxWidth:'70vw',borderRadius:8}}>
-          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + ((debugState as any).listenerMode || '-') + ' realAuth ' + (debugState as any).realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen}
+          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen}
         </div>
       )}
 
