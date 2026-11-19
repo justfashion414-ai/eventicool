@@ -1284,8 +1284,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setAuthError('Email or password is incorrect.');
       } else if (code.includes('too-many-requests')) {
         setAuthError('Too many attempts. Try again in a moment.');
+      } else if (code.includes('invalid-email') || code.includes('missing-password')) {
+        setAuthError('Enter the email and password exactly as they appear in your login email.');
+      } else if (code.includes('network')) {
+        setAuthError('Network problem. Check your connection and try again.');
       } else {
-        setAuthError('Could not sign in. Please try again.');
+        setAuthError(`Could not sign in${code ? ` (${code})` : ''}. Please try again.`);
       }
     } finally {
       setAuthBusy(false);
