@@ -536,7 +536,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   throw new Error(`Upload failed: ${errorInfo}`);
 };
 
-export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
+export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false, paywallEnter }: AnniversaryPortalProps) {
   // ?nochrome=1 (the dashboard's preview mockup): the Home page only, with no
   // splash, no header buttons, no bottom nav and no admin shortcut.
   const noChrome = (() => { try { return new URLSearchParams(window.location.search).has('nochrome'); } catch { return false; } })();
