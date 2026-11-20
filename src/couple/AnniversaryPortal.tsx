@@ -721,6 +721,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Settings tab and stored on app_config/main as feedActionMode.
   const [feedActionMode, setFeedActionMode] = useState<'share' | 'download'>('share');
   const [adminPermissions, setAdminPermissions] = useState<any>(null);
+  const [selfAdminRole, setSelfAdminRole] = useState('');
   const [deletedPosts, setDeletedPosts] = useState<any[]>([]);
   const [allAdmins, setAllAdmins] = useState<any[]>([]);
   // Label attached to each hero photo (url -> event name), set in the console's
@@ -1172,6 +1173,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         // rights: a stale or damaged permissions object on their doc must not
         // hide the Hero photos and Giant footer cards again.
         const admDoc = snap.data() as any;
+        setSelfAdminRole(String(admDoc.role || 'owner'));
         const admPerms = admDoc.permissions || {};
         const admFullRole = ['owner', 'couple', 'admin', 'bride', 'groom'].includes(String(admDoc.role || ''));
         setAdminPermissions(admFullRole
@@ -1190,6 +1192,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         }, { merge: true }).catch(() => {});
         setMustSetPassword(false);
         setIsAdmin(true);
+        setSelfAdminRole('owner');
         setAdminPermissions({ 
           canDeletePosts: true, 
           canUploadImages: true, 
@@ -1198,6 +1201,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else {
         setAdminSync('missing');
+        setSelfAdminRole('');
         setIsAdmin(false);
         setAdminPermissions(null);
         adminAutoOpenedRef.current = false;
@@ -1479,11 +1483,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         unsubDeleted();
       };
     } else if (isAdmin) {
-      // Just sync deleted posts for regular admins with permission
+      // Every admin of this app needs the admins collection, not just the
+      // platform owner: it carries their own role doc (which locks a
+      // restricted role like a photographer down to the Vendor albums tab)
+      // and the team list the owner reads from.
+      const unsubAdmins = onSnapshot(collection(db, scopedPath('admins')), (snap) => {
+        setAllAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
       const unsubDeleted = onSnapshot(collection(db, scopedPath('deleted_posts')), (snap) => {
         setDeletedPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
-      return () => unsubDeleted();
+      return () => { unsubAdmins(); unsubDeleted(); };
     }
   }, [isAdmin, isAdminSessionValid, user]);
 
@@ -3048,6 +3058,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           }
         }}
         allAdmins={allAdmins}
+        selfRole={selfAdminRole}
         deletedPosts={deletedPosts}
         onRestorePost={handleRestorePost}
         onPermanentDelete={handlePermanentDelete}
@@ -5768,6 +5779,7 @@ function AdminDashboardModal({
   onUpdateHeroTemplate,
   heroTpl,
   allAdmins,
+  selfRole,
   deletedPosts,
   onRestorePost,
   onPermanentDelete,
@@ -5833,11 +5845,20 @@ function AdminDashboardModal({
   }, [isOpen]);
 
   // Photographers and vendors see and do exactly one thing here: Photo albums.
-  const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail);
+  // The signed-in admin's own doc. Prefer the live collection copy, but fall
+  // back to the role synced from their own admins doc so a restricted role
+  // (a photographer) is locked to Vendor albums from the very first render,
+  // not only once the whole collection snapshot lands.
+  const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail)
+    || (selfRole ? { id: '__self__', email: currentUserEmail, name: null, role: selfRole, permissions: adminPermissions, mustSetPassword: false } : null);
   const restrictedRole = ['photographer', 'videographer', 'vendor'].includes(myAdminDoc?.role);
   useEffect(() => {
     if (restrictedRole && activeAdminTab !== 'albums') setActiveAdminTab('albums');
   }, [restrictedRole, activeAdminTab]);
+
+  // Team "View details" popup: one place that shows a member's name, email
+  // and exactly what their role lets them do.
+  const [teamDetail, setTeamDetail] = useState<any | null>(null);
 
   const uploadAlbumMedia = async (files: FileList | null, kind: 'photo' | 'video') => {
     const list = Array.from(files || []);
@@ -7524,10 +7545,13 @@ function AdminDashboardModal({
                             {adm.status === 'suspended' ? (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
                             ) : adm.mustSetPassword === true ? (
-                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Inactive</span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
                             )}
+                            <button onClick={() => setTeamDetail(adm)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#DAD8E3] dark:border-[#22363E] transition-all hover:border-[var(--ann-accent)] hover:text-[var(--ann-accent)]">
+                              View details
+                            </button>
                             {(!adm.role || ['couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
                               { id: 'canDeletePosts', label: 'Delete Posts' },
                               { id: 'canUploadImages', label: 'Upload Images' },
@@ -7545,6 +7569,57 @@ function AdminDashboardModal({
                         </div>
                       ))}
                     </div>
+                    <AnimatePresence>
+                      {teamDetail && (() => {
+                        const adm = teamDetail;
+                        const FULL_DASH = ['owner', 'couple', 'admin', 'bride', 'groom'];
+                        const full = !adm.role || FULL_DASH.includes(adm.role);
+                        const perms = adm.permissions || {};
+                        const canUpload = full ? perms.canUploadImages !== false : perms.canUploadImages !== false;
+                        const canDelete = full ? perms.canDeletePosts !== false : !!perms.canDeletePosts;
+                        const canCode = full ? perms.canSetAccessCode !== false : !!perms.canSetAccessCode;
+                        const status = adm.status === 'suspended' ? 'Suspended' : (adm.mustSetPassword === true || adm.status === 'invited') ? 'Inactive' : 'Active';
+                        const roleNote = full
+                          ? 'Sees and manages the whole dashboard: overview, moderation, all posts, events & photos, vendor albums, settings and security.'
+                          : adm.role === 'photographer'
+                            ? 'Vendor albums only. Uploads photos to the Photo albums section and sees nothing else.'
+                            : adm.role === 'videographer'
+                              ? 'Vendor albums only. Uploads videos to the Video albums section and sees nothing else.'
+                              : 'Vendor albums only. Uploads photos and videos to the album sections and sees nothing else.';
+                        const addedWhen = adm.addedAt?.toDate ? adm.addedAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                        return (
+                          <>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setTeamDetail(null)} className="fixed inset-0 bg-black/60 z-[200] backdrop-blur-sm" />
+                            <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.97 }} transition={{ type: 'spring', damping: 26, stiffness: 320 }} className={`fixed inset-x-4 top-1/2 -translate-y-1/2 z-[201] mx-auto max-w-md rounded-[24px] p-6 border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#1A2B32]'}`}>
+                              <div className="flex items-start justify-between gap-3 mb-4">
+                                <h3 className="font-black font-display text-lg">Team member details</h3>
+                                <button onClick={() => setTeamDetail(null)} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10" aria-label="Close details"><X className="w-4 h-4" /></button>
+                              </div>
+                              <p className="font-bold break-all">{adm.name || (adm.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
+                              <p className="text-[0.8rem] opacity-60 break-all mb-3">{adm.email}</p>
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${full ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>{roleLabel(adm.role)}</span>
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${status === 'Suspended' ? 'bg-red-500/10 text-red-500 border-red-500/40' : status === 'Inactive' ? 'bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40' : 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40'}`}>{status}</span>
+                              </div>
+                              <p className="text-[0.65rem] uppercase tracking-widest font-black opacity-50 mb-2">What they can do</p>
+                              <p className="text-[0.85rem] opacity-80 mb-3">{roleNote}</p>
+                              <div className="space-y-1.5 text-[0.8rem] mb-4">
+                                <p>Upload images or videos: <b>{canUpload ? 'Yes' : 'No'}</b></p>
+                                <p>Delete posts: <b>{canDelete ? 'Yes' : 'No'}</b></p>
+                                <p>Set the guest access code: <b>{canCode ? 'Yes' : 'No'}</b></p>
+                                {full && <p>Invite, suspend and remove team members: <b>Yes</b></p>}
+                              </div>
+                              <div className="space-y-1 text-[0.75rem] opacity-60">
+                                {adm.sessionMinutes ? <p>Session timeout: {adm.sessionMinutes} min</p> : null}
+                                {adm.addedBy ? <p>Added by {adm.addedBy}{addedWhen ? ` on ${addedWhen}` : ''}</p> : null}
+                                {status === 'Inactive' && <p>Inactive: the invite is in their inbox. They show as active once they sign in and set their own password.</p>}
+                                {status === 'Suspended' && <p>Suspended: they cannot sign in until reinstated.</p>}
+                              </div>
+                            </motion.div>
+                          </>
+                        );
+                      })()}
+                    </AnimatePresence>
                     <AnimatePresence>
                       {showInviteModal && (
                         <>
