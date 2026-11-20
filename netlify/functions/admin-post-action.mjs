@@ -78,6 +78,8 @@ function mediaPublicIds(data) {
   return ids
 }
 
+const SUPER_ADMIN = 'justfashion414@gmail.com'
+
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
   if (req.method !== 'POST') return json(405, { error: 'POST only' })
@@ -90,7 +92,7 @@ export default async (req) => {
     const email = String(decoded.email || '').toLowerCase()
     if (!email) return json(403, { error: 'No email on this account.' })
     const adminDoc = await db.collection('admins').doc(email).get()
-    if (!adminDoc.exists) return json(403, { error: "Only the couple's admins can do that." })
+    if (!adminDoc.exists && email !== SUPER_ADMIN) return json(403, { error: "Only the couple's admins can do that." })
 
     const body = await req.json().catch(() => ({}))
     const action = String(body.action || '')

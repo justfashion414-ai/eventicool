@@ -23,7 +23,7 @@ class QuerySnap {
   docChanges() { return []; }
 }
 
-const store: { config: any; posts: any[]; residents: any[] } = {
+const store: { config: any; posts: any[]; residents: any[]; albums: any[] } = {
   config: {
     activeAccessCode: 'AMARADANIEL',
     heroImages: PHOTOS,
@@ -44,6 +44,7 @@ const store: { config: any; posts: any[]; residents: any[] } = {
     groom: DEMO_COUPLE.groom,
   },
   posts: [],
+  albums: [],
   residents: DEMO_GUESTS.map((name, i) => ({ uid: 'g' + (i + 1), name, role: 'guest' })),
 };
 
@@ -113,6 +114,9 @@ function emit(ref: any, cb: (s: any) => void) {
     } else if (parts[0] === 'posts') {
       const p = store.posts.find((x) => x.id === parts[1]);
       cb(new DocSnap(parts[1], p ? { ...p } : null, !!p));
+    } else if (parts[0] === 'albums') {
+      const a = store.albums.find((x) => x.id === parts[1]);
+      cb(new DocSnap(parts[1], a ? { ...a } : null, !!a));
     } else {
       cb(new DocSnap(path, null, false));
     }
@@ -123,6 +127,9 @@ function emit(ref: any, cb: (s: any) => void) {
     cb(new QuerySnap(sortedPosts().map((p) => new DocSnap(p.id, { ...p }, true))));
   } else if (path === 'residents') {
     cb(new QuerySnap(store.residents.map((r) => new DocSnap(r.uid, { ...r }, true))));
+  } else if (path === 'albums') {
+    const sorted = store.albums.slice().sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
+    cb(new QuerySnap(sorted.map((a) => new DocSnap(a.id, { ...a }, true))));
   } else {
     cb(new QuerySnap([]));
   }
@@ -193,6 +200,11 @@ async function demoSet(docRef: any, data: any, opts?: any) {
     const r = store.residents.find((x) => x.uid === uid);
     if (r) applyMerge(r, data);
     else store.residents.push({ uid, ...data });
+  } else if (path.startsWith('albums/')) {
+    const id = path.split('/')[1];
+    const i = store.albums.findIndex((x) => x.id === id);
+    if (i >= 0) applyMerge(store.albums[i], data);
+    else store.albums.unshift({ id, ...data, uploadedAt: data.uploadedAt?.__sv ? ts(new Date()) : (data.uploadedAt || ts(new Date())) });
   }
   emitAll();
 }
@@ -215,6 +227,9 @@ async function demoDelete(docRef: any) {
   if (path.startsWith('posts/')) {
     const i = store.posts.findIndex((p) => p.id === path.split('/')[1]);
     if (i >= 0) store.posts.splice(i, 1);
+  } else if (path.startsWith('albums/')) {
+    const i = store.albums.findIndex((a) => a.id === path.split('/')[1]);
+    if (i >= 0) store.albums.splice(i, 1);
   }
   emitAll();
 }
@@ -225,8 +240,13 @@ export const deleteDoc: any = (ref: any) => DEMO ? demoDelete(ref) : FS.deleteDo
 export const addDoc: any = async (colRef: any, data: any) => {
   if (!DEMO) return FS.addDoc(colRef, data);
   const id = 'demo-' + Math.random().toString(36).slice(2, 8);
-  const item = { ...data, id, timestamp: data.timestamp || ts(new Date()) };
-  if (normPath(colRef.path) === 'posts') store.posts.unshift(item);
+  // serverTimestamp() arrives as the { __sv } marker: turn it into a real
+  // timestamp object so orderBy/sorting and date formatting just work.
+  const clean: any = { ...data, id };
+  Object.keys(clean).forEach((k) => { if (clean[k] && typeof clean[k] === 'object' && '__sv' in clean[k]) clean[k] = ts(new Date()); });
+  if (!clean.timestamp) clean.timestamp = ts(new Date());
+  if (normPath(colRef.path) === 'posts') store.posts.unshift(clean);
+  else if (normPath(colRef.path) === 'albums') store.albums.unshift(clean);
   emitAll();
   return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
 };

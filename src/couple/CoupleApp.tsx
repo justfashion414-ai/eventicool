@@ -532,6 +532,8 @@ export default function CoupleApp() {
         </Suspense>
       )}
       {isSample && expRaw > 0 && !!lead && !landingLead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={false} />}
+      {/* A customer's own app on its 24-hour free trial shows the same floating countdown (user report Nov 20 2026). */}
+      {isSample && landingLead && !!lead && !activatedAt && !leadExpired && (lead as any).expiresAt && <SampleChip exp={(lead as any).expiresAt} trial />}
       {isSample && !!lead && !(lead as any).activatedAt && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
     </div>
   );
