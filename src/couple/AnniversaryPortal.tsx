@@ -840,6 +840,36 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     } catch {}
   }, [user, isAdmin]);
 
+  // A refresh with the dashboard open lands straight back in the dashboard:
+  // never the public guest app, never the sign-in screen while the session is
+  // being restored. A boot gate holds a full-screen loader until the admin
+  // role is confirmed; only a genuinely signed-out or non-admin session drops
+  // to the sign-in screen, and a network hiccup on the admins lookup retries
+  // instead of kicking the admin out.
+  const wasAdminOpenOnLoadRef = useRef((() => { try { const s = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null'); return !!(s && s.open); } catch { return false; } })());
+  const adminRetryCountRef = useRef(0);
+  const [adminRetryNonce, setAdminRetryNonce] = useState(0);
+  const adminLookupErrored = adminSync.startsWith('err:');
+  const adminRestorePending = adminMode === 'real'
+    && wasAdminOpenOnLoadRef.current
+    && !(
+      authChecked && (
+        (user && !user.isAnonymous && isAdmin && isAdminModalOpen) ||
+        (!user || !!user.isAnonymous) ||
+        (adminStatusChecked && !adminLookupErrored && !isAdmin)
+      )
+    );
+  useEffect(() => {
+    if (adminMode !== 'real' || !wasAdminOpenOnLoadRef.current) return;
+    if (authChecked && (!user || !!user.isAnonymous || (adminStatusChecked && !adminLookupErrored && !isAdmin))) {
+      wasAdminOpenOnLoadRef.current = false;
+      try {
+        const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+        localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, open: false }));
+      } catch {}
+    }
+  }, [authChecked, user, isAdmin, adminStatusChecked, adminLookupErrored, adminMode]);
+
   useEffect(() => {
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
@@ -1100,13 +1130,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setAdminSync('err:' + ((err as any).code || String(err)));
       setAdminStatusChecked(true);
       handleFirestoreError(err, OperationType.GET, `admins/${user.email}`);
+      // A network hiccup on the admins lookup must never land a returning
+      // admin on the sign-in screen: retry the lookup while the boot restore
+      // is still holding the screen.
+      if (wasAdminOpenOnLoadRef.current && adminRetryCountRef.current < 3) {
+        adminRetryCountRef.current += 1;
+        setTimeout(() => setAdminRetryNonce((n) => n + 1), 1500);
+      }
     });
 
     return () => {
       if (profileUnsub) profileUnsub();
       adminUnsub();
     };
-  }, [user]);
+  }, [user, adminRetryNonce]);
 
   // Handle Reactions Logic
   const handleToggleReaction = async (postId: string, type: 'like' | 'love') => {
@@ -2034,6 +2071,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans ${noChrome ? 'pb-4' : 'pb-32'}`}>
+      {/* BOOT RESTORE: a refresh with the dashboard open shows this loader
+          instead of the public app until the admin session is confirmed. */}
+      {adminRestorePending && (
+        <div className="fixed inset-0 z-[600] flex flex-col items-center justify-center bg-[#0B171C]">
+          <p className="font-serif-display italic text-white text-[1.4rem]">{demoHeader()}</p>
+          <div className="mt-7 w-9 h-9 rounded-full border-4 border-[var(--ann-accent)] border-t-transparent animate-spin" />
+          <p className="mt-7 text-[0.65rem] font-black uppercase tracking-widest text-white/40">Opening your dashboard</p>
+        </div>
+      )}
       {/* FOLLOW-UP LAUNCH SPLASH SCREEN AFTER PWA ICON SPLASH */}
       <AnimatePresence>
         {showLaunchSplash && (
@@ -2892,7 +2938,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           listener is still restoring the session after a refresh, show a boot
           loader instead, never the sign-in screen. */}
       {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
-        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked)) ? (
+        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending) ? (
           <AuthScreen
             screen={authScreen ?? 'signin'}
             setScreen={setAuthScreen}
