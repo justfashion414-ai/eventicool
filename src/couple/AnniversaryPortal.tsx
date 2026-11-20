@@ -243,10 +243,19 @@ const demoStory = () => demoText(DEMO_STORY);
 // config saved before the gifts section existed gets the demo's placeholder
 // account details in demo mode (real apps stay empty until the couple saves
 // their own details in Settings).
-const withGiftDefaults = (base: any): any => ({
-  ...base,
-  giftInfo: { ...(DEMO ? ((DEMO_DETAILS as any).giftInfo || {}) : {}), enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...((base && base.giftInfo) || {}) },
-});
+const withGiftDefaults = (base: any): any => {
+  const seed = DEMO ? ((DEMO_DETAILS as any).giftInfo || {}) : {};
+  const gi: any = { enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...seed, ...((base && base.giftInfo) || {}) };
+  // In demo mode a config saved before the gifts section existed carries empty
+  // fields; fall back to the demo placeholder details so the section shows.
+  if (DEMO && !gi.accountNumber && !gi.accountName) {
+    gi.bank = gi.bank || seed.bank || '';
+    gi.accountNumber = seed.accountNumber || '';
+    gi.accountName = seed.accountName || '';
+    gi.note = gi.note || seed.note || '';
+  }
+  return { ...base, giftInfo: gi };
+};
 
 const detailsData = (): any => {
   const d = { ...DEMO_DETAILS };
@@ -6050,13 +6059,17 @@ function AdminDashboardModal({
   // want to send money. Lives on weddingDetails.giftInfo.
   const [giftDraft, setGiftDraft] = useState<any>(null);
   useEffect(() => {
-    if (!giftDraft && weddingDetails) setGiftDraft({
-      enabled: weddingDetails.giftInfo?.enabled !== false,
-      bank: weddingDetails.giftInfo?.bank || '',
-      accountNumber: weddingDetails.giftInfo?.accountNumber || '',
-      accountName: weddingDetails.giftInfo?.accountName || '',
-      note: weddingDetails.giftInfo?.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
-    });
+    if (!giftDraft && weddingDetails) {
+      const gi = weddingDetails.giftInfo || {};
+      const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
+      setGiftDraft({
+        enabled: gi.enabled !== false,
+        bank: gi.bank || seed.bank || '',
+        accountNumber: gi.accountNumber || seed.accountNumber || '',
+        accountName: gi.accountName || seed.accountName || '',
+        note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
+      });
+    }
   }, [weddingDetails]);
   const saveGiftInfo = async () => {
     if (!giftDraft) return;
