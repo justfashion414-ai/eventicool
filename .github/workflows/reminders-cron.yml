@@ -1,0 +1,15 @@
+# Hourly ping of Eventicor's reminder sweep endpoint (branch preview URL until
+# launch, then the production domain). The sweep itself is idempotent per
+# customer, so an extra ping never double-sends.
+name: reminders-cron
+on:
+  schedule:
+    - cron: '11 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping reminder sweep
+        run: |
+          curl -sS -m 240 "https://fix-customer-links-and-created-date--eventicor.netlify.app/api/reminders-cron?key=8ae61bdd82781d4f2e1f19dc61b1f0c4" | head -c 400; echo
