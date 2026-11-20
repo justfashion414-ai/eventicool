@@ -1511,8 +1511,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const base = cfgDetails || detailsData();
     // giftInfo defaults on: a config saved before the gifts section existed (or a
     // config that never stored it) still gets the section as soon as the couple
-    // fills their account details in Settings.
-    return withDerivedHashtag({ ...base, giftInfo: { enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...(base.giftInfo || {}) } });
+    // fills their account details in Settings. In demo mode the placeholder
+    // account details come from the demo seed so the section shows.
+    const giftSeed = DEMO ? (DEMO_DETAILS.giftInfo || {}) : {};
+    return withDerivedHashtag({ ...base, giftInfo: { ...giftSeed, enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...(base.giftInfo || {}) } });
   }, [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
