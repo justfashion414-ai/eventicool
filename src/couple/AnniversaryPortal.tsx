@@ -3020,7 +3020,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             initial={{ y: -100, x: '-50%', opacity: 0 }}
             animate={{ y: 20, x: '-50%', opacity: 1 }}
             exit={{ y: -100, x: '-50%', opacity: 0 }}
-            className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
+            className="fixed top-0 left-1/2 z-[580] w-full max-w-[320px] pointer-events-none"
           >
             <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
               toast.type === 'success' || toast.type === 'info'
@@ -5309,13 +5309,13 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 z-[120] backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 z-[560] backdrop-blur-sm"
           />
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[121] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
+            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[561] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
           >
             <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
               <Trash2 className="w-8 h-8" />
