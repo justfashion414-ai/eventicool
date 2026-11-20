@@ -143,6 +143,10 @@ interface AnniversaryPortalProps {
   installable?: boolean;
   adminMode?: 'none' | 'preview' | 'real';
   template?: 'classic' | 'halo' | 'hero' | 'book';
+  // When set, the app holds at the entry banner and the tap hands control back
+  // to the caller instead of entering (the expired-trial payment flow shows
+  // the banner first so the couple sees the app is theirs).
+  paywallEnter?: () => void;
 }
 
 export interface AdItem {
@@ -775,6 +779,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // PWA Install, Launch Follow-up Splash & Offline State
   const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => {
+    if (paywallEnter) return true;
     if (previewMode || noChrome) return false;
     // The entry banner (couple's names + Eventicor branding + Tap to enter) shows
     // on every fresh open of the app, new session included; within one session a
@@ -795,6 +800,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   const enterApp = () => {
+    if (paywallEnter) { paywallEnter(); return; }
     try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
     setShowLaunchSplash(false);
   };

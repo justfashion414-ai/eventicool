@@ -453,6 +453,9 @@ export default function CoupleApp() {
   // (offline, or a lead id we cannot read) falls back to the generic demo.
   const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId ? undefined : null));
   const [leadExpired, setLeadExpired] = useState(false);
+  // An expired trial shows the entry banner first (the couple sees the app is
+  // theirs), and only the tap opens the payment flow (user direction Nov 20 2026).
+  const [paywallEntered, setPaywallEntered] = useState(false);
   useEffect(() => {
     if (!leadId && !siteId) return;
     let alive = true;
@@ -510,12 +513,13 @@ export default function CoupleApp() {
   const landingLead = !!(lead && (lead as any).source === 'landing');
   if (lead !== undefined && ((expired && !landingLead) || (leadExpired && !activatedAt))) {
     // Sample links (their own ?exp countdown) point back to the landing page;
-    // a customer's own app whose 24-hour trial ended gets the payment flow
-    // instead (user direction Nov 20 2026).
+    // a customer's own app whose 24-hour trial ended gets the entry banner
+    // first and then the payment flow on tap (user direction Nov 20 2026).
     if (leadId && landingLead && leadExpired) {
-      return <TrialEnded accent={acc.accent} lead={lead} appId={leadId} />;
+      if (paywallEntered) return <TrialEnded accent={acc.accent} lead={lead} appId={leadId} />;
+    } else {
+      return <SampleExpired accent={acc.accent} />;
     }
-    return <SampleExpired accent={acc.accent} />;
   }
   return (
     <div
@@ -524,7 +528,7 @@ export default function CoupleApp() {
     >
       {lead === undefined ? <BootLoader /> : (
         <Suspense fallback={<BootLoader />}>
-          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={adminMode} installable={!!lead && (lead as any).source === 'landing'} />
+          <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={adminMode} installable={!!lead && (lead as any).source === 'landing'} paywallEnter={leadExpired && landingLead && !activatedAt && !paywallEntered ? () => setPaywallEntered(true) : undefined} />
         </Suspense>
       )}
       {isSample && expRaw > 0 && !!lead && !landingLead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={false} />}

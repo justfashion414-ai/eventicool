@@ -1147,7 +1147,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                     const st = planStatus(l)
                     return (
                       <tr key={l.id}>
-                        <td><b>{(l.bride || '') + ' & ' + (l.groom || '')}</b></td>
+                        <td>
+                          <b>{(l.bride || '') + ' & ' + (l.groom || '')}</b>
+                          {l.lastPayment && (
+                            <button className="chip" style={{ display: 'inline-block', marginTop: 4, fontWeight: 700, background: 'rgba(216,176,106,.18)', color: '#8a6a1d' }} onClick={() => setPayView(l)}>
+                              Receipt · {l.lastPayment.plan || 'plan'} · sent {l.lastPayment.submittedAt ? new Date(l.lastPayment.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                            </button>
+                          )}
+                        </td>
                         <td><small>{l.email || '—'}</small></td>
                         <td><small>{l.city || '—'}</small></td>
                         <td>{l.plan ? PL[l.plan]?.name || l.plan : 'No plan picked'}</td>
@@ -1158,9 +1165,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                           <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                             {!l.activatedAt && !l.id.startsWith('demo-cust') && (
                               <button className="chip" disabled={busy} style={{ fontWeight: 700 }} onClick={() => confirmPayment(l)}>Confirm payment</button>
-                            )}
-                            {l.lastPayment && (
-                              <button className="chip" style={{ fontWeight: 700 }} onClick={() => setPayView(l)}>Receipt</button>
                             )}
                             <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(appLink(l)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
