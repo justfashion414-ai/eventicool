@@ -3078,6 +3078,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         footerStyle={footerStyle}
         onUpdateHeroTemplate={updateHeroTemplate}
         heroTpl={heroTpl}
+        accentKey={accentKey}
+        onUpdateAccent={updateAccent}
         onUpdateHeroImages={async (urls: string[]) => {
           const capped = urls.slice(0, 20);
           setHeroImages(capped);
@@ -5898,6 +5900,8 @@ function AdminDashboardModal({
   footerStyle,
   onUpdateHeroTemplate,
   heroTpl,
+  accentKey,
+  onUpdateAccent,
   allAdmins,
   selfRole,
   deletedPosts,
@@ -7433,7 +7437,7 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mb-3">The color your app is dressed in: buttons, highlights and headings. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
                       {ACCENT_CHOICES.map(([k, label, hex]) => (
-                        <button key={k} type="button" onClick={() => updateAccent(k)} className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all ${accentKey === k ? 'shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`} style={accentKey === k ? { borderColor: hex, boxShadow: `0 0 0 2px ${hex}33` } : undefined}>
+                        <button key={k} type="button" onClick={() => onUpdateAccent(k)} className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all ${accentKey === k ? 'shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`} style={accentKey === k ? { borderColor: hex, boxShadow: `0 0 0 2px ${hex}33` } : undefined}>
                           <span className="w-4 h-4 rounded-full border border-black/10 shrink-0" style={{ background: hex }} />
                           <span className="text-[0.7rem] font-black uppercase tracking-widest">{label}</span>
                         </button>
