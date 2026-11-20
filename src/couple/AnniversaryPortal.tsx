@@ -239,6 +239,15 @@ const demoStory = () => demoText(DEMO_STORY);
 // Details are generic until the couple edits them. Under a bound couple the
 // venue lines point at THEIR city (no invented hall names) and the hashtag
 // renders through demoText, so their names win everywhere.
+// Gift defaults for any details object: the section is on by default, and a
+// config saved before the gifts section existed gets the demo's placeholder
+// account details in demo mode (real apps stay empty until the couple saves
+// their own details in Settings).
+const withGiftDefaults = (base: any): any => ({
+  ...base,
+  giftInfo: { ...(DEMO ? ((DEMO_DETAILS as any).giftInfo || {}) : {}), enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...((base && base.giftInfo) || {}) },
+});
+
 const detailsData = (): any => {
   const d = { ...DEMO_DETAILS };
   const ov = leadOverride();
@@ -1507,15 +1516,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // so edits in Events & details snapped back before they could save.
   const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = useMemo(() => {
-    const base = cfgDetails || detailsData();
-    // giftInfo defaults on: a config saved before the gifts section existed (or a
-    // config that never stored it) still gets the section as soon as the couple
-    // fills their account details in Settings. In demo mode the placeholder
-    // account details come from the demo seed so the section shows.
-    const giftSeed = DEMO ? (DEMO_DETAILS.giftInfo || {}) : {};
-    return withDerivedHashtag({ ...base, giftInfo: { ...giftSeed, enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...(base.giftInfo || {}) } });
-  }, [cfgDetails]);
+  const DETAILS: any = useMemo(() => withDerivedHashtag(withGiftDefaults(cfgDetails || detailsData())), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
@@ -7034,7 +7035,7 @@ function AdminDashboardModal({
                               wedDate={previewWedDate()}
                               events={evDraft}
                               story={storyDraft}
-                              details={detDraft}
+                              details={withGiftDefaults(detDraft)}
                               heroImages={heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES}
                               tpl={heroTplDraft}
                               wallStyle={footerStyleDraft}
