@@ -47,6 +47,7 @@ import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { disableNetwork, enableNetwork } from 'firebase/firestore';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
@@ -2053,6 +2054,33 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setIsPostsLoading(false);
     });
     return () => unsub();
+  }, []);
+
+  // Wake refresh: when the app has sat in the background a long while and the
+  // visitor comes back, the Firestore connection can be dormant with every
+  // live listener showing stale data. Cycling the network re-opens it and
+  // every onSnapshot re-emits fresh data, so the app updates itself instead
+  // of waiting for a manual refresh.
+  useEffect(() => {
+    if (DEMO) return;
+    let hiddenAt = 0;
+    const wake = () => {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (away > 30000) {
+        try {
+          disableNetwork(db as any).then(() => enableNetwork(db as any)).catch(() => {});
+          disableNetwork(platformDb as any).then(() => enableNetwork(platformDb as any)).catch(() => {});
+        } catch { /* the wake cycle is best effort */ }
+      }
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('focus', wake);
+    return () => {
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('focus', wake);
+    };
   }, []);
 
   // Footer grid: newest posted images replace the placeholder cells first,
