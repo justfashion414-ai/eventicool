@@ -665,6 +665,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // verdict). The /admin gate must wait for it too, or a refreshing admin
   // glimpses the sign-in screen in the gap before isAdmin resolves.
   const [adminStatusChecked, setAdminStatusChecked] = useState(false);
+  // The preview mockup's iframe boots a second copy of this app on the same
+  // Firebase auth. Its initialization can broadcast a transient signed-out
+  // state to this tab; never tear a live admin session down for that.
+  const lastRealAdminRef = useRef(false);
+  const explicitSignOutRef = useRef(false);
+  const [authTransient, setAuthTransient] = useState(false);
+  const doSignOut = () => { explicitSignOutRef.current = true; signOut(auth); };
   // Eventicor admin contact + payment details saved in app_config.
   const [cfgContact, setCfgContact] = useState<any>(null);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
@@ -856,7 +863,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const adminRetryCountRef = useRef(0);
   const [adminRetryNonce, setAdminRetryNonce] = useState(0);
   const adminLookupErrored = adminSync.startsWith('err:');
-  const adminRestorePending = adminMode === 'real'
+  const adminRestorePending = !noChrome && adminMode === 'real'
     && wasAdminOpenOnLoadRef.current
     && !(
       authChecked && (
@@ -865,9 +872,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         (adminStatusChecked && !adminLookupErrored && !isAdmin)
       )
     );
+  // The dashboard and the admin loader stay up while a transient auth
+  // broadcast from the preview mockup's iframe is settling.
+  const adminGateOk = adminMode === 'preview' || (user && !user.isAnonymous && isAdmin) || (!!authTransient && isAdmin);
   useEffect(() => {
     if (adminMode !== 'real' || !wasAdminOpenOnLoadRef.current) return;
-    if (authChecked && (!user || !!user.isAnonymous || (adminStatusChecked && !adminLookupErrored && !isAdmin))) {
+    if (authChecked && !authTransient && (!user || !!user.isAnonymous || (adminStatusChecked && !adminLookupErrored && !isAdmin))) {
       wasAdminOpenOnLoadRef.current = false;
       try {
         const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
@@ -1010,11 +1020,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO && adminMode !== 'real') return; // Previews and sample apps run fully offline; a real couple's app runs the real auth flow (guest anonymous sign-in, admin sign-in state)
     const unsub = onAuthStateChanged(auth, async (currUser) => {
       setAuthChecked(true);
+      // The preview mockup's iframe is only a look: it reads the signed-in
+      // user and never mutates auth, so opening it can never disturb the
+      // admin's real session.
+      if (noChrome) { setUser(currUser || null); return; }
       if (currUser) {
         setUser(currUser);
+        setAuthTransient(false);
         
         // Admin Session Management
         if (!currUser.isAnonymous) {
+          lastRealAdminRef.current = true;
+          explicitSignOutRef.current = false;
           const idToken = await currUser.getIdTokenResult();
           const authTime = (idToken.claims.auth_time as any) || Math.floor(new Date(currUser.metadata.lastSignInTime || Date.now()).getTime() / 1000);
           const sessionMinutes = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
@@ -1022,7 +1039,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const now = Date.now();
           
           if (now >= expiresAt) {
-            signOut(auth);
+            doSignOut();
             setIsAdminSessionValid(false);
             showToast("Your admin session expired. Please sign in again.", "info");
           } else {
@@ -1034,7 +1051,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setSessionExpiry(null);
           setIsAdminSessionValid(false);
         }
+      } else if (lastRealAdminRef.current && !explicitSignOutRef.current) {
+        // A second context booting on the same Firebase auth (the preview
+        // mockup's iframe) can broadcast a transient signed-out state. Never
+        // tear a live admin session down for it: hold, and only accept the
+        // sign-out if it really persists.
+        setAuthTransient(true);
+        window.setTimeout(() => {
+          if ((auth as any).currentUser) return; // the admin is back
+          setAuthTransient(false);
+          setUser(null);
+          setIsAdmin(false);
+          setAdminPermissions(null);
+          setSessionExpiry(null);
+          setIsAdminSessionValid(false);
+          signInAnonymously(auth).catch(err => console.error("Anonymous auth error:", err));
+        }, 3000);
       } else {
+        setAuthTransient(false);
         setUser(null);
         setIsAdmin(false);
         setAdminPermissions(null);
@@ -1054,7 +1088,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const timeLeft = sessionExpiry - now;
 
       if (timeLeft <= 0) {
-        signOut(auth);
+        doSignOut();
         setIsAdminDashboardOpen(false);
         if (window.location.hash === '#admin') {
           try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
@@ -1081,6 +1115,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
+    if (noChrome) return; // the preview mockup never touches admin state
     if (!user || user.isAnonymous) return;
     setAdminStatusChecked(false);
 
@@ -1462,7 +1497,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
-  const handleLogout = () => signOut(auth);
+  const handleLogout = () => doSignOut();
 
   // Derived wedding content: Firestore values when the couple has saved them,
   // seeded defaults before their first save.
@@ -2824,7 +2859,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       )}
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
-      {isAdminModalOpen && (adminMode === 'preview' || (user && !user.isAnonymous && isAdmin)) && (
+      {isAdminModalOpen && adminGateOk && (
       <AdminDashboardModal 
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
@@ -2943,8 +2978,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       {/* /admin sign-in screen for signed-out visitors. While the auth
           listener is still restoring the session after a refresh, show a boot
           loader instead, never the sign-in screen. */}
-      {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
-        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending) ? (
+      {route === '/admin' && adminMode === 'real' && !adminGateOk && (
+        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending && !authTransient) ? (
           <AuthScreen
             screen={authScreen ?? 'signin'}
             setScreen={setAuthScreen}
@@ -2958,7 +2993,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             isDarkMode={isDarkMode}
           />
         ) : (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#0B171C]">
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[#0B171C]">
             <div className="w-9 h-9 rounded-full border-4 border-[var(--ann-accent)] border-t-transparent animate-spin" />
           </div>
         )
@@ -3385,7 +3420,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           confirmPassword={confirmNewPassword}
           setConfirmPassword={setConfirmNewPassword}
           onSubmit={handleSetPermanentPassword}
-          onSignOut={() => { signOut(auth); setMustSetPassword(false); setAuthError(''); }}
+          onSignOut={() => { doSignOut(); setMustSetPassword(false); setAuthError(''); }}
         />
       )}
 
@@ -5416,7 +5451,7 @@ function AdminDashboardModal({
 
   const handleAdminSignOut = () => {
     try { localStorage.removeItem(lsKey('admin-ui')); } catch {}
-    signOut(auth);
+    doSignOut();
     onClose();
   };
   const [newAdminEmail, setNewAdminEmail] = useState('');
