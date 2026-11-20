@@ -741,6 +741,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [shuffledPostAds, setShuffledPostAds] = useState<AdItem[]>([]);
   const [shuffledReelAds, setShuffledReelAds] = useState<AdItem[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
+  // True once Firestore reports at least one real post. Then every placeholder
+  // leaves the feed, posts and reels alike.
+  const [feedReal, setFeedReal] = useState(false);
 
   // Sample-mode markers: the demo preview (and any app with no real posts yet)
   // carries a permanent sample notice and chips; they disappear the moment the
@@ -1206,13 +1209,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // Handle Reactions Logic
   const handleToggleReaction = async (postId: string, type: 'like' | 'love') => {
-    if (DEMO) {
+    if (DEMO || String(postId).startsWith('demo-seed-')) {
       if (type === 'like') setUserLikes((prev) => ({ ...prev, [postId]: !prev[postId] }));
       else setUserLoves((prev) => ({ ...prev, [postId]: !prev[postId] }));
       return;
     }
-    if (!user) {
-      showToast("Please wait while we connect you...", "error");
+    // Guests authenticate anonymously; if that session has not landed yet,
+    // wait for it here instead of failing the write.
+    let uid = user?.uid as string | undefined;
+    if (!uid) {
+      try {
+        await signInAnonymously(auth);
+        uid = auth.currentUser?.uid || undefined;
+      } catch {}
+    }
+    if (!uid) {
+      showToast("Still connecting you. Try again in a moment.", "error");
       return;
     }
     
@@ -1220,7 +1232,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const otherTypeActive = type === 'like' ? !!userLoves[postId] : !!userLikes[postId];
     
     const batch = writeBatch(db);
-    const reactionRef = doc(db, scopedPath('posts'), postId, 'reactions', user.uid);
+    const reactionRef = doc(db, scopedPath('posts'), postId, 'reactions', uid);
     const postRef = doc(db, scopedPath('posts'), postId);
 
     try {
@@ -1936,8 +1948,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         // Until the couple's first real post, a real app shows the same lively
         // seed content sample apps get: their names, their hero photos and the
         // demo reels. The first real post replaces all of it.
+        setFeedReal(false);
         setPosts(demoSeedPosts() as any);
       } else {
+        setFeedReal(true);
         setPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       }
       setIsPostsLoading(false);
@@ -2249,11 +2263,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
             >
               <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
-                toast.type === 'success' 
-                  ? 'bg-green-500 border-green-600 text-white' 
-                  : toast.type === 'info'
-                    ? 'bg-[var(--ann-accent)] border-[#0A535C] text-white'
-                    : 'bg-red-500 border-red-600 text-white'
+                toast.type === 'success' || toast.type === 'info'
+                  ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white'
+                  : 'bg-red-500 border-red-600 text-white'
               }`}>
                 {toast.type === 'success' && <Check className="w-5 h-5" />}
                 {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
@@ -2601,6 +2613,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       return !isPortraitReel;
                     });
 
+                    if (regularPosts.length === 0 && feedReal) {
+                      return (
+                        <p className={`py-10 text-center text-[0.8rem] font-bold ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>No posts yet · be the first to share a memory</p>
+                      );
+                    }
+
                     if (regularPosts.length === 0) {
                       return (
                         <>
@@ -2705,7 +2723,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                     const finalReels = filteredReels.length > 0
                       ? filteredReels
-                      : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel').map((sp) => ({ ...sp, text: sampleCoupleText(sp.text) }));
+                      : feedReal
+                        ? []
+                        : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel').map((sp) => ({ ...sp, text: sampleCoupleText(sp.text) }));
+                    if (finalReels.length === 0) {
+                      return (
+                        <p className={`py-10 text-center text-[0.8rem] font-bold ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>No reels yet · the couple's portrait videos land here</p>
+                      );
+                    }
 
                     const activeReelAds = shuffledReelAds.length > 0 ? shuffledReelAds : reelAds;
                     if (activeReelAds.length === 0) return finalReels;
@@ -4292,7 +4317,7 @@ function ReelCard({
   const [localLiked, setLocalLiked] = useState(false);
   const [localLoved, setLocalLoved] = useState(false);
 
-  const isSample = String(reel.id || '').startsWith('sample-');
+  const isSample = ['sample-', 'demo-seed-'].some((p) => String(reel.id || '').startsWith(p));
   const reelRole = postRole(reel);
   const media: string[] = reel.mediaUrls || (reel.mediaUrl ? [reel.mediaUrl] : []);
   const videoUrl = media.find((u: string, idx: number) =>
@@ -4663,7 +4688,7 @@ function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }:
   );
 }
 function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose }: any) {
-  const isSample = String(post?.id || '').startsWith('sample-');
+  const isSample = ['sample-', 'demo-seed-'].some((p) => String(post?.id || '').startsWith(p));
   const [comments, setComments] = useState<any[]>(isSample ? (SAMPLE_COMMENTS[post.id] || []) : []);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -4685,6 +4710,9 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
       if (isSample || DEMO) {
         setComments((prev) => [...prev, { authorName: displayName || 'Guest', text: body, timeAgo: 'Just now' }]);
       } else {
+        if (!auth.currentUser) {
+          try { await signInAnonymously(auth); } catch {}
+        }
         await addDoc(collection(db, scopedPath('posts'), post.id, 'comments'), {
           authorUid: user?.uid || null,
           authorName: displayName || 'Guest',
@@ -5852,13 +5880,15 @@ function AdminDashboardModal({
       setRulesBusy(false);
     }
   };
-  const [inviteResult, setInviteResult] = useState<{ email: string; tempPassword: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ email: string; emailed: boolean; mailError: string } | null>(null);
+  const [inviteName, setInviteName] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteStep, setInviteStep] = useState<'form' | 'done'>('form');
   const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
 
   const openInviteModal = () => {
     setInviteEmail('');
+    setInviteName('');
     setInviteRole('vendor');
     setInvitePerms({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
     setInviteResult(null);
@@ -5924,11 +5954,10 @@ function AdminDashboardModal({
     try {
       const currentUser = auth.currentUser;
       const token = currentUser ? await currentUser.getIdToken() : '';
-      const tempPassword = 'EV' + Math.random().toString(36).slice(2, 10);
       const res = await fetch('/api/auth-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'invite', email, password: tempPassword, role: inviteRole, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
+        body: JSON.stringify({ action: 'invite', email, name: inviteName.trim(), role: inviteRole, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
@@ -5936,10 +5965,10 @@ function AdminDashboardModal({
         try {
           await setDoc(doc(db, scopedPath('admins'), email.toLowerCase().trim()), {
             email: email.toLowerCase().trim(),
+            name: inviteName.trim() || null,
             role: inviteRole,
             mustSetPassword: true,
             permissions: rolePerms,
-            mustSetPassword: true,
             status: 'active',
             sessionMinutes: 30,
             addedAt: serverTimestamp(),
@@ -5948,10 +5977,11 @@ function AdminDashboardModal({
         } catch (permErr) {
           console.error('Admin doc write error:', permErr);
         }
-        setInviteResult({ email, tempPassword });
+        setInviteResult({ email, emailed: !!data.emailed, mailError: data.mailError || '' });
         setInviteStep('done');
         setInviteEmail('');
-        showToast('Dashboard access created. Share the temporary password now.', 'success');
+        setInviteName('');
+        showToast(data.emailed ? 'Invite sent. The temporary password went to their email.' : 'Account created, but the invite email failed to send.', data.emailed ? 'success' : 'error');
       } else {
         showToast(data.error || 'Could not create the account. Try again.', 'error');
       }
@@ -5997,6 +6027,16 @@ function AdminDashboardModal({
   // stays a draft. The preview mockup draws the drafts live, and only the
   // Save bar at the bottom writes anything to the app.
   const [heroImgDraft, setHeroImgDraft] = useState<string[]>(heroImages);
+  const heroSyncKeyRef = useRef<string>('');
+  // If the hero photos card opens with an empty draft while Firestore already
+  // holds images, show them (and keep Clear All working while editing).
+  useEffect(() => {
+    const key = heroImages.join('|');
+    if (key && key !== heroSyncKeyRef.current) {
+      heroSyncKeyRef.current = key;
+      setHeroImgDraft((prev: string[]) => (prev.length ? prev : heroImages as string[]));
+    }
+  }, [heroImages.join('|')]);
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
   const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
   const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee'>(footerStyle);
@@ -6874,7 +6914,7 @@ function AdminDashboardModal({
                       <div className="grid grid-cols-4 gap-2 mb-4">
                         {heroShown.slice(0, 20).map((img: string, idx: number) => (
                           <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
-                            <img src={img} className="w-full h-full object-cover" alt="" />
+                            <img src={img} loading="eager" decoding="async" onLoad={(e) => e.currentTarget.classList.add('hero-loaded')} className="hero-tile-img w-full h-full object-cover" alt="" />
                             <div className="absolute top-1 right-1 flex gap-1">
                               {idx > 0 && (
                                 <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; setHeroImgDraft(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
@@ -7395,7 +7435,7 @@ function AdminDashboardModal({
                       {teamList.map((adm: any) => (
                         <div key={adm.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
                           <div className="flex items-center justify-between mb-3 gap-2">
-                            <span className="font-bold text-sm break-all">{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
+                            <span className="font-bold text-sm break-all">{adm.name ? `${adm.name} · ` : ''}{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
                             {!adm.isSelf && (
                               <div className="flex items-center gap-1 shrink-0">
                                 {adm.status === 'suspended' ? (
@@ -7416,7 +7456,7 @@ function AdminDashboardModal({
                             {adm.status === 'suspended' ? (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
                             ) : adm.mustSetPassword === true ? (
-                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Inactive</span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
                             )}
@@ -7458,7 +7498,7 @@ function AdminDashboardModal({
                                 <div className="flex items-start justify-between gap-3 mb-4">
                                   <div>
                                     <h4 className="font-black font-display text-lg">Invite an administrator</h4>
-                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do, then share their temporary password.</p>
+                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do. We email them a temporary password they replace with their own at first sign-in.</p>
                                   </div>
                                   <button onClick={() => setShowInviteModal(false)} aria-label="Close" className={`p-2 rounded-full shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
                                     <X className="w-5 h-5" />
@@ -7479,6 +7519,14 @@ function AdminDashboardModal({
                                   value={inviteEmail}
                                   onChange={(e) => setInviteEmail(e.target.value)}
                                   placeholder="name@email.com"
+                                  className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-3 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                                />
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Their name</label>
+                                <input
+                                  type="text"
+                                  value={inviteName}
+                                  onChange={(e) => setInviteName(e.target.value)}
+                                  placeholder="Shown on the administrators list"
                                   className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
                                 />
                                 <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">What they can see and do</label>
@@ -7505,12 +7553,11 @@ function AdminDashboardModal({
                                   <Check className="w-7 h-7" />
                                 </div>
                                 <h4 className="text-center font-black font-display text-lg">{inviteResult?.email} is invited</h4>
-                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">Share this temporary password now. It shows only once, and they will choose their own password the first time they sign in.</p>
-                                <div className="p-4 rounded-2xl bg-[#C8932A]/10 border border-[#C8932A]/30 text-center mb-4">
-                                  <code className="text-xl font-black tracking-[0.25em]">{inviteResult?.tempPassword}</code>
-                                </div>
+                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">A temporary password was emailed to them. They sign in with it once, then choose their own. Until then they show as Inactive on the list.</p>
+                                {inviteResult && !inviteResult.emailed && (
+                                  <p className="text-center text-[0.78rem] text-red-500 mb-4">We couldn't send the email{inviteResult.mailError ? ` (${inviteResult.mailError})` : ''}. The account exists, so share the temporary password with them another way.</p>
+                                )}
                                 <div className="flex gap-2">
-                                  <button onClick={() => { navigator.clipboard?.writeText(inviteResult?.tempPassword || ''); showToast('Temporary password copied'); }} className="flex-1 py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Copy password</button>
                                   <button onClick={() => setShowInviteModal(false)} className={`flex-1 py-3.5 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>Done</button>
                                 </div>
                               </>

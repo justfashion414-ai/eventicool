@@ -8,6 +8,7 @@
 // The caller must be an admin of that app with a full-dashboard role
 // (owner / bride / groom), or the platform owner. Requests carry the app id
 // (the lead id) so every action is scoped to one project and never another.
+import { randomBytes } from 'node:crypto';
 import { initializeApp, cert } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
@@ -104,7 +105,8 @@ service cloud.firestore {
       match /posts/{postId} {
         allow read: if true;
         allow create: if request.auth != null && (request.resource.data.get('pending', false) == true || isAdminIn(app));
-        allow update, delete: if isAdminIn(app);
+        allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
+        allow delete: if isAdminIn(app);
         match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
         match /comments/{cid} {
           allow read: if true;
@@ -179,10 +181,12 @@ export default async (req) => {
   try {
     if (action === 'invite') {
       const email = String(body.email || '').trim().toLowerCase()
-      const password = String(body.password || '')
+      const name = String(body.name || '').trim().slice(0, 80)
       const role = ROLES.includes(String(body.role || '')) ? String(body.role) : 'videographer'
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(400, { error: 'A valid email is required' })
-      if (password.length < 8) return json(400, { error: 'The temporary password is too short' })
+      // The temporary password is generated here and only ever emailed: it is
+      // never returned to the app or shown in the admin UI.
+      const password = 'Ev-' + randomBytes(9).toString('base64url')
       let created = false
       try {
         await auth.getUserByEmail(email)
@@ -198,6 +202,7 @@ export default async (req) => {
         : { canDeletePosts: false, canUploadImages: true, canSetAccessCode: false }
       await adminsCol.doc(email).set({
         email,
+        name: name || null,
         role,
         mustSetPassword: true,
         status: 'active',
@@ -209,6 +214,7 @@ export default async (req) => {
       const appUrl = String(body.appUrl || '').slice(0, 300)
       const html = `<div style="font-family:Arial,sans-serif;max-width:560px">
         <h2 style="color:#1e3a8a">You have been invited to ${ROLE_LABEL(role) === 'Photographer' || ROLE_LABEL(role) === 'Videographer' ? 'upload' : 'manage'} the couple's app</h2>
+        <p>Hi ${name || 'there'},</p>
         <p>You were invited to the Eventicor app as <b>${ROLE_LABEL(role)}</b>.</p>
         <p>Sign in with:</p>
         <p style="background:#f4f4f6;padding:14px;border-radius:10px;font-size:15px">
@@ -226,7 +232,7 @@ export default async (req) => {
         'Your Eventicor admin invite',
         html
       )
-      return json(200, { ok: true, uid: cu.uid, emailed: mailed.ok, mailError: mailed.ok ? undefined : mailed.why, tempPassword: password })
+      return json(200, { ok: true, uid: cu.uid, emailed: mailed.ok, mailError: mailed.ok ? undefined : mailed.why })
     }
 
     if (action === 'suspend' || action === 'reinstate') {
