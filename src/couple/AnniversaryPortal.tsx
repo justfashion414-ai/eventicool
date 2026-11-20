@@ -411,6 +411,31 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
   return await uploadToCloudinary(file, folder);
 };
 
+// A video is known by its MIME type, or by its extension when the phone's
+// file picker hands the file over with an empty type (common on Android).
+const isVideoFile = (f: any): boolean =>
+  Boolean(f?.type && String(f.type).startsWith('video/')) || /\.(mp4|mov|webm|mkv|avi|m4v|3gp)$/i.test(f?.name || '');
+
+// The six Eventicor accents (the landing page's palette). The dashboard's
+// accent picker under the hero style switches the whole app's color.
+const ACCENT_CHOICES: [string, string, string][] = [
+  ['midnight', 'Midnight', '#14122b'],
+  ['blush', 'Blush', '#d6285f'],
+  ['emerald', 'Emerald', '#0c4a36'],
+  ['royal', 'Royal', '#2236b4'],
+  ['sunset', 'Sunset', '#e07a4f'],
+  ['sage', 'Sage', '#2e5c45'],
+];
+const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }> = {
+  midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
+  blush: { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
+  emerald: { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
+  royal: { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
+  sunset: { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
+  sage: { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+};
+const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
+
 const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
@@ -1364,6 +1389,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setHeroTpl(data.heroTemplate);
           try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
         }
+        if (data.accent && ACCENT_VARS[data.accent]) {
+          setAccentKey(data.accent);
+          try { localStorage.setItem(lsKey('accent'), data.accent); } catch {}
+        }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
         if (typeof data.story === 'string' && data.story.trim()) setCfgStory(data.story);
@@ -1769,6 +1798,28 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     } catch (err) {
       console.error('Update hero style error:', err);
       showToast('Failed to save the hero style.', 'error');
+    }
+  };
+
+  // Accent color (dashboard setting): which of the six Eventicor accents the
+  // app is dressed in. Same pattern as the hero style: chosen live, saved to
+  // app_config for real apps, local for demo previews.
+  const [accentKey, setAccentKey] = useState<string>(() => {
+    try { const sv = localStorage.getItem(lsKey('accent')); if (sv && ACCENT_VARS[sv]) return sv; } catch { /* ignore */ }
+    return TPL_DEFAULT_ACCENT[(template as any) || 'classic'] || 'midnight';
+  });
+  const updateAccent = async (k: string, quiet = false) => {
+    if (!ACCENT_VARS[k]) return;
+    setAccentKey(k);
+    try { localStorage.setItem(lsKey('accent'), k); } catch { /* ignore */ }
+    if (DEMO) { if (!quiet) showToast('Accent color saved for this preview.'); return; }
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { accent: k, lastUpdated: serverTimestamp() }, { merge: true });
+      if (!quiet) showToast('Accent color saved.');
+    } catch (err) {
+      console.error('Update accent error:', err);
+      showToast('Failed to save the accent color.', 'error');
     }
   };
 
@@ -2187,7 +2238,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const daysToGo = Math.max(0, Math.ceil((new Date(`${WEDDING_DATE}T${WEDDING_TIME}:00`).getTime() - Date.now()) / 86400000));
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans ${noChrome ? 'pb-4' : 'pb-32'}`}>
+    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans ${noChrome ? 'pb-4' : 'pb-32'}`} style={{ ['--ann-accent' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).accent, ['--ann-hero' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).hero, ['--ann-soft' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).soft }}>
       {/* BOOT RESTORE: a refresh with the dashboard open shows this loader
           instead of the public app until the admin session is confirmed. */}
       {adminRestorePending && (
@@ -5188,7 +5239,7 @@ function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
 // Fullscreen viewer for one album's media: photos flip one by one (tap the
 // arrows or swipe), and a video plays through and rolls into the next item
 // when it ends, so an album of videos plays one after the other.
-function AlbumMediaViewer({ items, startIndex, onClose }: { items: any[]; startIndex: number; onClose: () => void }) {
+function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload }: { items: any[]; startIndex: number; onClose: () => void; onDelete?: (item: any) => void; onDownload?: (item: any) => void }) {
   const [idx, setIdx] = useState(startIndex);
   const touchXRef = useRef<number | null>(null);
   const item = items[idx];
@@ -5210,7 +5261,15 @@ function AlbumMediaViewer({ items, startIndex, onClose }: { items: any[]; startI
     >
       <div className="flex items-center justify-between p-4 shrink-0">
         <span className="text-white/80 text-xs font-black tracking-widest">{idx + 1} / {items.length}</span>
-        <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }}><X className="w-5 h-5" /></button>
+        <div className="flex items-center gap-2">
+          {onDownload && (
+            <button onClick={(e) => { e.stopPropagation(); onDownload(item); }} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }} title="Download this one"><Download className="w-5 h-5" /></button>
+          )}
+          {onDelete && (
+            <button onClick={(e) => { e.stopPropagation(); onDelete(item); }} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }} title="Remove from album"><Trash2 className="w-5 h-5" /></button>
+          )}
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }}><X className="w-5 h-5" /></button>
+        </div>
       </div>
       <div className="flex-1 flex items-center justify-center min-h-0 px-2">
         {item.type === 'video' ? (
@@ -5932,6 +5991,10 @@ function AdminDashboardModal({
   const [albumProgressPct, setAlbumProgressPct] = useState(0);
   const [albumViewer, setAlbumViewer] = useState<any | null>(null);
   const [albumMediaView, setAlbumMediaView] = useState<{ items: any[]; index: number } | null>(null);
+  const [albumZipBusy, setAlbumZipBusy] = useState<string | null>(null);
+  // Adding more to an album that already exists: the viewer's Add more button
+  // opens the same upload popup aimed at that album.
+  const [albumAddTarget, setAlbumAddTarget] = useState<any | null>(null);
 
   const uploaderDisplayName = (() => {
     const n = (myAdminDoc as any)?.name;
@@ -5939,11 +6002,12 @@ function AdminDashboardModal({
     return (currentUserEmail || 'Admin').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
   })();
 
-  const openAlbumPopup = (kind: 'photo' | 'video') => {
+  const openAlbumPopup = (kind: 'photo' | 'video', target: any = null) => {
     setAlbumPopupKind(kind);
     setAlbumPicked([]);
     setAlbumTitle('');
     setAlbumProgressPct(0);
+    setAlbumAddTarget(target);
   };
   const pickAlbumFiles = (files: FileList | null) => {
     const list = Array.from(files || []);
@@ -5967,30 +6031,60 @@ function AdminDashboardModal({
         if (DEMO) {
           // The demo console keeps everything in the browser: shrink photos to
           // data URLs instead of pushing them to Cloudinary.
-          url = f.type.startsWith('video/') ? await blobToDataUrl(f) : await demoImageDataUrl(f);
+          // The demo console keeps everything in the browser: photos shrink to
+          // data URLs, videos play from a session blob URL (a full video can
+          // never fit in a demo data URL or the demo store).
+          url = isVideoFile(f) ? URL.createObjectURL(f) : await demoImageDataUrl(f);
         } else {
           url = await uploadToCloudinary(f, 'albums');
         }
-        media.push({ url, type: f.type.startsWith('video/') ? 'video' : 'image' });
+        media.push({ url, type: isVideoFile(f) ? 'video' : 'image' });
       } catch (err) {
         failed += 1;
         console.error('Album upload error:', err);
       }
       setAlbumProgressPct(Math.round(((i + 1) / albumPicked.length) * 100));
     }
-    const title = albumTitle.trim() || (kind === 'video' ? 'Video album' : 'Photo album');
+    const title = albumAddTarget ? (albumAddTarget.title || (kind === 'video' ? 'Video album' : 'Photo album')) : (albumTitle.trim() || (kind === 'video' ? 'Video album' : 'Photo album'));
     if (media.length) {
       try {
-        await addDoc(collection(db, scopedPath('albums')), {
-          title,
-          mediaType: kind === 'video' ? 'video' : 'image',
-          media,
-          mediaCount: media.length,
-          uploaderName: uploaderDisplayName,
-          uploaderEmail: currentUserEmail,
-          uploadedAt: serverTimestamp()
-        });
-        if (showToast) showToast(failed ? `${media.length} uploaded to "${title}", ${failed} failed. Try the rest again.` : `${media.length} ${kind === 'video' ? 'video' : 'photo'}${media.length === 1 ? '' : 's'} uploaded to "${title}".`, failed ? 'info' : 'success');
+        if (albumAddTarget) {
+          // Add to an album that already exists. Old day-grouped albums are
+          // merged into one album document as they are touched.
+          if (albumAddTarget.legacy) {
+            const merged = [...(albumAddTarget.media || []), ...media];
+            await addDoc(collection(db, scopedPath('albums')), {
+              title,
+              mediaType: kind === 'video' ? 'video' : 'image',
+              media: merged,
+              mediaCount: merged.length,
+              uploaderName: albumAddTarget.uploaderName,
+              uploaderEmail: albumAddTarget.uploaderEmail,
+              uploadedAt: serverTimestamp()
+            });
+            for (const id of (albumAddTarget.docIds || [])) { try { await deleteDoc(doc(db, scopedPath('albums'), id)); } catch { /* already gone */ } }
+            setAlbumViewer(null);
+          } else {
+            const ref = doc(db, scopedPath('albums'), albumAddTarget.docId);
+            const snap = await getDoc(ref);
+            const old = snap.exists() ? (snap.data()?.media || []) : [];
+            const merged = [...old, ...media];
+            await setDoc(ref, { media: merged, mediaCount: merged.length, uploadedAt: serverTimestamp() }, { merge: true });
+            setAlbumViewer((gv: any) => (gv && gv.docId === albumAddTarget.docId ? { ...gv, media: merged, count: merged.length } : gv));
+          }
+          if (showToast) showToast(failed ? `${media.length} added to "${title}", ${failed} failed. Try the rest again.` : `${media.length} ${kind === 'video' ? 'video' : 'photo'}${media.length === 1 ? '' : 's'} added to "${title}".`, failed ? 'info' : 'success');
+        } else {
+          await addDoc(collection(db, scopedPath('albums')), {
+            title,
+            mediaType: kind === 'video' ? 'video' : 'image',
+            media,
+            mediaCount: media.length,
+            uploaderName: uploaderDisplayName,
+            uploaderEmail: currentUserEmail,
+            uploadedAt: serverTimestamp()
+          });
+          if (showToast) showToast(failed ? `${media.length} uploaded to "${title}", ${failed} failed. Try the rest again.` : `${media.length} ${kind === 'video' ? 'video' : 'photo'}${media.length === 1 ? '' : 's'} uploaded to "${title}".`, failed ? 'info' : 'success');
+        }
       } catch (err) {
         console.error('Album save error:', err);
         if (showToast) showToast('The files uploaded but saving the album failed. Try again.', 'error');
@@ -5999,6 +6093,7 @@ function AdminDashboardModal({
     setAlbumPicked((prev) => { prev.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); return []; });
     setAlbumUploading(false);
     setAlbumPopupKind(null);
+    setAlbumAddTarget(null);
     setAlbumTitle('');
   };
   const deleteAlbumGroup = async (g: any) => {
@@ -6008,6 +6103,82 @@ function AdminDashboardModal({
       if (showToast) showToast('Album removed.', 'success');
     } catch (err) {
       console.error('Album delete error:', err);
+      if (showToast) showToast('Could not remove it. Try again.', 'error');
+    }
+  };
+
+  // Download one photo or video out of an album.
+  const downloadMediaFile = async (url: string, name: string) => {
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 6000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+  const albumFileBase = (g: any) => (String(g?.title || 'album').replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'album');
+  // MASS DOWNLOAD: the whole album, photos and videos, in one zip.
+  const downloadAlbumZip = async (g: any) => {
+    if (albumZipBusy) return;
+    setAlbumZipBusy(g.id);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      let i = 0;
+      for (const m of (g.media || [])) {
+        try {
+          const res = await fetch(m.url, { mode: 'cors' });
+          const blob = await res.blob();
+          i += 1;
+          const ext = m.type === 'video' ? 'mp4' : 'jpg';
+          zip.file(`${albumFileBase(g)}-${String(i).padStart(3, '0')}.${ext}`, blob);
+        } catch { /* one bad file does not sink the album */ }
+      }
+      if (!i) { if (showToast) showToast('Could not read the files to pack them. Try again.', 'error'); return; }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${albumFileBase(g)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      if (showToast) showToast('Album download started.', 'success');
+    } catch (err) {
+      console.error('Album zip error:', err);
+      if (showToast) showToast('Could not package the album. Try again.', 'error');
+    } finally {
+      setAlbumZipBusy(null);
+    }
+  };
+  // Remove one photo or video from an album.
+  const deleteAlbumMedia = async (g: any, item: any) => {
+    try {
+      if (g?.legacy && item.docId) {
+        await deleteDoc(doc(db, scopedPath('albums'), item.docId));
+      } else if (g?.docId) {
+        const ref = doc(db, scopedPath('albums'), g.docId);
+        const snap = await getDoc(ref);
+        const old = snap.exists() ? (snap.data()?.media || []) : [];
+        const next = old.filter((x: any) => x.url !== item.url);
+        await setDoc(ref, { media: next, mediaCount: next.length }, { merge: true });
+      }
+      setAlbumViewer((gv: any) => (gv ? { ...gv, media: (gv.media || []).filter((x: any) => x.url !== item.url), count: Math.max(0, (gv.count || 0) - 1) } : gv));
+      setAlbumMediaView((mv: any) => {
+        if (!mv) return null;
+        const next = mv.items.filter((x: any) => x.url !== item.url);
+        return next.length ? { items: next, index: Math.min(mv.index, next.length - 1) } : null;
+      });
+      if (showToast) showToast('Removed from the album.', 'success');
+    } catch (err) {
+      console.error('Album media delete error:', err);
       if (showToast) showToast('Could not remove it. Try again.', 'error');
     }
   };
@@ -7243,13 +7414,31 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
                     <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
-                      {([['classic', 'Polaroid fan'], ['halo', 'Fan arc'], ['hero', 'Card stack'], ['book', 'Flip book']] as [string, string][]).map(([tk, label]) => (
+                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book']] as [string, string][]).map(([tk, label]) => (
                         <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                           {label}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[0.7rem] opacity-50 mt-2">Polaroid fan · Classic · Fan arc · Halo · Card stack · Hero Deck · Flip book · Open Book</p>
+                    <p className="text-[0.7rem] opacity-50 mt-2">Classic · Halo Arc · Hero Deck · Open Book</p>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <h3 className="font-black font-display text-lg">Accent color</h3>
+                      <button type="button" onClick={() => setSitePreviewOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.6rem] font-black uppercase tracking-widest opacity-70 hover:opacity-100" style={{ touchAction: 'manipulation' }} title="Preview the accent color">
+                        <Eye className="w-3.5 h-3.5" /> Preview
+                      </button>
+                    </div>
+                    <p className="text-sm opacity-60 mb-3">The color your app is dressed in: buttons, highlights and headings. Tap one and the preview switches to it; it goes live when you save.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {ACCENT_CHOICES.map(([k, label, hex]) => (
+                        <button key={k} type="button" onClick={() => updateAccent(k)} className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all ${accentKey === k ? 'shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`} style={accentKey === k ? { borderColor: hex, boxShadow: `0 0 0 2px ${hex}33` } : undefined}>
+                          <span className="w-4 h-4 rounded-full border border-black/10 shrink-0" style={{ background: hex }} />
+                          <span className="text-[0.7rem] font-black uppercase tracking-widest">{label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </section>
 
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -7508,6 +7697,17 @@ function AdminDashboardModal({
                                       <X className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  {/* MASS DOWNLOAD and MASS DELETE for the whole album. */}
+                                  <div className="px-3 pb-3 -mt-1 flex gap-2">
+                                    <button onClick={(e) => { e.stopPropagation(); downloadAlbumZip(g); }} disabled={albumZipBusy === g.id} className="flex-1 py-2 rounded-lg text-[0.6rem] font-black uppercase tracking-widest border border-[var(--ann-accent)]/40 text-[var(--ann-accent)] active:scale-[0.97] transition-transform disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
+                                      {albumZipBusy === g.id ? 'Packing…' : 'Download all'}
+                                    </button>
+                                    {adminPermissions?.canDeletePosts && (
+                                      <button onClick={(e) => { e.stopPropagation(); setConfirmAsk({ title: 'Delete everything in this album?', message: 'Every photo and video in it comes out. This cannot be undone.', confirmLabel: 'Delete all', action: () => deleteAlbumGroup(g) }) }} className="flex-1 py-2 rounded-lg text-[0.6rem] font-black uppercase tracking-widest border border-red-500/40 text-red-500 active:scale-[0.97] transition-transform" style={{ touchAction: 'manipulation' }}>
+                                        Delete all
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
@@ -7521,19 +7721,21 @@ function AdminDashboardModal({
                       the actual upload happen inside it, as many files as they
                       like, all going into one album. */}
                   {albumPopupKind && (
-                    <div className="fixed inset-0 z-[550] flex items-center justify-center p-4 bg-black/60" onClick={() => { if (!albumUploading) { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); } }}>
+                    <div className="fixed inset-0 z-[550] flex items-center justify-center p-4 bg-black/60" onClick={() => { if (!albumUploading) { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); } }}>
                       <div className={`w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`} onClick={(e) => e.stopPropagation()}>
                         <div className="p-5 pb-3 flex items-start justify-between gap-3">
                           <div>
-                            <h3 className="font-black font-display text-lg">{albumPopupKind === 'video' ? 'Upload videos' : 'Upload photos'}</h3>
-                            <p className="text-xs opacity-60 mt-0.5">Pick as many as you like, there is no limit. They all go into one album with your name and today's date on it.</p>
+                            <h3 className="font-black font-display text-lg">{albumAddTarget ? `Add to "${albumAddTarget.title || (albumPopupKind === 'video' ? 'Video album' : 'Photo album')}"` : (albumPopupKind === 'video' ? 'Upload videos' : 'Upload photos')}</h3>
+                            <p className="text-xs opacity-60 mt-0.5">{albumAddTarget ? 'The new ones join the rest of this album.' : 'Pick as many as you like, there is no limit. They all go into one album with your name and today\'s date on it.'}</p>
                           </div>
                           {!albumUploading && (
-                            <button onClick={() => { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); }} className={`p-2 rounded-xl shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
+                            <button onClick={() => { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); }} className={`p-2 rounded-xl shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
                           )}
                         </div>
                         <div className="px-5 pb-5 space-y-4 max-h-[70vh] overflow-y-auto">
-                          <input value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={albumUploading} placeholder={albumPopupKind === 'video' ? 'Name this album (e.g. Reception highlights)' : 'Name this album (e.g. Church wedding)'} className={`w-full px-4 py-3 rounded-xl border text-sm ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-[#F6F5F9] border-[#DAD8E3]'}`} />
+                          {!albumAddTarget && (
+                            <input value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={albumUploading} placeholder={albumPopupKind === 'video' ? 'Name this album (e.g. Reception highlights)' : 'Name this album (e.g. Church wedding)'} className={`w-full px-4 py-3 rounded-xl border text-sm ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-[#F6F5F9] border-[#DAD8E3]'}`} />
+                          )}
                           <label htmlFor="album-popup-files" className={`block border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer ${isDarkMode ? 'border-[#22363E] hover:border-[var(--ann-accent)]' : 'border-[#DAD8E3] hover:border-[var(--ann-accent)]'}`} style={{ touchAction: 'manipulation' }}>
                             <Plus className="w-6 h-6 mx-auto opacity-60 mb-1" />
                             <span className="block text-sm font-black">{albumPicked.length ? 'Add more' : (albumPopupKind === 'video' ? 'Choose videos' : 'Choose photos')}</span>
@@ -7545,7 +7747,7 @@ function AdminDashboardModal({
                               <div className="grid grid-cols-4 gap-2">
                                 {albumPicked.map((pp, i) => (
                                   <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-black">
-                                    {pp.file.type.startsWith('video/') ? (
+                                    {isVideoFile(pp.file) ? (
                                       <video src={pp.preview} className="w-full h-full object-cover" muted playsInline preload="metadata" />
                                     ) : (
                                       <img src={pp.preview} className="w-full h-full object-cover" alt="" />
@@ -7566,7 +7768,7 @@ function AdminDashboardModal({
                             </div>
                           )}
                           <button onClick={uploadAlbumBatch} disabled={!albumPicked.length || albumUploading} className={`w-full py-3.5 rounded-xl font-black text-sm ${!albumPicked.length || albumUploading ? 'opacity-40 cursor-not-allowed bg-black/10 dark:bg-white/10' : 'bg-[var(--ann-accent)] text-white active:scale-[0.99] transition-transform'}`} style={{ touchAction: 'manipulation' }}>
-                            {albumUploading ? 'Uploading…' : `Upload ${albumPicked.length || ''} ${albumPopupKind === 'video' ? 'video' : 'photo'}${albumPicked.length === 1 ? '' : 's'}`.trim()}
+                            {albumUploading ? 'Uploading…' : (albumAddTarget ? `Add ${albumPicked.length || ''} ${albumPopupKind === 'video' ? 'video' : 'photo'}${albumPicked.length === 1 ? '' : 's'}` : `Upload ${albumPicked.length || ''} ${albumPopupKind === 'video' ? 'video' : 'photo'}${albumPicked.length === 1 ? '' : 's'}`).trim()}
                           </button>
                         </div>
                       </div>
@@ -7587,7 +7789,12 @@ function AdminDashboardModal({
                               <h3 className="font-black font-display text-lg truncate">{g.title || (g.kind === 'video' ? 'Video album' : 'Photo album')}</h3>
                               <p className="text-xs opacity-60 mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'} · {dateLabel} · {g.count} {g.kind === 'video' ? (g.count === 1 ? 'video' : 'videos') : (g.count === 1 ? 'photo' : 'photos')}</p>
                             </div>
-                            <button onClick={() => setAlbumViewer(null)} className={`p-2 rounded-xl shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {adminPermissions?.canUploadImages && (
+                                <button onClick={() => openAlbumPopup(g.kind as 'photo' | 'video', g)} className="px-4 py-2.5 rounded-xl text-[0.65rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white active:scale-[0.97] transition-transform" style={{ touchAction: 'manipulation' }}>Add more</button>
+                              )}
+                              <button onClick={() => setAlbumViewer(null)} className={`p-2 rounded-xl ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
+                            </div>
                           </div>
                           <div className="flex-1 overflow-y-auto p-4 pt-0">
                             <div className="grid grid-cols-3 gap-2">
@@ -7613,7 +7820,260 @@ function AdminDashboardModal({
                   })()}
 
                   {albumMediaView && (
-                    <AlbumMediaViewer items={albumMediaView.items} startIndex={albumMediaView.index} onClose={() => setAlbumMediaView(null)} />
+                    <AlbumMediaViewer
+                      items={albumMediaView.items}
+                      startIndex={albumMediaView.index}
+                      onClose={() => setAlbumMediaView(null)}
+                      onDownload={(item: any) => downloadMediaFile(item.url, `${albumFileBase(albumViewer)}-${albumMediaView.index + 1}.${item.type === 'video' ? 'mp4' : 'jpg'}`)}
+                      onDelete={(item: any) => setConfirmAsk({ title: 'Remove from album?', message: 'This one comes out of the album. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumMedia(albumViewer, item) })}
+                    />
+                  )}
+                </div>
+              )}
+              {activeAdminTab === 'security' && (
+                <div className="space-y-8">
+                  {ownerAdmin && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                      <h3 className="font-black font-display text-lg">Administrators</h3>
+                      <button onClick={openInviteModal} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest shadow-md flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        Invite admin
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">Current team</h4>
+                      {teamList.map((adm: any) => (
+                        <div key={adm.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
+                          <div className="flex items-center justify-between mb-3 gap-2">
+                            <span className="font-bold text-sm break-all">{adm.name ? `${adm.name} · ` : ''}{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
+                            {!adm.isSelf && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                {adm.status === 'suspended' ? (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, false)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)]">Reinstate</button>
+                                ) : (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, true)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#C8932A] text-[#C8932A]">Suspend</button>
+                                )}
+                                {adm.mustSetPassword === true && (
+                                  <button onClick={() => handleResendInvite(adm.email)} disabled={inviteResendBusy === adm.email} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)] disabled:opacity-50">{inviteResendBusy === adm.email ? 'Resending…' : 'Resend invite'}</button>
+                                )}
+                                <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role) ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
+                              {roleLabel(adm.role)}
+                            </span>
+                            {adm.status === 'suspended' ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
+                            ) : adm.mustSetPassword === true ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Inactive</span>
+                            ) : (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
+                            )}
+                            <button onClick={() => setTeamDetail(adm)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#DAD8E3] dark:border-[#22363E] transition-all hover:border-[var(--ann-accent)] hover:text-[var(--ann-accent)]">
+                              View details
+                            </button>
+                            {(!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
+                              { id: 'canDeletePosts', label: 'Delete Posts' },
+                              { id: 'canUploadImages', label: 'Upload Images' },
+                              { id: 'canSetAccessCode', label: 'Access Code' }
+                            ].map((p: any) => (
+                              <button
+                                key={p.id}
+                                onClick={() => togglePermission(adm.email, p.id, adm.permissions?.[p.id])}
+                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${adm.permissions?.[p.id] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white shadow-md' : 'opacity-40 border-current'}`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <AnimatePresence>
+                      {teamDetail && (() => {
+                        const adm = teamDetail;
+                        const FULL_DASH = ['owner', 'couple', 'admin', 'bride', 'groom'];
+                        const full = !adm.role || FULL_DASH.includes(adm.role);
+                        const perms = adm.permissions || {};
+                        const canUpload = full ? perms.canUploadImages !== false : perms.canUploadImages !== false;
+                        const canDelete = full ? perms.canDeletePosts !== false : !!perms.canDeletePosts;
+                        const canCode = full ? perms.canSetAccessCode !== false : !!perms.canSetAccessCode;
+                        const status = adm.status === 'suspended' ? 'Suspended' : (adm.mustSetPassword === true || adm.status === 'invited') ? 'Inactive' : 'Active';
+                        const roleNote = full
+                          ? 'Sees and manages the whole dashboard: overview, moderation, all posts, events & photos, vendor albums, settings and security.'
+                          : adm.role === 'photographer'
+                            ? 'Vendor albums only. Uploads photos to the Photo albums section and sees nothing else.'
+                            : adm.role === 'videographer'
+                              ? 'Vendor albums only. Uploads videos to the Video albums section and sees nothing else.'
+                              : 'Vendor albums only. Uploads photos and videos to the album sections and sees nothing else.';
+                        const addedWhen = adm.addedAt?.toDate ? adm.addedAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                        return (
+                          <>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setTeamDetail(null)} className="fixed inset-0 bg-black/60 z-[200] backdrop-blur-sm" />
+                            <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.97 }} transition={{ type: 'spring', damping: 26, stiffness: 320 }} className={`fixed inset-x-4 top-1/2 -translate-y-1/2 z-[201] mx-auto max-w-md rounded-[24px] p-6 border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#1A2B32]'}`}>
+                              <div className="flex items-start justify-between gap-3 mb-4">
+                                <h3 className="font-black font-display text-lg">Team member details</h3>
+                                <button onClick={() => setTeamDetail(null)} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10" aria-label="Close details"><X className="w-4 h-4" /></button>
+                              </div>
+                              <p className="font-bold break-all">{adm.name || (adm.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
+                              <p className="text-[0.8rem] opacity-60 break-all mb-3">{adm.email}</p>
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${full ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>{roleLabel(adm.role)}</span>
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${status === 'Suspended' ? 'bg-red-500/10 text-red-500 border-red-500/40' : status === 'Inactive' ? 'bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40' : 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40'}`}>{status}</span>
+                              </div>
+                              <p className="text-[0.65rem] uppercase tracking-widest font-black opacity-50 mb-2">What they can do</p>
+                              <p className="text-[0.85rem] opacity-80 mb-3">{roleNote}</p>
+                              <div className="space-y-1.5 text-[0.8rem] mb-4">
+                                <p>Upload images or videos: <b>{canUpload ? 'Yes' : 'No'}</b></p>
+                                <p>Delete posts: <b>{canDelete ? 'Yes' : 'No'}</b></p>
+                                <p>Set the guest access code: <b>{canCode ? 'Yes' : 'No'}</b></p>
+                                {full && <p>Invite, suspend and remove team members: <b>Yes</b></p>}
+                              </div>
+                              <div className="space-y-1 text-[0.75rem] opacity-60">
+                                {adm.sessionMinutes ? <p>Session timeout: {adm.sessionMinutes} min</p> : null}
+                                {adm.addedBy ? <p>Added by {adm.addedBy}{addedWhen ? ` on ${addedWhen}` : ''}</p> : null}
+                                {status === 'Inactive' && <p>Inactive: the invite is in their inbox. They show as active once they sign in and set their own password.</p>}
+                                {status === 'Suspended' && <p>Suspended: they cannot sign in until reinstated.</p>}
+                              </div>
+                            </motion.div>
+                          </>
+                        );
+                      })()}
+                    </AnimatePresence>
+                    <AnimatePresence>
+                      {showInviteModal && (
+                        <>
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowInviteModal(false)}
+                            className="fixed inset-0 bg-black/60 z-[200] backdrop-blur-sm"
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 24, scale: 0.97 }}
+                            className={`fixed z-[201] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] max-w-[480px] max-h-[85vh] overflow-y-auto rounded-[28px] p-6 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border border-[#22363E] text-white' : 'bg-white border border-[#DAD8E3] text-[#14262D]'}`}
+                          >
+                            {inviteStep === 'form' ? (
+                              <>
+                                <div className="flex items-start justify-between gap-3 mb-4">
+                                  <div>
+                                    <h4 className="font-black font-display text-lg">Invite an administrator</h4>
+                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do. We email them a temporary password they replace with their own at first sign-in.</p>
+                                  </div>
+                                  <button onClick={() => setShowInviteModal(false)} aria-label="Close" className={`p-2 rounded-full shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                                    <X className="w-5 h-5" />
+                                  </button>
+                                </div>
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Who are they?</label>
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                  {([['bride', 'Bride', 'Full dashboard'], ['groom', 'Groom', 'Full dashboard'], ['photographer', 'Photographer', 'Vendor albums only'], ['videographer', 'Videographer', 'Vendor albums only']] as [string, string, string][]).map(([r, label, sub]) => (
+                                    <button key={r} type="button" onClick={() => applyInviteRole(r)} className={`p-3 rounded-2xl border text-left transition-all ${inviteRole === r ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)] shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
+                                      <span className="block text-[0.65rem] font-black uppercase tracking-widest">{label}</span>
+                                      <span className={`block text-[0.6rem] mt-1 ${inviteRole === r ? 'text-white/70' : 'opacity-50'}`}>{sub}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Their email</label>
+                                <input
+                                  type="email"
+                                  value={inviteEmail}
+                                  onChange={(e) => setInviteEmail(e.target.value)}
+                                  placeholder="name@email.com"
+                                  className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-3 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                                />
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Their name</label>
+                                <input
+                                  type="text"
+                                  value={inviteName}
+                                  onChange={(e) => setInviteName(e.target.value)}
+                                  placeholder="Shown on the administrators list"
+                                  className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                                />
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">What they can see and do</label>
+                                <div className="space-y-2 mb-5">
+                                  {([['canUploadImages', 'Upload photos & videos', 'Add memories to the albums and the feed'], ['canDeletePosts', 'Delete posts & reels', 'Remove anything from the feed'], ['canSetAccessCode', 'Manage the access code', 'Change the guest code and app settings']] as [string, string, string][]).map(([pid, label, sub]) => (
+                                    <button key={pid} type="button" onClick={() => setInvitePerms((prev) => ({ ...prev, [pid]: !prev[pid] }))} className={`w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border text-left transition-all ${invitePerms[pid] ? (isDarkMode ? 'bg-[var(--ann-accent)]/20 border-[var(--ann-accent)]' : 'bg-[var(--ann-accent)]/5 border-[var(--ann-accent)]') : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
+                                      <span>
+                                        <span className="block text-[0.85rem] font-bold">{label}</span>
+                                        <span className="block text-[0.7rem] opacity-50">{sub}</span>
+                                      </span>
+                                      <span className={`w-5 h-5 rounded-full border-2 grid place-items-center shrink-0 ${invitePerms[pid] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)]' : 'border-current opacity-40'}`}>
+                                        {invitePerms[pid] && <Check className="w-3 h-3 text-white" />}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <button onClick={() => inviteDashboardAccess(invitePerms)} disabled={inviteBusy} className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg disabled:opacity-50">
+                                  {inviteBusy ? 'Creating account…' : 'Create account & send invite'}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="w-14 h-14 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] grid place-items-center mx-auto mb-4">
+                                  <Check className="w-7 h-7" />
+                                </div>
+                                <h4 className="text-center font-black font-display text-lg">{inviteResult?.email} is invited</h4>
+                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">A temporary password was emailed to them. They sign in with it once, then choose their own. Until then they show as Invited on the list.</p>
+                                {inviteResult && !inviteResult.emailed && (
+                                  <p className="text-center text-[0.78rem] text-red-500 mb-4">We couldn't send the email{inviteResult.mailError ? ` (${inviteResult.mailError})` : ''}. The account exists, so share the temporary password with them another way.</p>
+                                )}
+                                <div className="flex gap-2">
+                                  <button onClick={() => setShowInviteModal(false)} className={`flex-1 py-3.5 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>Done</button>
+                                </div>
+                              </>
+                            )}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  )}
+<div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security</h3>
+                    <p className="text-sm opacity-60 mb-4">Change your password and choose how long your admin session stays open.</p>
+                    <div className="space-y-2 mb-4">
+                      {([['cur', 'Current password'], ['next', 'New password'], ['confirm', 'Confirm new password']] as ['cur' | 'next' | 'confirm', string][]).map(([k, label]) => (
+                        <div key={k} className="relative">
+                          <input
+                            type={pwShow ? 'text' : 'password'}
+                            value={pwForm[k]}
+                            onChange={(e) => setPwForm((prev) => ({ ...prev, [k]: e.target.value }))}
+                            placeholder={label}
+                            autoComplete="new-password"
+                            className={`${inputCls} w-full pr-12`}
+                          />
+                          <button type="button" aria-label={pwShow ? 'Hide passwords' : 'Show passwords'} onClick={() => setPwShow((v) => !v)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                            {pwShow ? <EyeOff className="w-4 h-4 opacity-60" /> : <Eye className="w-4 h-4 opacity-60" />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={handleChangePassword} disabled={pwBusy} className={`w-full py-3.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest mb-1 ${pwBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>
+                      {pwBusy ? 'Updating…' : 'Update password'}
+                    </button>
+                    <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
+                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
+                      <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
+                      <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
+                    </div>
+                  </div>
+                                    {isSuper && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
+                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
+                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
+                  </div>
                   )}
                 </div>
               )}

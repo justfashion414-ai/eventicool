@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
 
 import AnniversaryPortal from './AnniversaryPortal';
+import { APP_ID } from './lib/appScope';
 import { enableRealAuth } from './lib/authShim';
 import BootLoader from '../components/BootLoader';
 
@@ -441,7 +442,10 @@ export default function CoupleApp() {
   // The landing names Hero Deck 'carousel'; normalize it onto the app's 'hero'
   // key so a Hero Deck app never falls back to Classic.
   const tpl: string = tplRaw === 'carousel' ? 'hero' : (['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic');
-  const accKey = ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight');
+  // A dashboard-chosen accent wins over the link's ?acc= (same rule as the
+  // hero style: the dashboard choice always wins over the link).
+  const savedAcc = (() => { try { return localStorage.getItem(`ann-${APP_ID}-accent`); } catch { return ''; } })();
+  const accKey = (ACCENTS[savedAcc || ''] ? savedAcc : (ACCENTS[params.get('acc') || ''] ? params.get('acc')! : (TPL_ACCENT[tpl] || 'midnight')));
   const acc = ACCENTS[accKey];
   const expRaw = Number(params.get('exp') || 0);
   const leadId = params.get('lead') || '';
