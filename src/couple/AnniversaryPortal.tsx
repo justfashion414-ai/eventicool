@@ -7585,7 +7585,7 @@ function AdminDashboardModal({
                           <div className="p-5 pb-3 flex items-start justify-between gap-3 shrink-0">
                             <div className="min-w-0">
                               <h3 className="font-black font-display text-lg truncate">{g.title || (g.kind === 'video' ? 'Video album' : 'Photo album')}</h3>
-                              <p className="text-xs opacity-60 mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'} · {dateLabel} · {g.count} {g.kind === 'video' ? 'videos' : 'photos'}</p>
+                              <p className="text-xs opacity-60 mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'} · {dateLabel} · {g.count} {g.kind === 'video' ? (g.count === 1 ? 'video' : 'videos') : (g.count === 1 ? 'photo' : 'photos')}</p>
                             </div>
                             <button onClick={() => setAlbumViewer(null)} className={`p-2 rounded-xl shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
                           </div>
