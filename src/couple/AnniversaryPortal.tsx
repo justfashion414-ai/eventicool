@@ -42,7 +42,7 @@ import {
   Minimize2,
   Mail,
   Images
-} from 'lucide-react';
+, Banknote, Copy } from 'lucide-react';
 import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
@@ -1508,6 +1508,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
   const DETAILS: any = useMemo(() => withDerivedHashtag(cfgDetails || detailsData()), [cfgDetails]);
+  const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
+  const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
   // The couple's chosen wedding day wins: the church service, else the
   // reception, else the latest saved event date. Until they save anything,
@@ -2212,11 +2214,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           aria-hidden={activeTab !== 'home'}
         >
            {heroTemplate === 'classic' && (
-              <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
+              <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS_VIS.map((e) => e.name)} />
             )}
-            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
         </div>
 
         {/* TOAST NOTIFICATION */}
@@ -2313,19 +2315,21 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
 
               {/* OUR STORY */}
+              {!HIDDEN_SECTIONS.includes('story') && (
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Our story</h2>
                 <p className={`text-[0.95rem] leading-relaxed m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                   {STORY}
                 </p>
               </section>
+              )}
 
               {/* THE JOURNEY — expandable dropdowns, one open at a time */}
               <section id="journey" className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
-                  {EVENTS.map((e, ji) => {
+                  {EVENTS_VIS.map((e, ji) => {
                     const st = e.status || 'up';
                     const open = openEventId === e.id;
                     const stepImgs: string[] = ((e as any).images || []);
@@ -2387,6 +2391,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
 
                             {/* WEDDING DAY DETAILS */}
+              {!HIDDEN_SECTIONS.includes('details') && (
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
@@ -2407,6 +2412,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   </div>
                 </div>
               </section>
+              )}
 
               {/* OUR VENDORS */}
               <section className="mt-8">
@@ -2434,6 +2440,44 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   Open the feed
                 </button>
               </section>
+
+              {/* GIFTS & SUPPORT — the couple's account details, edited in Settings */}
+              {DETAILS && DETAILS.giftInfo && DETAILS.giftInfo.enabled && (DETAILS.giftInfo.accountNumber || DETAILS.giftInfo.accountName) && (
+                <section className="mt-8">
+                  <div className={`relative overflow-hidden rounded-[24px] border p-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--ann-accent)]/15 blur-2xl pointer-events-none" />
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">Gift the couple</span>
+                    <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
+                    <p className={`text-[0.9rem] mt-1.5 mb-4 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
+                    <div className="space-y-2.5">
+                      {DETAILS.giftInfo.bank && (
+                        <div className={`p-[14px_16px] rounded-[18px] border flex items-center justify-between gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <div className="min-w-0">
+                            <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Bank</span>
+                            <b className="block text-[0.95rem] font-serif-display truncate">{DETAILS.giftInfo.bank}</b>
+                          </div>
+                          <Banknote className="w-5 h-5 opacity-40 shrink-0" />
+                        </div>
+                      )}
+                      {DETAILS.giftInfo.accountNumber && (
+                        <button type="button" onClick={() => { try { navigator.clipboard?.writeText(DETAILS.giftInfo.accountNumber || ''); showToast('Account number copied.'); } catch {} }} className={`w-full text-left p-[14px_16px] rounded-[18px] border flex items-center justify-between gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <div className="min-w-0">
+                            <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Account number · tap to copy</span>
+                            <b className="block text-[1.05rem] font-display tracking-[0.08em]">{DETAILS.giftInfo.accountNumber}</b>
+                          </div>
+                          <Copy className="w-5 h-5 opacity-50 shrink-0" />
+                        </button>
+                      )}
+                      {DETAILS.giftInfo.accountName && (
+                        <div className={`p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Account name</span>
+                          <b className="block text-[0.95rem] font-serif-display">{DETAILS.giftInfo.accountName}</b>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
@@ -5327,12 +5371,57 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
 // The dashboard's Preview popup shows a lightweight look at the home page,
 // drawn right here from the dashboard's current state: no iframe, no routing,
 // nothing loads, exactly like the template preview on the landing page.
+// Branded auto sign-out dropdown (Security): the app's own list, not the browser select.
+function BrandedSessionSelect({ value, onChange, isDarkMode, inputCls }: { value: number; onChange: (m: number) => void; isDarkMode: boolean; inputCls: string }) {
+  const [open, setOpen] = useState(false);
+  const opts: [number, string][] = [[30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [720, '12 hours'], [1440, '1 day'], [10080, '1 week']];
+  const cur = opts.find((o) => o[0] === value) || opts[1];
+  return (
+    <div className="relative max-w-[220px] w-full">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} w-full flex items-center justify-between gap-2 text-left`}>
+        <span className="truncate">{cur[1]}</span>
+        <ChevronDown className={`w-4 h-4 opacity-50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Close menu" onClick={() => setOpen(false)} className="fixed inset-0 z-20 cursor-default bg-transparent border-0 p-0" />
+          <div className={`absolute left-0 right-0 mt-2 z-30 rounded-2xl border shadow-xl overflow-hidden ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            {opts.map(([m, label]) => (
+              <button key={m} type="button" onClick={() => { setOpen(false); if (m !== value) onChange(m); }} className={`w-full px-4 py-3 flex items-center justify-between gap-2 text-left text-sm font-bold transition-colors ${m === value ? 'text-[var(--ann-accent)]' : (isDarkMode ? 'text-white' : 'text-[#14262D]')} hover:bg-[var(--ann-accent)]/10`}>
+                <span>{label}</span>
+                {m === value && <Check className="w-4 h-4" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Eye toggle (Events & photos): hides or shows a section on the couple's app.
+// Hidden sections also disappear from the preview mockup straight away.
+function SectionEyeBtn({ hidden, onClick, isDarkMode }: { hidden: boolean; onClick: () => void; isDarkMode: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hidden ? 'Show this section in the app' : 'Hide this section in the app'}
+      className={`px-3 py-2 rounded-full border flex items-center gap-1.5 text-[0.65rem] font-black uppercase tracking-widest shrink-0 transition-colors ${hidden ? 'border-[var(--ann-accent)]/50 text-[var(--ann-accent)] bg-[var(--ann-accent)]/10' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}
+    >
+      {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+      {hidden ? 'Hidden' : 'Hide'}
+    </button>
+  );
+}
+
 function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle }: any) {
   // A faithful miniature of the real home page: the actual template hero
   // components (compact), the same banner, journey timeline and giant footer
   // wall the couple sees, all drawn from the admin's current drafts.
   const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES);
-  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim());
+  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim() && !e.hidden);
+  const mockHidden: string[] = (details && details.hiddenSections) || [];
   const eventNames = evs.map((e: any) => e.name);
   const heroTpl: string = tpl || 'classic';
   const wallMode: string = wallStyle || 'wall';
@@ -5413,10 +5502,12 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         </div>
       </div>
       {/* Our story */}
+      {!mockHidden.includes('story') && (
       <section className="px-5 pt-6">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_8px] leading-[1.25]">Our story</h2>
         <p className="text-[0.85rem] leading-relaxed m-0 text-[#5A6970]">{story}</p>
       </section>
+      )}
       {/* The journey: the same timeline cards the app shows */}
       <section className="px-5 pt-7">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_2px] leading-[1.25]">The journey</h2>
@@ -5446,6 +5537,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         </div>
       </section>
       {/* Wedding day */}
+      {!mockHidden.includes('details') && (
       <section className="px-5 pt-7">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Wedding day</h2>
         <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">{wedFull}</p>
@@ -5470,6 +5562,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           )}
         </div>
       </section>
+      )}
       {/* Our vendors */}
       <section className="px-5 pt-7">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our vendors</h2>
@@ -5490,6 +5583,43 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
         <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
       </section>
+      {/* Gifts & support: mirrors the real home section */}
+      {details && details.giftInfo && details.giftInfo.enabled && (details.giftInfo.accountNumber || details.giftInfo.accountName) && (
+        <section className="px-5 pt-7">
+          <div className="relative overflow-hidden rounded-[18px] border border-[#DAD8E3] bg-white p-4">
+            <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-[var(--ann-accent)]/15 blur-xl pointer-events-none" />
+            <span className="block text-[0.55rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1">Gift the couple</span>
+            <h2 className="text-[1.05rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
+            <p className="text-[0.75rem] text-[#5A6970] mt-1 mb-3">{details.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
+            <div className="space-y-2">
+              {details.giftInfo.bank && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Bank</span>
+                    <b className="block text-[0.8rem] font-serif-display truncate">{details.giftInfo.bank}</b>
+                  </div>
+                  <Banknote className="w-4 h-4 opacity-40 shrink-0" />
+                </div>
+              )}
+              {details.giftInfo.accountNumber && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Account number</span>
+                    <b className="block text-[0.9rem] font-display tracking-[0.08em]">{details.giftInfo.accountNumber}</b>
+                  </div>
+                  <Copy className="w-4 h-4 opacity-50 shrink-0" />
+                </div>
+              )}
+              {details.giftInfo.accountName && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3]">
+                  <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Account name</span>
+                  <b className="block text-[0.8rem] font-serif-display">{details.giftInfo.accountName}</b>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
       {/* Giant footer: the real wall, in the style the admin picked */}
       {wallMode === 'wall' ? (
         <section className="relative overflow-hidden w-full flex items-center justify-center bg-[#EEEDF3] mt-8">
@@ -5834,7 +5964,7 @@ function AdminDashboardModal({
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag(weddingDetails));
+  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] }));
   const [weddingBusy, setWeddingBusy] = useState(false);
   useEffect(() => { setEvDraft(events); }, [events]);
   useEffect(() => { setStoryDraft(story); }, [story]);
@@ -5877,6 +6007,9 @@ function AdminDashboardModal({
   // photos and labels, hero style and the giant footer style commit together.
   // Until it is tapped nothing reaches the app; the preview mockup shows the
   // drafts meanwhile. quiet=true keeps the style setters from double-toasting.
+  // Demo placeholder posts never count as content: they vanish the moment a
+  // real post lands, so every admin number treats them as nothing.
+  const realPosts = posts.filter((p: any) => !String(p.id).startsWith('sample-'));
   const saveEverything = async () => {
     setWeddingBusy(true);
     try {
@@ -5896,6 +6029,40 @@ function AdminDashboardModal({
       };
       showToast('Saved. Your app now shows these changes.', 'success');
     } finally { setWeddingBusy(false); }
+  };
+  // Section eye toggles (Events & photos): 'story' and 'details' keys hide
+  // whole home sections; single events carry their own hidden flag.
+  const toggleSectionHidden = (key: string) => {
+    const cur: string[] = detDraft?.hiddenSections || [];
+    const next = cur.includes(key) ? cur.filter((k: string) => k !== key) : [...cur, key];
+    setDetDraft({ ...(detDraft || {}), hiddenSections: next });
+  };
+  // Gifts & support (Settings): the couple's account details for guests who
+  // want to send money. Lives on weddingDetails.giftInfo.
+  const [giftDraft, setGiftDraft] = useState<any>(null);
+  useEffect(() => {
+    if (!giftDraft && weddingDetails) setGiftDraft({
+      enabled: weddingDetails.giftInfo?.enabled !== false,
+      bank: weddingDetails.giftInfo?.bank || '',
+      accountNumber: weddingDetails.giftInfo?.accountNumber || '',
+      accountName: weddingDetails.giftInfo?.accountName || '',
+      note: weddingDetails.giftInfo?.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
+    });
+  }, [weddingDetails]);
+  const saveGiftInfo = async () => {
+    if (!giftDraft) return;
+    const g = {
+      enabled: !!giftDraft.enabled,
+      bank: (giftDraft.bank || '').trim(),
+      accountNumber: (giftDraft.accountNumber || '').trim(),
+      accountName: (giftDraft.accountName || '').trim(),
+      note: (giftDraft.note || '').trim()
+    };
+    const merged = { ...(detDraft || {}), giftInfo: g };
+    setDetDraft(merged);
+    await onSaveWeddingSection({ weddingDetails: merged });
+    if (draftBaseRef.current) draftBaseRef.current.det = JSON.stringify(merged);
+    showToast('Gift details saved. Your app now shows them.', 'success');
   };
   // Eventicor admin contact + payment account details (super admin only).
   const [contactDraft, setContactDraft] = useState<any>(null);
@@ -6337,11 +6504,11 @@ function AdminDashboardModal({
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {(() => {
-                      const reelCount = posts.filter((p: any) => postTypeOf(p) === 'Reel').length;
-                      const commentTotal = posts.reduce((s: number, p: any) => s + (p.commentCount || 0), 0);
-                      const authors = new Set(posts.map((p: any) => (p.authorName || '').trim()).filter(Boolean));
+                      const reelCount = realPosts.filter((p: any) => postTypeOf(p) === 'Reel').length;
+                      const commentTotal = realPosts.reduce((s: number, p: any) => s + (p.commentCount || 0), 0);
+                      const authors = new Set(realPosts.map((p: any) => (p.authorName || '').trim()).filter(Boolean));
                       const stats: [string, number][] = [
-                        ['Posts', posts.length],
+                        ['Posts', realPosts.length],
                         ['Reels', reelCount],
                         ['Comments', commentTotal],
                         ['Guests joined', authors.size],
@@ -6371,7 +6538,7 @@ function AdminDashboardModal({
                       {(() => {
                         const buckets = new Array(14).fill(0);
                         const today = new Date(); today.setHours(0, 0, 0, 0);
-                        posts.forEach((p: any) => {
+                        realPosts.forEach((p: any) => {
                           const t = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
                           if (!t) return;
                           const d = new Date(t); d.setHours(0, 0, 0, 0);
@@ -6389,7 +6556,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Latest activity</h3>
                     <div className="space-y-3">
-                      {posts.slice(0, 4).map((p: any) => (
+                      {realPosts.slice(0, 4).map((p: any) => (
                         <div key={p.id} className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
                           <div className="min-w-0">
@@ -6398,7 +6565,7 @@ function AdminDashboardModal({
                           </div>
                         </div>
                       ))}
-                      {posts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
+                      {realPosts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
                     </div>
                   </div>
                 </div>
@@ -6490,7 +6657,7 @@ function AdminDashboardModal({
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-2xl font-black font-display tracking-tight">All posts</h2>
-                    <p className="text-sm opacity-60 mt-0.5">{posts.length} {posts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
+                    <p className="text-sm opacity-60 mt-0.5">{realPosts.length} {realPosts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <select value={postEventFilter} onChange={(e) => setPostEventFilter(e.target.value)} aria-label="Filter by event" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
@@ -6503,12 +6670,12 @@ function AdminDashboardModal({
                   </div>
                   <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
                     {(() => {
-                      const filtered = posts.filter((p: any) => (postEventFilter === 'all' || p.eventId === postEventFilter) && (postTypeFilter === 'all' || postTypeOf(p) === postTypeFilter));
+                      const filtered = realPosts.filter((p: any) => (postEventFilter === 'all' || p.eventId === postEventFilter) && (postTypeFilter === 'all' || postTypeOf(p) === postTypeFilter));
                       if (filtered.length === 0) return <p className="p-5 opacity-50 text-sm">No posts match. Memories your guests share will show up here.</p>;
                       // How many posts each person has made, shown next to their
                       // name on every row so the couple sees a guest's history.
                       const postCountByKey: Record<string, number> = {};
-                      posts.forEach((q: any) => {
+                      realPosts.forEach((q: any) => {
                         const k = q.authorUid || `name:${(q.authorName || '').trim().toLowerCase()}`;
                         postCountByKey[k] = (postCountByKey[k] || 0) + 1;
                       });
@@ -6517,7 +6684,6 @@ function AdminDashboardModal({
                         const authorKey = p.authorUid || `name:${(p.authorName || '').trim().toLowerCase()}`;
                         const evName = (events || []).find((e) => e.id === p.eventId)?.name;
                         const when = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
-                        const media = (p.mediaUrls || [])[0];
                         return (
                           <div key={p.id} className="flex items-center gap-3 p-4">
                             {/* Small preview: tap to watch a video or view the photo full-screen. */}
@@ -6550,9 +6716,6 @@ function AdminDashboardModal({
                               <small className="block opacity-40">{(p.likeCount || 0) + (p.loveCount || 0)} likes · {p.commentCount || 0} comments · {relTime(when)}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              {media && (
-                                <button onClick={() => adminDownloadMedia(p)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Download</button>
-                              )}
                               {(adminPermissions ? adminPermissions.canDeletePosts : true) && (
                                 <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove</button>
                               )}
@@ -6569,7 +6732,7 @@ function AdminDashboardModal({
                 <div className="space-y-8">
                   <div>
                     <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; photos</h2>
-                    <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app.</p>
+                    <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app. The eye button on a section hides it from your app until you bring it back.</p>
                   </div>
 
                   {adminPermissions?.canUploadImages && (
@@ -6700,12 +6863,18 @@ function AdminDashboardModal({
                   </section>
 
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-3">Our story</h3>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <h3 className="font-black font-display text-lg">Our story</h3>
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('story')} onClick={() => toggleSectionHidden('story')} isDarkMode={isDarkMode} />
+                    </div>
                     <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
                   </div>
 
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-3">Wedding day details</h3>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <h3 className="font-black font-display text-lg">Wedding day details</h3>
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('details')} onClick={() => toggleSectionHidden('details')} isDarkMode={isDarkMode} />
+                    </div>
                     <div className="grid sm:grid-cols-2 gap-3">
                       {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['asoEbi', 'Aso-ebi'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
                         <div key={k}>
@@ -6773,6 +6942,7 @@ function AdminDashboardModal({
                               </div>
                             </div>
                             <div className="flex gap-2">
+                              <SectionEyeBtn hidden={!!(e as any).hidden} onClick={() => setEvDraft(evDraft.map((x) => (x.id === e.id ? { ...(x as any), hidden: !(x as any).hidden } : x)))} isDarkMode={isDarkMode} />
                               {i > 0 && (
                                 <button type="button" onClick={() => { const u = [...evDraft]; const t = u[i - 1]; u[i - 1] = u[i]; u[i] = t; setEvDraft(u); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Move up</button>
                               )}
@@ -6955,15 +7125,7 @@ function AdminDashboardModal({
                     <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
                     <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <select
-                        value={sessionChoice}
-                        onChange={(e) => handleUpdateSession(Number(e.target.value))}
-                        className={`${inputCls} max-w-[220px] appearance-none pr-8`}
-                      >
-                        {[[30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [720, '12 hours'], [1440, '1 day'], [10080, '1 week']].map(([m, label]) => (
-                          <option key={m} value={m}>{label}</option>
-                        ))}
-                      </select>
+                      <BrandedSessionSelect value={sessionChoice} onChange={handleUpdateSession} isDarkMode={isDarkMode} inputCls={inputCls} />
                       <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
                     </div>
                   </div>
@@ -7027,6 +7189,38 @@ function AdminDashboardModal({
                         <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
                       </div>
                     )}
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Gifts &amp; support</h3>
+                    <p className="text-sm opacity-60 mb-4">Guests who want to gift you money see this on your home page, right before the photo wall. Leave it off and the section stays hidden.</p>
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="min-w-0">
+                        <b className="block text-[0.95rem]">Show the gifts section on the app</b>
+                        <small className="block opacity-50 text-sm">It only shows once an account number or name is set.</small>
+                      </div>
+                      <button type="button" aria-label="Show the gifts section" onClick={() => setGiftDraft({ ...(giftDraft || {}), enabled: !(giftDraft?.enabled) })} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${giftDraft?.enabled ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                        <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${giftDraft?.enabled ? 'left-6' : 'left-1'}`} />
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 mb-3">
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
+                        <input type="text" value={giftDraft?.bank ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), bank: e.target.value })} placeholder="GTBank" className={`${inputCls} w-full`} />
+                      </div>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
+                        <input type="text" inputMode="numeric" value={giftDraft?.accountNumber ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountNumber: e.target.value.replace(/[^0-9]/g, '') })} placeholder="0123456789" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
+                        <input type="text" value={giftDraft?.accountName ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountName: e.target.value })} placeholder="Amara &amp; Daniel" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Message to guests</span>
+                        <textarea rows={2} value={giftDraft?.note ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), note: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`} />
+                      </div>
+                    </div>
+                    <button onClick={saveGiftInfo} className="px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save gifts section</button>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>

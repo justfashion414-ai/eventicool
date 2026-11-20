@@ -37,6 +37,13 @@ export const DEMO_DETAILS = {
   receptionVenue: 'The Grand Pavilion, Victoria Island, Lagos',
   asoEbi: 'wine and gold',
   hashtag: '#AmaraAndDaniel',
+  giftInfo: {
+    enabled: true,
+    bank: 'Guaranty Trust Bank',
+    accountNumber: '0123456789',
+    accountName: 'Amara & Daniel',
+    note: 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.',
+  },
 };
 
 export const DEMO_PHOTOS = [
