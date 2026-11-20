@@ -45,6 +45,7 @@ const NAV = [
   { id: 'sites', label: 'Apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
+  { id: 'pay', label: 'Payment details' },
   { id: 'team', label: 'Team and audit' },
 ] as const
 type SecId = (typeof NAV)[number]['id']
@@ -80,7 +81,7 @@ interface Site {
   contact?: string
   city?: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -106,6 +107,7 @@ const ICONS: Record<SecId, string> = {
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
   team: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 4a4 4 0 0 1 0 8"/>',
 }
 function Icon({ id }: { id: SecId }) {
@@ -215,6 +217,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   // delete confirmation
   const [delText, setDelText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [payForm, setPayForm] = useState<{ accountName: string; bankName: string; accountNumber: string; whatsapp: string } | null>(null)
+  const [paySaved, setPaySaved] = useState('')
+  const [payView, setPayView] = useState<LeadDoc | null>(null)
 
   const sites: Site[] = useMemo(
     () =>
@@ -244,6 +249,12 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
+  useEffect(() => {
+    const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
+    proxyCall('get', { collection: 'platform', id: 'payment' }).then((d: any) => {
+      setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
+    }).catch(() => setPayForm(fallback))
+  }, [])
   useEffect(() => {
     if (!menuOpen) return
     const close = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false) }
@@ -1145,6 +1156,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                             {!l.activatedAt && !l.id.startsWith('demo-cust') && (
                               <button className="chip" disabled={busy} style={{ fontWeight: 700 }} onClick={() => confirmPayment(l)}>Confirm payment</button>
                             )}
+                            {l.lastPayment && (
+                              <button className="chip" style={{ fontWeight: 700 }} onClick={() => setPayView(l)}>Receipt</button>
+                            )}
                             <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(appLink(l)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
                           </div>
@@ -1163,7 +1177,51 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
+  async function savePay() {
+    if (!payForm) return
+    setBusy(true)
+    try {
+      await proxyCall('set', { collection: 'platform', id: 'payment', data: { accountName: payForm.accountName.trim(), bankName: payForm.bankName.trim(), accountNumber: payForm.accountNumber.trim(), whatsapp: payForm.whatsapp.replace(/[^0-9]/g, ''), updatedAt: Date.now() } })
+      logAudit('Updated the payment account details')
+      setPaySaved('Saved. Every app picks up the new details immediately.')
+      window.setTimeout(() => setPaySaved(''), 4000)
+    } catch (e: any) {
+      say(e?.message || 'Could not save the payment details')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function paySection() {
+    if (!payForm) return <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>Loading payment details…</p></div>
+    return (
+      <>
+        {head('Payment details', 'The bank account customers see in the payment flow after their trial ends. Change it here any time; every app picks it up immediately.', <button className="btn g" disabled={busy} onClick={savePay}>Save changes</button>)}
+        <div className="card">
+          <div className="rw" style={{ flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 200px' }}>Account name
+              <input style={{ width: '100%' }} value={payForm.accountName} onChange={(e) => setPayForm({ ...payForm, accountName: e.target.value })} placeholder="e.g. Michael Ogunnaike" />
+            </label>
+            <label style={{ flex: '1 1 160px' }}>Bank name
+              <input style={{ width: '100%' }} value={payForm.bankName} onChange={(e) => setPayForm({ ...payForm, bankName: e.target.value })} placeholder="e.g. Moniepoint" />
+            </label>
+          </div>
+          <div className="rw" style={{ flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 200px' }}>Account number
+              <input style={{ width: '100%' }} value={payForm.accountNumber} onChange={(e) => setPayForm({ ...payForm, accountNumber: e.target.value })} placeholder="10 digits" />
+            </label>
+            <label style={{ flex: '1 1 200px' }}>WhatsApp number (wa.me digits, e.g. 2349030064109)
+              <input style={{ width: '100%' }} value={payForm.whatsapp} onChange={(e) => setPayForm({ ...payForm, whatsapp: e.target.value })} placeholder="2349030064109" />
+            </label>
+          </div>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '12px 0 0' }}>Customers pay by bank transfer to this account. When a receipt is uploaded it appears on that customer's row in Customers; Confirm payment there activates their app for a year.</p>
+          {paySaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '10px 0 0' }}>{paySaved}</p>}
+        </div>
+      </>
+    )
+  }
+
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, pay: paySection, team: team }
 
   return (
     <div className="evad">
@@ -1291,11 +1349,39 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         </div>
       )}
 
+      {payView && payView.lastPayment && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setPayView(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)', maxHeight: '86vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 19 }}>Payment receipt · {leadName(payView)}</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 4px' }}>
+              {payView.lastPayment.plan || '—'} · {ng(payView.lastPayment.amount || 0)} · sent {payView.lastPayment.submittedAt ? new Date(payView.lastPayment.submittedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+            </p>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 12px' }}>Email {payView.lastPayment.email || '—'} · App {payView.lastPayment.appName || '—'}</p>
+            {payView.lastPayment.receiptUrl && (
+              <a href={payView.lastPayment.receiptUrl} target="_blank" rel="noreferrer">
+                <img src={payView.lastPayment.receiptUrl} alt="Payment receipt" style={{ width: '100%', borderRadius: 12, border: '1px solid rgba(0,0,0,.08)' }} />
+              </a>
+            )}
+            {!payView.activatedAt ? (
+              <button className="btn g" style={{ width: '100%', marginTop: 12 }} disabled={busy} onClick={() => { confirmPayment(payView); setPayView(null) }}>Confirm payment</button>
+            ) : (
+              <p style={{ color: '#1f8a5b', fontSize: 13, margin: '12px 0 0' }}>Payment already confirmed; the account is active.</p>
+            )}
+            <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => setPayView(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
       {manage && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setManage(null)}>
           <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 19 }}>{leadName(manage)}</h3>
             <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 14px' }}>Manage this account. Extensions apply immediately; suspending or deleting revokes the app link for visitors.</p>
+            {manage.lastPayment && (
+              <button className="chip" style={{ width: '100%', marginBottom: 12, fontWeight: 700 }} onClick={() => { setManage(null); setPayView(manage) }}>
+                Payment receipt uploaded{manage.lastPayment.plan ? ` · ${manage.lastPayment.plan}` : ''} — view it
+              </button>
+            )}
             {!manage.activatedAt && (
               <>
                 <b style={{ fontSize: 13 }}>Extend the trial</b>
