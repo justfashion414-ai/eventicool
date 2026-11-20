@@ -515,6 +515,9 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
 };
 
 export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
+  // ?nochrome=1 (the dashboard's preview mockup): the Home page only, with no
+  // splash, no header buttons, no bottom nav and no admin shortcut.
+  const noChrome = (() => { try { return new URLSearchParams(window.location.search).has('nochrome'); } catch { return false; } })();
   const [activeTab, setActiveTab] = useState<string>(() => {
     // ?home=1 (the dashboard's preview popup) always opens Home, whatever tab
     // the visitor last viewed.
@@ -523,6 +526,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return localStorage.getItem(lsKey('last-tab')) || 'home';
     } catch { return 'home'; }
   });
+  // In the preview mockup the app stays on Home: any navigation attempt is
+  // bounced straight back so the mockup only ever shows the homepage.
+  useEffect(() => { if (noChrome && activeTab !== 'home') setActiveTab('home'); }, [activeTab, noChrome]);
   const [feedSubTab, setFeedSubTab] = useState<'post' | 'reels'>(() => {
     try { return (localStorage.getItem(lsKey('last-feedtab')) as 'post' | 'reels') || 'post'; } catch { return 'post'; }
   });
@@ -741,7 +747,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // PWA Install, Launch Follow-up Splash & Offline State
   const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => {
-    if (previewMode) return false;
+    if (previewMode || noChrome) return false;
     // The entry banner (couple's names + Eventicor branding + Tap to enter) shows
     // on every fresh open of the app, new session included; within one session a
     // refresh keeps the visitor where they were instead of re-showing it.
@@ -2027,7 +2033,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const daysToGo = Math.max(0, Math.ceil((new Date(`${WEDDING_DATE}T${WEDDING_TIME}:00`).getTime() - Date.now()) / 86400000));
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans pb-32`}>
+    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans ${noChrome ? 'pb-4' : 'pb-32'}`}>
       {/* FOLLOW-UP LAUNCH SPLASH SCREEN AFTER PWA ICON SPLASH */}
       <AnimatePresence>
         {showLaunchSplash && (
@@ -2088,7 +2094,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className={`flex items-center gap-2.5${noChrome ? ' hidden' : ''}`}>
               {!isPWAInstalled && (
                 <button
                   onClick={handleInstallClick}
@@ -2742,7 +2748,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               </div>
 
-              {(
+              {!noChrome && (
                 <div className="pt-6 pb-2" style={{ display: 'grid', justifyItems: 'center' }}>
                   <style>{`@keyframes evAdminHalo { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
                   {adminMode === 'none' ? (
@@ -3333,7 +3339,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
       {/* Bottom Nav - DYNAMIC FEED/SEND BUTTON (hidden while viewing full-portrait Reels or comments) */}
       {!(activeTab === 'feed' && feedSubTab === 'reels') && !commentsPost && (
-      <nav className={`fixed left-1/2 bottom-0 -translate-x-1/2 w-full max-w-[520px] z-[90] grid grid-cols-3 items-end p-[8px_12px_calc(8px+env(safe-area-inset-bottom,0px))] border-t transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+      <nav className={`fixed left-1/2 bottom-0 -translate-x-1/2 w-full max-w-[520px] z-[90] grid grid-cols-3 items-end p-[8px_12px_calc(8px+env(safe-area-inset-bottom,0px))] border-t transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}${noChrome ? ' hidden' : ''}`}>
         <button 
           onClick={() => setActiveTab('home')}
           className={`border-0 bg-transparent flex flex-col items-center gap-[3px] p-[6px_0] min-h-[52px] text-[0.74rem] ${activeTab === 'home' ? 'text-[var(--ann-accent)] font-bold' : 'text-[#5A6970]'}`}
@@ -5606,7 +5612,7 @@ function AdminDashboardModal({
     const qs = new URLSearchParams(window.location.search);
     const keep: string[] = [];
     ['site', 'tpl', 'acc', 'lead', 'exp'].forEach((k) => { const v = qs.get(k); if (v) keep.push(`${k}=${encodeURIComponent(v)}`); });
-    return `/app?${[...keep, 'home=1'].join('&')}`;
+    return `/app?${[...keep, 'home=1', 'nochrome=1'].join('&')}`;
   };
 
   const saveWedding = async () => {
@@ -6324,12 +6330,19 @@ function AdminDashboardModal({
                 {sitePreviewOpen && (
                   <>
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSitePreviewOpen(false)} className="fixed inset-0 bg-black/70 z-[140] backdrop-blur-sm" />
-                    <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="fixed inset-x-0 top-0 bottom-0 z-[141] flex flex-col">
-                      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[#0B171C] shrink-0">
-                        <p className="font-display text-white text-sm font-bold">Preview · your saved changes</p>
-                        <button onClick={() => setSitePreviewOpen(false)} className="px-4 py-2 rounded-full bg-white/10 text-white text-[0.65rem] font-black uppercase tracking-widest active:bg-white/20" aria-label="Close preview">Close</button>
+                    <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="fixed inset-0 z-[141] flex flex-col items-center justify-center px-4 pointer-events-none">
+                      <div className="pointer-events-auto flex flex-col items-center">
+                        <div className="flex items-center justify-between gap-4 w-[340px] max-w-[92vw] mb-3">
+                          <p className="font-display text-white text-sm font-bold">Preview · your saved changes</p>
+                          <button onClick={() => setSitePreviewOpen(false)} className="px-4 py-2 rounded-full bg-white/10 text-white text-[0.65rem] font-black uppercase tracking-widest active:bg-white/20" aria-label="Close preview">Close</button>
+                        </div>
+                        <div className="relative w-[340px] max-w-[92vw] h-[660px] max-h-[calc(100vh-120px)] rounded-[2.6rem] bg-[#0B171C] p-[10px] shadow-2xl shrink-0">
+                          <div className="w-full h-full rounded-[2rem] overflow-hidden bg-white">
+                            <iframe title="App preview" src={previewSrc()} className="w-full h-full bg-white border-0" />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-[0.6rem] font-black uppercase tracking-widest text-white/40">Just the home page · scroll inside the mockup</p>
                       </div>
-                      <iframe title="App preview" src={previewSrc()} className="flex-1 w-full bg-white" />
                     </motion.div>
                   </>
                 )}

@@ -131,6 +131,9 @@ const SAMPLE_SITE_URL = 'https://eventicor.name.ng';
 const SAMPLE_COMMUNITY_URL = 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2';
 
 function SampleInfoButton({ accent, selfServe, active }: { accent: string; selfServe?: boolean; active?: boolean }) {
+  // Hidden in the dashboard's preview mockup (?nochrome=1): the mockup shows
+  // the home page only, with no floating buttons.
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('nochrome')) return null;
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
