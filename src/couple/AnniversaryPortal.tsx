@@ -6009,7 +6009,7 @@ function AdminDashboardModal({
   // drafts meanwhile. quiet=true keeps the style setters from double-toasting.
   // Demo placeholder posts never count as content: they vanish the moment a
   // real post lands, so every admin number treats them as nothing.
-  const realPosts = posts.filter((p: any) => !String(p.id).startsWith('sample-'));
+  const realPosts = posts.filter((p: any) => !String(p.id).startsWith('demo-seed-') && !String(p.id).startsWith('sample-'));
   const saveEverything = async () => {
     setWeddingBusy(true);
     try {
