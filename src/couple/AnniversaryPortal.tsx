@@ -6461,9 +6461,15 @@ function AdminDashboardModal({
   const [pwShow, setPwShow] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
   const [sessionChoice, setSessionChoice] = useState<number>(30);
+  const [sessionDraft, setSessionDraft] = useState<number>(30);
+  const [sessionBusy, setSessionBusy] = useState(false);
   useEffect(() => {
     const mins = Number(myAdminDoc?.sessionMinutes);
-    if (mins >= 5) setSessionChoice(Math.min(mins, 10080));
+    if (mins >= 5) {
+      const v = Math.min(mins, 10080);
+      setSessionChoice(v);
+      setSessionDraft(v);
+    }
   }, [myAdminDoc?.sessionMinutes]);
   const sessionLabel = (m: number) => m < 60 ? `${m} minutes` : m < 1440 ? (m === 60 ? '1 hour' : `${m / 60} hours`) : m < 10080 ? (m === 1440 ? '1 day' : `${m / 1440} days`) : '1 week';
   const handleChangePassword = async () => {
@@ -6488,14 +6494,18 @@ function AdminDashboardModal({
     } finally { setPwBusy(false); }
   };
   const handleUpdateSession = async (mins: number) => {
-    setSessionChoice(mins);
+    setSessionBusy(true);
     try {
       await setDoc(doc(db, scopedPath('admins'), currentUserEmail || ''), { sessionMinutes: mins }, { merge: true });
       sessionMinutesRef.current = mins;
-      showToast(`Auto sign-out set: ${sessionLabel(mins)}.`);
+      setSessionChoice(mins);
+      setSessionDraft(mins);
+      showToast(`Auto sign-out set: ${sessionLabel(mins)}. The server enforces it too.`);
     } catch (err) {
       console.error('Session update error:', err);
       showToast('Could not save the session length.', 'error');
+    } finally {
+      setSessionBusy(false);
     }
   };
   const roleLabel = (r?: string) => (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
@@ -7331,7 +7341,8 @@ function AdminDashboardModal({
                     <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
                     <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <BrandedSessionSelect value={sessionChoice} onChange={handleUpdateSession} isDarkMode={isDarkMode} inputCls={inputCls} />
+                      <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
+                      <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
                       <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
                     </div>
                   </div>

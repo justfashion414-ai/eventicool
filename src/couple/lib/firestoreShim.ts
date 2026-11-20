@@ -145,7 +145,7 @@ function applyMerge(target: any, data: any) {
 // the demo store, and once goLive() flips DEMO the same calls forward to the
 // real Firebase SDK with the same signatures, so the couple app's reads and
 // writes hit the platform project for real.
-export const collection: any = (db: any, name: string) => DEMO ? { kind: 'col', path: name } : FS.collection(db, name);
+export const collection: any = (db: any, ...segs: any[]) => DEMO ? { kind: 'col', path: segs.join('/') } : (FS.collection as any)(db, ...segs);
 export const doc: any = (db: any, ...segs: string[]) => DEMO ? { kind: 'doc', path: segs.join('/') } : (FS.doc as any)(db, ...segs);
 export const query: any = (col: any, ...clauses: any[]) => DEMO ? { ...col, clauses } : FS.query(col, ...clauses);
 export const orderBy: any = (f: string, d?: string) => DEMO ? { t: 'order' } : FS.orderBy(f, d);
