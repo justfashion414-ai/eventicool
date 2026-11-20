@@ -63,12 +63,12 @@ function useSpin(autoDegPerSec: number) {
    number of photos keeps cycling. Dragging scrubs the flow in the finger's
    direction, then it drifts back to its own slow pace. Each photo carries its
    event tag. */
-export function HaloHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
+export function HaloHero({ images, names, eventNames = [], compact = false }: { images: string[]; names?: string; eventNames?: string[]; compact?: boolean }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
   // Enough cards to blanket the viewport width at fan spacing; photos repeat
   // as the conveyor cycles, so the count is not limited by the album size.
   const vw = typeof window !== 'undefined' ? window.innerWidth : 390;
-  const N = Math.max(7, Math.min(20, Math.round((vw + 160) / 58)));
+  const N = compact ? 9 : Math.max(7, Math.min(20, Math.round((vw + 160) / 58)));
   const stageRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const prevRaw = useRef<number[]>(Array(N).fill(-1));
@@ -168,7 +168,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
   };
 
   return (
-    <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[88vh] sm:h-[86vh] overflow-hidden hv-halo mb-10">
+    <section className={`hv-wrap relative overflow-hidden hv-halo ${compact ? 'w-full h-[238px] hv-compact' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[88vh] sm:h-[86vh] mb-10'}`}>
       <div className="hv2-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
         {Array.from({ length: N }, (_, i) => (
           <div key={i} ref={(n) => { cardRefs.current[i] = n; }} className="hv2-card">
@@ -188,7 +188,7 @@ export function HaloHero({ images, names, eventNames = [] }: { images: string[];
 
 /* HERO DECK: a 3D ring of tall portrait cards, each tagged with its event,
    that turns on its own and follows the finger when dragged. */
-export function DeckHero({ images, names, eventNames = [] }: { images: string[]; names?: string; eventNames?: string[] }) {
+export function DeckHero({ images, names, eventNames = [], compact = false }: { images: string[]; names?: string; eventNames?: string[]; compact?: boolean }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
   // Cards sit evenly around the ring, so n must equal the number of images
   // shown: padding it up to 6 leaves an empty sector between the last image
@@ -201,7 +201,7 @@ export function DeckHero({ images, names, eventNames = [] }: { images: string[];
   // cards the same tight spacing no matter how many photos the couple added.
   const rs = n <= 2 ? 1.2 : (0.475 / Math.sin(Math.PI / n)).toFixed(4);
   return (
-    <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[86vh] sm:h-[88vh] overflow-hidden hv-deck mb-10">
+    <section className={`hv-wrap relative overflow-hidden hv-deck ${compact ? 'w-full h-[238px] hv-compact' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[86vh] sm:h-[88vh] mb-10'}`}>
       <div className="hv3-names">{names || DEMO_COUPLE.header}</div>
       <div className="hv3-stage" {...handlers} style={{ ['--spin' as any]: `${angle}deg` } as Img}>
         <div className="hv3-ring" style={{ ['--rs' as any]: rs } as Img}>
@@ -218,7 +218,7 @@ export function DeckHero({ images, names, eventNames = [] }: { images: string[];
 
 /* OPEN BOOK: a floating hardback that flips through its pages on its own, each
    page labelled with the event it belongs to. Tap a page or drag to turn it. */
-export function BookHero({ images, bride, groom, dotDate, city, hashtag, eventNames = [] }: { images: string[]; bride: string; groom: string; dotDate: string; city: string; hashtag: string; eventNames?: string[] }) {
+export function BookHero({ images, bride, groom, dotDate, city, hashtag, eventNames = [], compact = false }: { images: string[]; bride: string; groom: string; dotDate: string; city: string; hashtag: string; eventNames?: string[]; compact?: boolean }) {
   const imgs = images.length ? images : DEMO_PHOTOS;
   const L = 6;
   const [flipped, setFlipped] = useState(0);
@@ -345,7 +345,7 @@ export function BookHero({ images, bride, groom, dotDate, city, hashtag, eventNa
   ];
 
   return (
-    <section className="hv-wrap relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[78vh] sm:h-[80vh] overflow-hidden hv-book mb-10">
+    <section className={`hv-wrap relative overflow-hidden hv-book ${compact ? 'w-full h-[238px] hv-compact' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[78vh] sm:h-[80vh] mb-10'}`}>
       <div className="hv5-float">
         <div className="hv5-stage" {...bookHandlers} style={{ ['--shift' as any]: `${flipped === 0 ? -25 : flipped === L ? 25 : 0}%` } as Img}>
           <i className="hv5-bshadow" />

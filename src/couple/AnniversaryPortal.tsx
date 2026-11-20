@@ -5328,134 +5328,219 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
 // drawn right here from the dashboard's current state: no iframe, no routing,
 // nothing loads, exactly like the template preview on the landing page.
 function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle }: any) {
-  const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES).slice(0, 3);
-  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim()).slice(0, 8);
+  // A faithful miniature of the real home page: the actual template hero
+  // components (compact), the same banner, journey timeline and giant footer
+  // wall the couple sees, all drawn from the admin's current drafts.
+  const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES);
+  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim());
+  const eventNames = evs.map((e: any) => e.name);
   const heroTpl: string = tpl || 'classic';
   const wallMode: string = wallStyle || 'wall';
-  const cd = (() => {
-    try {
-      if (!wedDate) return null;
-      const t = new Date(`${wedDate}T12:00:00`).getTime();
-      if (!isFinite(t)) return null;
-      const diff = Math.max(0, t - Date.now());
-      return { d: Math.floor(diff / 86400000), h: Math.floor(diff / 3600000) % 24, m: Math.floor(diff / 60000) % 60, s: Math.floor(diff / 1000) % 60 };
-    } catch { return null; }
-  })();
-  const tilts = [-5, 4, -4];
-  const wall: string[] = heroes.length ? Array.from({ length: 8 }, (_, i) => heroes[i % heroes.length]) : [];
-  const wedLine = (() => { try { return wedDate ? new Date(`${wedDate}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch { return ''; } })();
-  // The hero draws in the style the admin picked: Polaroid fan, Fan arc,
-  // Card stack or Flip book, as simplified stills of the real animations.
-  const heroCards = (() => {
-    if (heroTpl === 'halo') {
-      const spots = [{ left: '13%', top: '62%', r: -13 }, { left: '50%', top: '46%', r: 0 }, { left: '87%', top: '62%', r: 13 }];
-      return heroes.map((src: string, i: number) => {
-        const sp = spots[i % 3];
-        return (
-          <div key={i} className="absolute w-[40%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ left: sp.left, top: sp.top, transform: `translate(-50%, -50%) rotate(${sp.r}deg)`, zIndex: 10 - Math.abs(i - 1) }}>
-            <img src={src} alt="" className="w-full h-[100px] object-cover rounded-sm pointer-events-none" draggable={false} />
-          </div>
-        );
-      });
-    }
-    if (heroTpl === 'hero') {
-      return heroes.map((src: string, i: number) => (
-        <div key={i} className="absolute top-1/2 left-1/2 w-[56%] bg-white p-1.5 pb-4 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ transform: `translate(-50%, -50%) rotate(${i === 0 ? -2 : i === 1 ? 1.5 : 0}deg) scale(${0.82 + i * 0.09})`, zIndex: 10 + i }}>
-          <img src={src} alt="" className="w-full h-[108px] object-cover rounded-sm pointer-events-none" draggable={false} />
-        </div>
-      ));
-    }
-    if (heroTpl === 'book') {
-      return (
-        <div className="absolute top-1/2 left-1/2 w-[62%] bg-white p-2 pb-3 rounded-md shadow-[0_18px_36px_rgba(0,0,0,0.4)]" style={{ transform: 'translate(-50%, -50%)' }}>
-          <img src={heroes[0]} alt="" className="w-full h-[130px] object-cover rounded-sm pointer-events-none" draggable={false} />
-        </div>
-      );
-    }
-    return heroes.map((src: string, i: number) => (
-      <div key={i} className="absolute top-1/2 left-1/2 w-[44%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ transform: `translate(-50%, -50%) rotate(${tilts[i % tilts.length]}deg) translateX(${(i - 1) * 40}%)`, zIndex: 10 - i }}>
-        <img src={src} alt="" className="w-full h-[104px] object-cover rounded-sm pointer-events-none" draggable={false} />
+  const pool: string[] = Array.from({ length: 40 }, (_, i) => heroes[i % heroes.length]);
+  const ROWS = 8;
+  const [activeRow, setActiveRow] = useState(0);
+  useEffect(() => {
+    let r = 0; let dir = 1;
+    const t = setInterval(() => {
+      let next = r + dir;
+      if (next > ROWS - 1) { dir = -1; next = ROWS - 2; }
+      if (next < 0) { dir = 1; next = 1; }
+      r = next;
+      setActiveRow(r);
+    }, 750);
+    return () => clearInterval(t);
+  }, []);
+  const wedDot = (() => { try { if (!wedDate) return '20 \u00b7 03 \u00b7 2027'; const d = new Date(wedDate + 'T12:00:00'); return String(d.getDate()).padStart(2, '0') + ' \u00b7 ' + String(d.getMonth() + 1).padStart(2, '0') + ' \u00b7 ' + d.getFullYear(); } catch { return '20 \u00b7 03 \u00b7 2027'; } })();
+  const wedShort = (() => { try { if (!wedDate) return { d: '20', y: '2027' }; const d = new Date(wedDate + 'T12:00:00'); return { d: String(d.getDate()), y: String(d.getFullYear()) }; } catch { return { d: '20', y: '2027' }; } })();
+  const wedFull = (() => { try { return wedDate ? new Date(wedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''; } catch { return ''; } })();
+  const fmtEvDate = (e: any) => { try { return e.date ? new Date(e.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Date to be announced'; } catch { return 'Date to be announced'; } };
+  const tagCls = (st: string) => st === 'done'
+    ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
+    : st === 'next'
+      ? 'bg-[#C8932A]/15 text-[#C8932A] border-[#C8932A]/40'
+      : 'bg-[#EEEDF3] text-[#5A6970] border-[#DAD8E3]';
+  const dotCls = (st: string) => st === 'done'
+    ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)]'
+    : st === 'next'
+      ? 'bg-[#C8932A] border-[#C8932A]'
+      : 'bg-[#EEEDF3] border-[#5A6970]';
+  const wallNames = (
+    <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none py-8">
+      <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{bride}</h2>
+      <div className="text-[1rem] font-serif-display italic leading-none my-0.5 text-[var(--ann-accent)]">&amp;</div>
+      <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
+        <span>{groom}</span>
+        <span className="w-[4px] h-[4px] rounded-full bg-[#C8932A] ml-[3px] inline-block" />
+      </h2>
+      <div className="mt-3 flex items-center gap-2 justify-center w-full">
+        <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
+        <span className="text-[0.6rem] font-display font-black tracking-[0.4em] uppercase text-[var(--ann-accent)] opacity-90">{wedDot}</span>
+        <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
       </div>
-    ));
-  })();
+    </div>
+  );
   return (
-    <div className="ev-preview-mockup w-full h-full overflow-y-auto bg-[var(--ann-accent)] text-white">
-      <style>{`.ev-preview-mockup::-webkit-scrollbar { display: none } .ev-preview-mockup { scrollbar-width: none; -ms-overflow-style: none }`}</style>
-      <div className="flex items-center justify-center px-4 py-3">
-        <span className="font-display italic text-lg font-semibold">{bride} & {groom}</span>
+    <div className="ev-preview-mockup w-full h-full overflow-y-auto bg-[#F1EFF6] text-[#1a1a2e]">
+      <style>{'.ev-preview-mockup::-webkit-scrollbar { display: none } .ev-preview-mockup { scrollbar-width: none; -ms-overflow-style: none } .ev-preview-mockup .ev-fw-cell-lg img { width: 30px; border-radius: 6px; }'}</style>
+      {/* Hero: the real template hero, compact */}
+      <div className="relative w-full h-[238px] overflow-hidden">
+        {heroTpl === 'classic' && <FloatingHeroSection compact isDarkMode={false} images={heroes} eventNames={eventNames} />}
+        {heroTpl === 'halo' && <HaloHero compact images={heroes} names={bride + ' & ' + groom} eventNames={eventNames} />}
+        {heroTpl === 'hero' && <DeckHero compact images={heroes} names={bride + ' & ' + groom} eventNames={eventNames} />}
+        {heroTpl === 'book' && <BookHero compact images={heroes} bride={bride} groom={groom} dotDate={wedDot} city={city || 'Lagos'} hashtag={(details && details.hashtag) || '#AmaraAndDaniel'} eventNames={eventNames} />}
       </div>
-      <div className="relative h-[190px] mx-5 mt-1">{heroCards}</div>
-      <div className="mt-3 bg-black/25 px-6 py-5 text-center">
-        <p className="text-[0.55rem] font-black uppercase tracking-[0.2em] text-white/70">Together with their families</p>
-        <p className="font-display text-2xl font-bold mt-2">{bride}</p>
-        <p className="font-display italic text-sm text-white/70 my-0.5">and</p>
-        <p className="font-display text-2xl font-bold">{groom}</p>
-        <p className="text-[0.6rem] font-bold uppercase tracking-widest text-white/60 mt-2">{wedLine}{city ? ` · ${city}` : ''}</p>
-        {cd && (
-          <div className="mt-3 flex justify-center gap-1.5">
-            {[['days', cd.d], ['hrs', cd.h], ['mins', cd.m], ['secs', cd.s]].map(([k, v]: any) => (
-              <div key={k} className="w-11 rounded-lg bg-white/10 py-1.5">
-                <div className="text-sm font-black leading-none">{String(v).padStart(2, '0')}</div>
-                <div className="text-[0.5rem] uppercase tracking-widest text-white/50 mt-1">{k}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      {(story || '').trim() && (
-        <div className="px-6 pt-6">
-          <p className="font-display text-base font-bold">Our story</p>
-          <p className="text-[0.68rem] leading-relaxed text-white/80 mt-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{story}</p>
-        </div>
-      )}
-      {evs.length > 0 && (
-        <div className="px-6 pt-6">
-          <p className="font-display text-base font-bold">The journey</p>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            {evs.map((e: any, i: number) => (
-              <div key={i} className="bg-white p-1.5 pb-2 rounded-md shadow-lg" style={{ transform: `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` }}>
-                <img src={heroes[i % heroes.length] || ''} alt="" className="w-full h-20 object-cover rounded-sm pointer-events-none" draggable={false} />
-                <p className="text-center text-[0.6rem] font-bold text-[#1a1a2e] mt-1.5 truncate">{e.name}</p>
-                {e.date ? (() => { try { return <p className="text-center text-[0.5rem] font-bold uppercase tracking-widest text-[#1a1a2e]/60">{new Date(`${e.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>; } catch { return null; } })() : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {(details?.churchTime || details?.receptionTime || details?.asoEbi) && (
-        <div className="px-6 pt-6">
-          <p className="font-display text-base font-bold">Wedding day</p>
-          {details?.churchTime && <p className="text-[0.68rem] text-white/80 mt-1.5">Church wedding · {details.churchTime}{details.churchVenue ? ` · ${details.churchVenue}` : ''}</p>}
-          {details?.receptionTime && <p className="text-[0.68rem] text-white/80 mt-1">Reception · {details.receptionTime}{details.receptionVenue ? ` · ${details.receptionVenue}` : ''}</p>}
-          {details?.asoEbi && <p className="text-[0.68rem] text-white/80 mt-1">Aso-ebi: {details.asoEbi}</p>}
-          {details?.hashtag && <p className="text-[0.68rem] text-white/80 mt-1">Share your looks with <b>{details.hashtag}</b></p>}
-        </div>
-      )}
-      <div className="mt-8 px-1.5">
-        {wall.length > 0 && (wallMode === 'marquee' ? (
-          <div className="bg-black/40 rounded-2xl p-2">
-            <div className="grid grid-cols-4 gap-1.5">
-              {wall.map((src: string, i: number) => (
-                <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-lg pointer-events-none" style={{ filter: 'brightness(0.82)' }} draggable={false} />
-              ))}
+      {/* Banner */}
+      <div className="mx-3 mt-4 rounded-[22px] p-[22px_16px] text-[#F2F7F8] relative overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)' }}>
+        <p className="m-0 text-center text-[0.62rem] font-medium text-[#C8932A]">Together with their families</p>
+        <h2 className="text-center font-serif-display text-white text-[2rem] leading-[1] mt-2 mb-0">
+          {bride}
+          <span className="block italic text-[0.95rem] text-[#C8932A] my-1">and</span>
+          {groom}
+        </h2>
+        <p className="text-center text-[0.7rem] opacity-[0.85] mt-3 mb-0 leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
+        <div className="mt-4 mx-auto bg-white/10 border border-white/25 rounded-[14px] py-2.5 backdrop-blur-md">
+          <div className="flex items-stretch justify-center divide-x divide-white/25">
+            <div className="px-4 text-center">
+              <b className="block text-[1rem] font-serif-display leading-none">{wedShort.d}</b>
+              <span className="block text-[0.55rem] uppercase tracking-wider opacity-75 mt-1">{wedShort.y}</span>
+            </div>
+            <div className="px-4 text-center">
+              <b className="block text-[1rem] font-serif-display leading-none">{city || 'Lagos'}</b>
+              <span className="block text-[0.55rem] uppercase tracking-wider opacity-75 mt-1">Nigeria</span>
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-1">
-            {wall.map((src: string, i: number) => (
-              <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-[3px] pointer-events-none" style={{ filter: 'grayscale(1) brightness(0.58)' }} draggable={false} />
+          {wedDate && <CountdownRow date={wedDate} time="12:00" />}
+        </div>
+      </div>
+      {/* Our story */}
+      <section className="px-5 pt-6">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_8px] leading-[1.25]">Our story</h2>
+        <p className="text-[0.85rem] leading-relaxed m-0 text-[#5A6970]">{story}</p>
+      </section>
+      {/* The journey: the same timeline cards the app shows */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_2px] leading-[1.25]">The journey</h2>
+        <p className="text-[0.8rem] m-[0_4px_12px] text-[#5A6970]">Tap an event to open it.</p>
+        <div className="ml-[10px] pl-[16px] border-l-[3px] border-[#DAD8E3] space-y-2.5">
+          {evs.slice(0, 8).map((e: any, ji: number) => {
+            const st = e.status || 'up';
+            return (
+              <div key={ji} className="relative">
+                <span className={`absolute -left-[25px] top-[16px] w-[11px] h-[11px] rounded-full border-[3px] ${dotCls(st)}`} />
+                <div className={`rounded-[14px] border overflow-hidden bg-white ${st === 'next' ? 'border-[#C8932A]/60' : 'border-[#DAD8E3]'}`}>
+                  <div className="p-[12px_14px] flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <b className="text-[0.92rem] font-serif-display leading-tight">{e.name}</b>
+                        <span className={`flex-shrink-0 px-2 py-0.5 rounded-full border text-[8.5px] font-black uppercase tracking-wider ${tagCls(st)}`}>
+                          {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
+                        </span>
+                      </div>
+                      <small className="block text-[0.68rem] mt-0.5 text-[#5A6970]">{e.type ? e.type + ' \u00b7 ' : ''}{fmtEvDate(e)}</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      {/* Wedding day */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Wedding day</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">{wedFull}</p>
+        <div className="p-[14px_16px] rounded-[16px] border bg-white border-[#DAD8E3] space-y-3">
+          {details && details.churchTime && (
+            <div>
+              <strong className="block text-[0.85rem]">Church wedding · {details.churchTime}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.churchVenue}</p>
+            </div>
+          )}
+          {details && details.receptionTime && (
+            <div>
+              <strong className="block text-[0.85rem]">Reception · {details.receptionTime}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.receptionVenue}</p>
+            </div>
+          )}
+          {details && details.asoEbi && (
+            <div>
+              <strong className="block text-[0.85rem]">Aso-ebi: {details.asoEbi}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
+            </div>
+          )}
+        </div>
+      </section>
+      {/* Our vendors */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our vendors</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">Official media partners. They upload full albums here.</p>
+        <div className="flex gap-2">
+          <div className="flex-1 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
+            <b className="block text-[0.8rem] font-serif-display">Lens &amp; Light Studio</b>
+            <span className="block text-[0.65rem] text-[#5A6970]">Photographer</span>
+          </div>
+          <div className="flex-1 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
+            <b className="block text-[0.8rem] font-serif-display">Kiln Films</b>
+            <span className="block text-[0.65rem] text-[#5A6970]">Videographer</span>
+          </div>
+        </div>
+      </section>
+      {/* Feed CTA */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
+        <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
+      </section>
+      {/* Giant footer: the real wall, in the style the admin picked */}
+      {wallMode === 'wall' ? (
+        <section className="relative overflow-hidden w-full flex items-center justify-center bg-[#EEEDF3] mt-8">
+          <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[4px] py-2">
+            {Array.from({ length: ROWS }, (_, r) => (
+              <div key={r} className="grid grid-cols-5 gap-[4px]">
+                {pool.slice(r * 5, r * 5 + 5).map((src: string, i: number) => (
+                  <div key={i} className={'ev-fw-tile' + (r === activeRow ? ' ev-fw-lit' : Math.abs(r - activeRow) === 1 ? ' ev-fw-warm' : '')}>
+                    <img src={src} alt="" />
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
-        ))}
-        <div className="py-6 text-center">
-          <p className="font-display text-lg font-bold">{bride} <span className="italic font-normal">&</span> {groom}</p>
-          <p className="text-[0.55rem] font-bold uppercase tracking-[0.25em] text-white/50 mt-1.5">Wedding memories, kept for life</p>
-        </div>
+          <div className="absolute inset-0 z-[1] pointer-events-none bg-white/20" />
+          {wallNames}
+        </section>
+      ) : (
+        <section className="relative overflow-hidden w-full bg-[#070716] mt-8">
+          <div className="h-[8px] bg-[var(--ann-accent)]" />
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
+            <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>{bride}</h2>
+            <div className="text-[0.9rem] font-serif-display italic leading-none my-0.5 text-white" style={{ textShadow: '0 2px 14px rgba(7,7,22,0.75)' }}>&amp;</div>
+            <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>
+              <span>{groom}</span>
+              <span className="w-[4px] h-[4px] rounded-full bg-[#C8932A] ml-[3px] inline-block" />
+            </h2>
+            <div className="mt-3 flex items-center gap-2 justify-center w-full">
+              <span className="flex-1 border-t border-dashed border-white/60" />
+              <span className="text-[0.6rem] font-display font-black tracking-[0.4em] uppercase text-white" style={{ textShadow: '0 2px 12px rgba(7,7,22,0.8)' }}>{wedDot}</span>
+              <span className="flex-1 border-t border-dashed border-white/60" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-[4px] py-[10px]">
+            {[0, 1, 2, 3].map((r) => (
+              <div key={r} className={'ev-fw-row ev-fw-row-lg ' + (r % 2 ? 'ev-fw-row-rev' : '')} style={{ animationDuration: (46 + r * 13) + 's' }}>
+                {pool.slice(r * 10, r * 10 + 10).concat(pool.slice(r * 10, r * 10 + 10)).map((src: string, i: number) => (
+                  <div key={i} className="ev-fw-cell-lg"><img src={src} alt="" /></div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="py-6 text-center">
+        <p className="font-display text-[0.95rem] font-bold m-0">{bride} &amp; {groom}</p>
+        <p className="text-[0.6rem] font-bold uppercase tracking-[0.25em] text-[#8a879b] mt-1 m-0">Wedding memories, kept for life</p>
       </div>
     </div>
   );
 }
-
 
 function AdminDashboardModal({ 
   isOpen, 
@@ -6717,7 +6802,7 @@ function AdminDashboardModal({
                   )}
 
                   {/* One save for the whole page. */}
-                  <div className={`sticky bottom-24 z-20 -mx-6 md:-mx-8 px-6 md:px-8 pt-3 pb-3 flex items-center gap-4 flex-wrap ${isDarkMode ? 'bg-[#0B171C]/95 backdrop-blur border-t border-[#22363E]' : 'bg-white/95 backdrop-blur border-t border-[#DAD8E3]'}`}>
+                  <div className={`mt-8 flex items-center gap-4 flex-wrap border-t pt-4 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
                     <p className={`text-xs font-bold flex-1 min-w-[220px] ${pageDirty ? 'text-[var(--ann-accent)]' : 'opacity-50'}`}>
                       {pageDirty ? 'You have unsaved changes. Tap Save changes for them to reach your app.' : 'All saved. Your app shows exactly what you see here.'}
                     </p>
@@ -7692,7 +7777,7 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
 
-function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: boolean, images: string[], eventNames?: string[] }) {
+function FloatingHeroSection({ isDarkMode, images, eventNames, compact = false }: { isDarkMode: boolean, images: string[], eventNames?: string[], compact?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cardsReady, setCardsReady] = useState(false);
 
@@ -7727,7 +7812,7 @@ function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: b
   return (
     <section
       ref={containerRef}
-      className="relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[65vh] sm:h-[80vh] overflow-hidden bg-[var(--ann-accent)] mb-12 shadow-inner"
+      className={`relative overflow-hidden bg-[var(--ann-accent)] shadow-inner ${compact ? 'w-full h-[238px]' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[65vh] sm:h-[80vh] mb-12'}`}
     >
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent)]" />
