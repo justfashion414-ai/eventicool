@@ -2962,7 +2962,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onUpdateHeroTemplate={updateHeroTemplate}
         heroTpl={heroTpl}
         onUpdateHeroImages={async (urls: string[]) => {
-          const capped = urls.slice(0, 14);
+          const capped = urls.slice(0, 20);
           setHeroImages(capped);
           try {
             localStorage.setItem(lsKey('hero-images'), JSON.stringify(capped));
@@ -5976,6 +5976,10 @@ function AdminDashboardModal({
   }, [isOpen]);
 
   const isSuper = currentUserEmail === "justfashion414@gmail.com";
+  // Bride and groom are owners with the same power, invites included; the
+  // platform owner is always an owner too. Matches auth-admin's FULL_ROLES.
+  const OWNER_ROLES = ['owner', 'couple', 'admin', 'bride', 'groom'];
+  const ownerAdmin = isSuper || OWNER_ROLES.includes(String((myAdminDoc as any)?.role || 'owner'));
 
   const [modQueue, setModQueue] = useState<'pending' | 'reports' | 'vendors'>('pending');
   const [postEventFilter, setPostEventFilter] = useState<string>('all');
@@ -5996,6 +6000,19 @@ function AdminDashboardModal({
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
   const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
   const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee'>(footerStyle);
+  // Gifts & support draft (Events & photos): initializes straight from the
+  // saved details, so the page's single Save bar owns it from the first render.
+  const [giftDraft, setGiftDraft] = useState<any>(() => {
+    const gi = (weddingDetails || ({} as any)).giftInfo || {};
+    const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
+    return {
+      enabled: gi.enabled !== false,
+      bank: gi.bank || seed.bank || '',
+      accountNumber: gi.accountNumber || seed.accountNumber || '',
+      accountName: gi.accountName || seed.accountName || '',
+      note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
+    };
+  });
   const draftBaseRef = useRef<any>(null);
   if (!draftBaseRef.current) {
     draftBaseRef.current = {
@@ -6004,6 +6021,7 @@ function AdminDashboardModal({
       ev: JSON.stringify(events),
       hero: JSON.stringify(heroImages),
       heroLabels: JSON.stringify(heroImageLabels || {}),
+      gift: JSON.stringify(giftDraft || {}),
       heroTpl,
       footerStyle
     };
@@ -6019,7 +6037,8 @@ function AdminDashboardModal({
     || JSON.stringify(heroImgDraft) !== draftBaseRef.current.hero
     || JSON.stringify(heroLabelDraft) !== draftBaseRef.current.heroLabels
     || heroTplDraft !== draftBaseRef.current.heroTpl
-    || footerStyleDraft !== draftBaseRef.current.footerStyle;
+    || footerStyleDraft !== draftBaseRef.current.footerStyle
+    || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift;
 
   // One Save for the whole page: story, wedding day details, the journey, hero
   // photos and labels, hero style and the giant footer style commit together.
@@ -6031,28 +6050,31 @@ function AdminDashboardModal({
   const saveEverything = async () => {
     setWeddingBusy(true);
     try {
-      await onSaveWeddingSection({ story: storyDraft, weddingDetails: detDraft, events: evDraft });
-      onUpdateHeroImages(heroImgDraft.slice(0, 14));
+      const mergedDet = {
+        ...(detDraft || {}),
+        giftInfo: {
+          enabled: true,
+          bank: (giftDraft.bank || '').trim(),
+          accountNumber: (giftDraft.accountNumber || '').trim(),
+          accountName: (giftDraft.accountName || '').trim(),
+          note: (giftDraft.note || '').trim()
+        }
+      };
+      setDetDraft(mergedDet);
+      await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      onUpdateHeroImages(heroImgDraft.slice(0, 20));
       onUpdateHeroLabels(heroLabelDraft || {});
       if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
       if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true);
       draftBaseRef.current = {
         story: storyDraft,
-        det: JSON.stringify(giftDraft ? {
-          ...(detDraft || {}),
-          giftInfo: {
-            enabled: true,
-            bank: (giftDraft.bank || '').trim(),
-            accountNumber: (giftDraft.accountNumber || '').trim(),
-            accountName: (giftDraft.accountName || '').trim(),
-            note: (giftDraft.note || '').trim()
-          }
-        } : detDraft),
+        det: JSON.stringify(mergedDet),
         ev: JSON.stringify(evDraft),
-        hero: JSON.stringify(heroImgDraft.slice(0, 14)),
+        hero: JSON.stringify(heroImgDraft.slice(0, 20)),
         heroLabels: JSON.stringify(heroLabelDraft || {}),
         heroTpl: heroTplDraft,
-        footerStyle: footerStyleDraft
+        footerStyle: footerStyleDraft,
+        gift: JSON.stringify(giftDraft || {})
       };
       showToast('Saved. Your app now shows these changes.', 'success');
     } finally { setWeddingBusy(false); }
@@ -6066,41 +6088,17 @@ function AdminDashboardModal({
   };
   // Gifts & support (Events & photos tab): the couple's account details for
   // guests who want to send money. Lives on weddingDetails.giftInfo; the eye
-  // button (hiddenSections 'gifts') decides who sees it, not a toggle.
-  const [giftDraft, setGiftDraft] = useState<any>(null);
-  useEffect(() => {
-    if (!giftDraft && weddingDetails) {
-      const gi = weddingDetails.giftInfo || {};
-      const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
-      setGiftDraft({
-        enabled: gi.enabled !== false,
-        bank: gi.bank || seed.bank || '',
-        accountNumber: gi.accountNumber || seed.accountNumber || '',
-        accountName: gi.accountName || seed.accountName || '',
-        note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
-      });
-    }
-  }, [weddingDetails]);
-  const saveGiftInfo = async () => {
-    if (!giftDraft) return;
-    const g = {
-      enabled: true,
-      bank: (giftDraft.bank || '').trim(),
-      accountNumber: (giftDraft.accountNumber || '').trim(),
-      accountName: (giftDraft.accountName || '').trim(),
-      note: (giftDraft.note || '').trim()
-    };
-    const merged = { ...(detDraft || {}), giftInfo: g };
-    setDetDraft(merged);
-    await onSaveWeddingSection({ weddingDetails: merged });
-    if (draftBaseRef.current) draftBaseRef.current.det = JSON.stringify(merged);
-    showToast('Gift details saved. Your app now shows them.', 'success');
-  };
+  // button (hiddenSections 'gifts') decides who sees it, not a toggle. There
+  // is no separate save: the fields ride the page's single Save changes bar.
   // QR code (Settings): the couple's app link as a scannable code. Guests scan
   // it from a printed banner and land straight in the app. Only the couple
   // sees it here; they download it as an image or PDF for their banner designer.
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [qrUrl, setQrUrl] = useState<string>('');
+  // Click feedback: each QR button flips to a busy label while it works and a
+  // short Saved/Copied state when it finishes, so a tap is never silent.
+  const [qrBusy, setQrBusy] = useState<'' | 'png' | 'pdf'>('');
+  const [qrDone, setQrDone] = useState<'' | 'png' | 'pdf' | 'copied'>('');
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     p.delete('nochrome');
@@ -6135,17 +6133,26 @@ function AdminDashboardModal({
     return () => { dead = true; };
   }, []);
   const downloadQrPng = () => {
-    if (!qrDataUrl) return;
-    try {
-      const a = document.createElement('a');
-      a.href = qrDataUrl;
-      a.download = `eventicor-qr-${(activeCode || 'app').toLowerCase()}.png`;
-      a.click();
-      showToast('QR image saved.');
-    } catch {}
+    if (qrBusy) return;
+    if (!qrDataUrl) { showToast('Still preparing the QR code. Try again in a moment.', 'info'); return; }
+    setQrBusy('png');
+    window.setTimeout(() => {
+      try {
+        const a = document.createElement('a');
+        a.href = qrDataUrl;
+        a.download = `eventicor-qr-${(activeCode || 'app').toLowerCase()}.png`;
+        a.click();
+        showToast('QR image saved to your device.', 'success');
+        setQrDone('png');
+        window.setTimeout(() => setQrDone((cur) => (cur === 'png' ? '' : cur)), 1800);
+      } catch {}
+      setQrBusy('');
+    }, 450);
   };
   const downloadQrPdf = async () => {
-    if (!qrDataUrl) return;
+    if (qrBusy) return;
+    if (!qrDataUrl) { showToast('Still preparing the QR code. Try again in a moment.', 'info'); return; }
+    setQrBusy('pdf');
     try {
       const { jsPDF } = await import('jspdf');
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -6163,8 +6170,10 @@ function AdminDashboardModal({
       pdf.setTextColor(90, 105, 112);
       pdf.text(qrUrl, W / 2, y + size + 13, { align: 'center' });
       pdf.save(`eventicor-qr-${(activeCode || 'app').toLowerCase()}.pdf`);
-      showToast('QR PDF saved.');
-    } catch {}
+      showToast('QR PDF saved to your device.', 'success');
+      setQrDone('pdf');
+      window.setTimeout(() => setQrDone((cur) => (cur === 'pdf' ? '' : cur)), 1800);
+    } catch {} finally { setQrBusy(''); }
   };
   // Eventicor admin contact + payment account details (super admin only).
   const [contactDraft, setContactDraft] = useState<any>(null);
@@ -6842,7 +6851,7 @@ function AdminDashboardModal({
                     <section>
                       <div className="flex items-center justify-between mb-3">
                         <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Hero photos ({heroShown.length} / 14)
+                          Hero photos ({heroShown.length} / 20)
                         </label>
                         {heroShown.length > 0 && (
                           <button
@@ -6863,7 +6872,7 @@ function AdminDashboardModal({
                         </select>
                       </div>
                       <div className="grid grid-cols-4 gap-2 mb-4">
-                        {heroShown.slice(0, 14).map((img: string, idx: number) => (
+                        {heroShown.slice(0, 20).map((img: string, idx: number) => (
                           <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
                             <img src={img} className="w-full h-full object-cover" alt="" />
                             <div className="absolute top-1 right-1 flex gap-1">
@@ -6890,7 +6899,7 @@ function AdminDashboardModal({
                             </div>
                           </div>
                         ))}
-                        {heroShown.length < 14 && (
+                        {heroShown.length < 20 && (
                           <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
                             <input
                               type="file"
@@ -6902,10 +6911,10 @@ function AdminDashboardModal({
                                 const files = Array.from(e.target.files || []);
                                 if (files.length === 0) return;
 
-                                const remainingSlots = 14 - heroShown.length;
+                                const remainingSlots = 20 - heroShown.length;
                                 const filesToUpload = files.slice(0, remainingSlots);
                                 if (files.length > remainingSlots) {
-                                  showToast(`Maximum 14 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
+                                  showToast(`Maximum 20 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
                                 }
 
                                 setIsBulkUploading(true);
@@ -6920,7 +6929,7 @@ function AdminDashboardModal({
 
                                   if (uploadedUrls.length > 0) {
                                     // Draft only: the new photos reach the app when Save changes is tapped.
-                                    setHeroImgDraft([...heroShown, ...uploadedUrls].slice(0, 14));
+                                    setHeroImgDraft([...heroShown, ...uploadedUrls].slice(0, 20));
                                     // Attach the chosen label to every newly added photo.
                                     if (newHeroLabel) {
                                       const labelMap = { ...(heroLabelDraft || {}) };
@@ -6942,13 +6951,13 @@ function AdminDashboardModal({
                             ) : (
                               <>
                                 <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({14 - heroShown.length})</span>
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({20 - heroShown.length})</span>
                               </>
                             )}
                           </label>
                         )}
                       </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImgDraft.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 20 images for the hero banner (scrolls 2 images at a time).{!heroImgDraft.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
                     </section>
                   )}
 
@@ -7064,7 +7073,6 @@ function AdminDashboardModal({
                         <h3 className="font-black font-display text-lg mb-1">Gifts &amp; support</h3>
                         <p className="text-sm opacity-60">Guests who want to gift you money see this on your home page, right before the photo wall. Tap hide and nobody sees it until you bring it back.</p>
                       </div>
-                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('gifts')} onClick={() => toggleSectionHidden('gifts')} isDarkMode={isDarkMode} />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 mt-4">
                       <div>
@@ -7084,7 +7092,9 @@ function AdminDashboardModal({
                         <textarea rows={2} value={giftDraft?.note ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), note: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`} />
                       </div>
                     </div>
-                    <button onClick={saveGiftInfo} className="mt-2 px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save gifts section</button>
+                    <div className="mt-2">
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('gifts')} onClick={() => toggleSectionHidden('gifts')} isDarkMode={isDarkMode} />
+                    </div>
                   </section>
 
 {adminPermissions?.canUploadImages && (
@@ -7337,9 +7347,9 @@ function AdminDashboardModal({
                         <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1">Scanning opens</span>
                         <p className="text-sm break-all mb-3">{qrUrl}</p>
                         <div className="flex gap-2 flex-wrap">
-                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy link</button>
-                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">Save as image</button>
-                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">Save as PDF</button>
+                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); setQrDone('copied'); window.setTimeout(() => setQrDone((cur) => (cur === 'copied' ? '' : cur)), 1800); }} className={`px-4 py-2 rounded-full border text-[0.65rem] font-black uppercase tracking-widest transition-colors ${qrDone === 'copied' ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E]'}`}>{qrDone === 'copied' ? 'Copied' : 'Copy link'}</button>
+                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'png' ? 'Saving…' : qrDone === 'png' ? 'Saved' : 'Save as image'}</button>
+                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'pdf' ? 'Building PDF…' : qrDone === 'pdf' ? 'Saved' : 'Save as PDF'}</button>
                         </div>
                       </div>
                     </div>
@@ -7371,7 +7381,7 @@ function AdminDashboardModal({
                       ))}
                     </div>
                   </div>
-                  {isSuper && (
+                  {ownerAdmin && (
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
                       <h3 className="font-black font-display text-lg">Administrators</h3>
