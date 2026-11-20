@@ -1144,8 +1144,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
     if (noChrome) return; // the preview mockup never touches admin state
-    if (!user || user.isAnonymous) return;
-    setAdminStatusChecked(false);
+    if (!user) return;
 
     const isSuper = user.email === "justfashion414@gmail.com";
 
@@ -1160,6 +1159,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, `residents/${user.uid}`);
     });
+
+    // Guests sign in anonymously: the profile above is theirs. Everything from
+    // here on (admin status, provisioning) only applies to signed-in,
+    // non-anonymous accounts.
+    if (user.isAnonymous) {
+      return () => { if (profileUnsub) profileUnsub(); };
+    }
+    setAdminStatusChecked(false);
 
     // Sync admin status
     setAdminSync('sub:' + (user.email || 'anonymous'));
@@ -2287,28 +2294,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
         </div>
 
-        {/* TOAST NOTIFICATION */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div 
-              initial={{ y: -100, x: '-50%', opacity: 0 }}
-              animate={{ y: 20, x: '-50%', opacity: 1 }}
-              exit={{ y: -100, x: '-50%', opacity: 0 }}
-              className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
-            >
-              <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
-                toast.type === 'success' || toast.type === 'info'
-                  ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white'
-                  : 'bg-red-500 border-red-600 text-white'
-              }`}>
-                {toast.type === 'success' && <Check className="w-5 h-5" />}
-                {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
-                {toast.type === 'error' && <X className="w-5 h-5" />}
-                <p className="text-sm font-bold">{toast.message}</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* PROFILE SETUP MODAL */}
         <ProfilePromptModal 
@@ -2976,6 +2961,28 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         </AnimatePresence>
       </main>
       )}
+      {/* TOAST NOTIFICATION */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            initial={{ y: -100, x: '-50%', opacity: 0 }}
+            animate={{ y: 20, x: '-50%', opacity: 1 }}
+            exit={{ y: -100, x: '-50%', opacity: 0 }}
+            className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
+          >
+            <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
+              toast.type === 'success' || toast.type === 'info'
+                ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white'
+                : 'bg-red-500 border-red-600 text-white'
+            }`}>
+              {toast.type === 'success' && <Check className="w-5 h-5" />}
+              {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
+              {toast.type === 'error' && <X className="w-5 h-5" />}
+              <p className="text-sm font-bold">{toast.message}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
       {isAdminModalOpen && adminGateOk && (
@@ -2983,6 +2990,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
         onClose={leaveAdminPage}
+        onSignOut={() => doSignOut()}
         activeCode={activeAccessCode}
         onUpdateCode={updateAccessCode}
         posts={posts}
@@ -3561,11 +3569,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             } else if (DEMO) {
               setIsComposeOpen(true); // Preview skips the profile check
             } else {
-              // Robust check for profile completion
-              const isProfileComplete = displayName.trim() !== '' && avatar && !avatar.startsWith('blob:');
-              const hasUnsavedAvatar = avatar && avatar.startsWith('blob:');
-              
-              if (!displayName.trim() || (!avatar && !hasUnsavedAvatar)) {
+              // A saved profile is a residents doc with a display name; the
+              // profile photo is optional. The sync above restores the name
+              // on return visits, so a guest who already saved can post again.
+              if (!displayName.trim()) {
                 setShowProfileModal(true);
               } else {
                 setIsComposeOpen(true);
@@ -5177,7 +5184,7 @@ function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
   );
 }
 
-function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any) {
+function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title, message, confirmLabel }: any) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -5198,8 +5205,8 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
             <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
               <Trash2 className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-black font-display tracking-tight mb-2">Delete Post?</h3>
-            <p className="text-sm opacity-60 mb-6">This action cannot be undone. This memory will be removed from the guest wall.</p>
+            <h3 className="text-lg font-black font-display tracking-tight mb-2">{title || 'Delete Post?'}</h3>
+            <p className="text-sm opacity-60 mb-6">{message || 'This action cannot be undone. This memory will be removed from the guest wall.'}</p>
             
             <div className="flex gap-3">
               <button 
@@ -5212,7 +5219,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
                 onClick={onConfirm}
                 className="flex-1 py-3 rounded-full bg-red-500 text-white font-bold text-xs uppercase tracking-widest shadow-lg shadow-red-500/20"
               >
-                Delete
+                {confirmLabel || 'Delete'}
               </button>
             </div>
           </motion.div>
@@ -5784,6 +5791,7 @@ function AdminDashboardModal({
   onRestorePost,
   onPermanentDelete,
   currentUserEmail,
+  onSignOut,
   adminPermissions,
   videoOrientations,
   events,
@@ -5897,7 +5905,7 @@ function AdminDashboardModal({
 
   const handleAdminSignOut = () => {
     try { localStorage.removeItem(lsKey('admin-ui')); } catch {}
-    doSignOut();
+    onSignOut();
     onClose();
   };
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -5906,6 +5914,8 @@ function AdminDashboardModal({
   // Label to attach to newly uploaded hero photos.
   const [newHeroLabel, setNewHeroLabel] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  // Branded confirmation for every delete action in the dashboard.
+  const [confirmAsk, setConfirmAsk] = useState<{ title: string; message: string; confirmLabel?: string; action: () => void } | null>(null);
   const [inviteRole, setInviteRole] = useState('vendor');
   const [inviteBusy, setInviteBusy] = useState(false);
   const [rulesBusy, setRulesBusy] = useState(false);
@@ -6458,16 +6468,21 @@ function AdminDashboardModal({
       showToast(err?.message || 'Could not update that administrator.', 'error');
     }
   };
-  const handleRemoveAdmin = async (email: string) => {
-    if (confirm(`Remove ${email} from administrators? They lose access immediately.`)) {
-      try {
-        await authAdminCall('remove', { email });
-        showToast(`${email} removed from administrators.`);
-      } catch (err) {
-        console.error("Remove admin error:", err);
-        showToast('Could not remove that administrator.', 'error');
+  const handleRemoveAdmin = (email: string) => {
+    setConfirmAsk({
+      title: 'Remove administrator?',
+      message: `${email} loses access immediately. This cannot be undone.`,
+      confirmLabel: 'Remove',
+      action: async () => {
+        try {
+          await authAdminCall('remove', { email });
+          showToast(`${email} removed from administrators.`);
+        } catch (err) {
+          console.error("Remove admin error:", err);
+          showToast('Could not remove that administrator.', 'error');
+        }
       }
-    }
+    });
   };
 
   const handleResendInvite = async (email: string) => {
@@ -6561,7 +6576,7 @@ function AdminDashboardModal({
       setSessionBusy(false);
     }
   };
-  const roleLabel = (r?: string) => (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
+  const roleLabel = (r?: string) => r === 'owner' ? 'Super Admin' : (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
   
   return (
     <AnimatePresence>
@@ -6983,7 +6998,7 @@ function AdminDashboardModal({
                         {heroShown.length > 0 && (
                           <button
                             type="button"
-                            onClick={() => setHeroImgDraft([])}
+                            onClick={() => setConfirmAsk({ title: 'Remove all hero photos?', message: 'Every hero photo comes out. This cannot be undone.', confirmLabel: 'Remove all', action: () => setHeroImgDraft([]) })}
                             className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
                           >
                             Clear All
@@ -7013,7 +7028,7 @@ function AdminDashboardModal({
                                   <ChevronRight className="w-3 h-3" />
                                 </button>
                               )}
-                              <button type="button" onClick={() => setHeroImgDraft(heroShown.filter((_: string, i: number) => i !== idx))} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
+                              <button type="button" onClick={() => setConfirmAsk({ title: 'Remove photo?', message: 'This photo comes out of your hero photos. This cannot be undone.', confirmLabel: 'Remove', action: () => setHeroImgDraft(heroShown.filter((_: string, i: number) => i !== idx)) })} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
                                 <X className="w-3 h-3" />
                               </button>
                             </div>
@@ -7157,7 +7172,7 @@ function AdminDashboardModal({
                               {(((e as any).images || []) as string[]).map((u: string, ii: number) => (
                                 <div key={ii} className="relative w-[64px] h-[64px] rounded-[10px] overflow-hidden">
                                   <img src={u} alt="" className="w-full h-full object-cover" />
-                                  <button type="button" onClick={() => removeEventStepPhoto(e.id, ii)} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove">×</button>
+                                  <button type="button" onClick={() => setConfirmAsk({ title: 'Remove photo?', message: 'This photo comes out of the event. This cannot be undone.', confirmLabel: 'Remove', action: () => removeEventStepPhoto(e.id, ii) })} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove">×</button>
                                 </div>
                               ))}
                               {(((e as any).images || []) as string[]).length < 2 && (
@@ -7350,7 +7365,7 @@ function AdminDashboardModal({
                                   <div className="flex items-center justify-between gap-2">
                                     <p className="text-xs font-bold truncate">By {a.uploaderName || a.uploaderEmail}</p>
                                     {adminPermissions?.canDeletePosts && (
-                                      <button onClick={() => deleteAlbumMedia(a.id)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                      <button onClick={() => setConfirmAsk({ title: 'Remove from album?', message: 'It comes out of the album. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumMedia(a.id) })} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     )}
@@ -7367,146 +7382,6 @@ function AdminDashboardModal({
               )}
               {activeAdminTab === 'security' && (
                 <div className="space-y-8">
-<div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Security</h3>
-                    <p className="text-sm opacity-60 mb-4">Change your password and choose how long your admin session stays open.</p>
-                    <div className="space-y-2 mb-4">
-                      {([['cur', 'Current password'], ['next', 'New password'], ['confirm', 'Confirm new password']] as ['cur' | 'next' | 'confirm', string][]).map(([k, label]) => (
-                        <div key={k} className="relative">
-                          <input
-                            type={pwShow ? 'text' : 'password'}
-                            value={pwForm[k]}
-                            onChange={(e) => setPwForm((prev) => ({ ...prev, [k]: e.target.value }))}
-                            placeholder={label}
-                            autoComplete="new-password"
-                            className={`${inputCls} w-full pr-12`}
-                          />
-                          <button type="button" aria-label={pwShow ? 'Hide passwords' : 'Show passwords'} onClick={() => setPwShow((v) => !v)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
-                            {pwShow ? <EyeOff className="w-4 h-4 opacity-60" /> : <Eye className="w-4 h-4 opacity-60" />}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <button onClick={handleChangePassword} disabled={pwBusy} className={`w-full py-3.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest mb-1 ${pwBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>
-                      {pwBusy ? 'Updating…' : 'Update password'}
-                    </button>
-                    <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
-                    <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
-                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
-                      <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
-                      <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
-                    </div>
-                  </div>
-                                    {isSuper && (
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
-                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
-                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
-                  </div>
-                  )}
-                </div>
-              )}
-              {activeAdminTab === 'settings' && (
-                <div className="space-y-8">
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Eventicor admin & payments</h3>
-                    {isSuper ? (
-                      <>
-                        <p className="text-sm opacity-60 mb-4">The WhatsApp number couples see when they need help, and the account your customers pay into. Shown to users in the app's Settings page.</p>
-                        <div className="grid gap-3 sm:grid-cols-2 mb-4">
-                          <div>
-                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Admin WhatsApp number</span>
-                            <input type="tel" value={contactDraft?.adminWhatsapp ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: e.target.value.replace(/[^0-9+]/g, ''), payBankName: contactDraft?.payBankName || '', payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: contactDraft?.payAccountName || '' })} placeholder="2348012345678" className={`${inputCls} w-full`} />
-                          </div>
-                          <div>
-                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
-                            <input type="text" value={contactDraft?.payBankName ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: e.target.value, payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: contactDraft?.payAccountName || '' })} placeholder="GTBank" className={`${inputCls} w-full`} />
-                          </div>
-                          <div>
-                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
-                            <input type="text" inputMode="numeric" value={contactDraft?.payAccountNumber ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: contactDraft?.payBankName || '', payAccountNumber: e.target.value.replace(/[^0-9]/g, ''), payAccountName: contactDraft?.payAccountName || '' })} placeholder="0123456789" className={`${inputCls} w-full`} />
-                          </div>
-                          <div>
-                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
-                            <input type="text" value={contactDraft?.payAccountName ?? ''} onChange={(e) => setContactDraft({ adminWhatsapp: contactDraft?.adminWhatsapp || '', payBankName: contactDraft?.payBankName || '', payAccountNumber: contactDraft?.payAccountNumber || '', payAccountName: e.target.value })} placeholder="Eventicor" className={`${inputCls} w-full`} />
-                          </div>
-                        </div>
-                        <button onClick={saveContactSettings} className="px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save details</button>
-                      </>
-                    ) : (
-                      <div className="text-sm opacity-70 space-y-1">
-                        <p>Admin WhatsApp: {contactSettings?.adminWhatsapp || 'not set yet'}</p>
-                        {contactSettings?.payBankName ? <p>Payments: {contactSettings.payBankName} · {contactSettings.payAccountNumber} ({contactSettings.payAccountName})</p> : <p>Payment account details are set by Eventicor.</p>}
-                      </div>
-                    )}
-                  </div>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
-                    <p className="text-sm opacity-60 mb-4">Guests enter this once before their first post. Anyone can browse without it.</p>
-                    <div className="flex items-center gap-3 flex-wrap mb-4">
-                      <b className="font-display text-2xl tracking-[0.2em]">{activeCode}</b>
-                      <button type="button" onClick={() => { navigator.clipboard?.writeText(activeCode || ''); showToast('Access code copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy</button>
-                    </div>
-                    {adminPermissions?.canSetAccessCode && (
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Set your own code</span>
-                        <div className="flex gap-2 flex-wrap">
-                          <input type="text" value={newCode} maxLength={20} onChange={(e) => { const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase(); setNewCode(val); setIsDirty(true); }} placeholder="E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
-                          <button onClick={async () => { await onUpdateCode(newCode); setIsDirty(false); }} disabled={!canSaveCode} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${canSaveCode ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save code</button>
-                                                  </div>
-                        <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">QR code</h3>
-                    <p className="text-sm opacity-60 mb-4">Print this on your banner or programme. Guests scan it at your event and land straight in the app, no link to type. Download it and send it to your printer or banner designer.</p>
-                    <div className="flex items-start gap-4 flex-wrap">
-                      <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-white' : 'bg-white border border-[#DAD8E3]'}`}>
-                        {qrDataUrl ? (
-                          <img src={qrDataUrl} alt="Your app QR code" width={148} height={148} className="block" />
-                        ) : (
-                          <div className="w-[148px] h-[148px] flex items-center justify-center text-xs opacity-40">Making QR…</div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex gap-2 flex-wrap">
-                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); setQrDone('copied'); window.setTimeout(() => setQrDone((cur) => (cur === 'copied' ? '' : cur)), 1800); }} className={`px-4 py-2 rounded-full border text-[0.65rem] font-black uppercase tracking-widest transition-colors ${qrDone === 'copied' ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E]'}`}>{qrDone === 'copied' ? 'Copied' : 'Copy link'}</button>
-                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'png' ? 'Saving…' : qrDone === 'png' ? 'Saved' : 'Save as image'}</button>
-                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'pdf' ? 'Building PDF…' : qrDone === 'pdf' ? 'Saved' : 'Save as PDF'}</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
-                    <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
-                        <div key={k} className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <b className="block text-[0.95rem]">{label}</b>
-                            <small className="block opacity-50 text-sm">{sub}</small>
-                          </div>
-                          <button type="button" aria-label={label} onClick={() => onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
-                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Post action button: the admin picks Share or Download for the
-                      third button on every post and reel (app_config/main.feedActionMode). */}
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Post action button</h3>
-                    <p className="text-sm opacity-60 mb-4">The third button on every post and reel. Share opens the share sheet; Download saves the photo or video straight to the guest's device.</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
-                        <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
-                      ))}
-                    </div>
-                  </div>
                   {ownerAdmin && (
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -7539,7 +7414,7 @@ function AdminDashboardModal({
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${!adm.role || ['couple', 'admin', 'bride', 'groom'].includes(adm.role) ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role) ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
                               {roleLabel(adm.role)}
                             </span>
                             {adm.status === 'suspended' ? (
@@ -7552,7 +7427,7 @@ function AdminDashboardModal({
                             <button onClick={() => setTeamDetail(adm)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#DAD8E3] dark:border-[#22363E] transition-all hover:border-[var(--ann-accent)] hover:text-[var(--ann-accent)]">
                               View details
                             </button>
-                            {(!adm.role || ['couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
+                            {(!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
                               { id: 'canDeletePosts', label: 'Delete Posts' },
                               { id: 'canUploadImages', label: 'Upload Images' },
                               { id: 'canSetAccessCode', label: 'Access Code' }
@@ -7711,6 +7586,114 @@ function AdminDashboardModal({
                     </AnimatePresence>
                   </div>
                   )}
+<div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security</h3>
+                    <p className="text-sm opacity-60 mb-4">Change your password and choose how long your admin session stays open.</p>
+                    <div className="space-y-2 mb-4">
+                      {([['cur', 'Current password'], ['next', 'New password'], ['confirm', 'Confirm new password']] as ['cur' | 'next' | 'confirm', string][]).map(([k, label]) => (
+                        <div key={k} className="relative">
+                          <input
+                            type={pwShow ? 'text' : 'password'}
+                            value={pwForm[k]}
+                            onChange={(e) => setPwForm((prev) => ({ ...prev, [k]: e.target.value }))}
+                            placeholder={label}
+                            autoComplete="new-password"
+                            className={`${inputCls} w-full pr-12`}
+                          />
+                          <button type="button" aria-label={pwShow ? 'Hide passwords' : 'Show passwords'} onClick={() => setPwShow((v) => !v)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                            {pwShow ? <EyeOff className="w-4 h-4 opacity-60" /> : <Eye className="w-4 h-4 opacity-60" />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={handleChangePassword} disabled={pwBusy} className={`w-full py-3.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest mb-1 ${pwBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>
+                      {pwBusy ? 'Updating…' : 'Update password'}
+                    </button>
+                    <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
+                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
+                      <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
+                      <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
+                    </div>
+                  </div>
+                                    {isSuper && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
+                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
+                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
+                  </div>
+                  )}
+                </div>
+              )}
+              {activeAdminTab === 'settings' && (
+                <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
+                    <p className="text-sm opacity-60 mb-4">Guests enter this once before their first post. Anyone can browse without it.</p>
+                    <div className="flex items-center gap-3 flex-wrap mb-4">
+                      <b className="font-display text-2xl tracking-[0.2em]">{activeCode}</b>
+                      <button type="button" onClick={() => { navigator.clipboard?.writeText(activeCode || ''); showToast('Access code copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy</button>
+                    </div>
+                    {adminPermissions?.canSetAccessCode && (
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Set your own code</span>
+                        <div className="flex gap-2 flex-wrap">
+                          <input type="text" value={newCode} maxLength={20} onChange={(e) => { const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase(); setNewCode(val); setIsDirty(true); }} placeholder="E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
+                          <button onClick={async () => { await onUpdateCode(newCode); setIsDirty(false); }} disabled={!canSaveCode} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${canSaveCode ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save code</button>
+                                                  </div>
+                        <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">QR code</h3>
+                    <p className="text-sm opacity-60 mb-4">Print this on your banner or programme. Guests scan it at your event and land straight in the app, no link to type. Download it and send it to your printer or banner designer.</p>
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-white' : 'bg-white border border-[#DAD8E3]'}`}>
+                        {qrDataUrl ? (
+                          <img src={qrDataUrl} alt="Your app QR code" width={148} height={148} className="block" />
+                        ) : (
+                          <div className="w-[148px] h-[148px] flex items-center justify-center text-xs opacity-40">Making QR…</div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); setQrDone('copied'); window.setTimeout(() => setQrDone((cur) => (cur === 'copied' ? '' : cur)), 1800); }} className={`px-4 py-2 rounded-full border text-[0.65rem] font-black uppercase tracking-widest transition-colors ${qrDone === 'copied' ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E]'}`}>{qrDone === 'copied' ? 'Copied' : 'Copy link'}</button>
+                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'png' ? 'Saving…' : qrDone === 'png' ? 'Saved' : 'Save as image'}</button>
+                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'pdf' ? 'Building PDF…' : qrDone === 'pdf' ? 'Saved' : 'Save as PDF'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
+                    <div className="space-y-4">
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
+                        <div key={k} className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <b className="block text-[0.95rem]">{label}</b>
+                            <small className="block opacity-50 text-sm">{sub}</small>
+                          </div>
+                          <button type="button" aria-label={label} onClick={() => onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Post action button: the admin picks Share or Download for the
+                      third button on every post and reel (app_config/main.feedActionMode). */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Post action button</h3>
+                    <p className="text-sm opacity-60 mb-4">The third button on every post and reel. Share opens the share sheet; Download saves the photo or video straight to the guest's device.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
+                        <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Keep the memories</h3>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -8126,6 +8109,16 @@ function AdminDashboardModal({
               {adminViewerPost && (
                 <MediaLightbox post={adminViewerPost} initialIndex={0} isDarkMode={isDarkMode} onClose={() => setAdminViewerPost(null)} />
               )}
+              {/* Branded confirmation shared by every delete action in the dashboard. */}
+              <DeleteConfirmationModal
+                isOpen={!!confirmAsk}
+                onClose={() => setConfirmAsk(null)}
+                onConfirm={() => { const ask = confirmAsk; setConfirmAsk(null); if (ask) ask.action(); }}
+                isDarkMode={isDarkMode}
+                title={confirmAsk?.title}
+                message={confirmAsk?.message}
+                confirmLabel={confirmAsk?.confirmLabel}
+              />
               </TabErrorBoundary>
             </div>
 
