@@ -751,6 +751,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // The entry banner (couple's names + Eventicor branding + Tap to enter) shows
     // on every fresh open of the app, new session included; within one session a
     // refresh keeps the visitor where they were instead of re-showing it.
+    // The dashboard was open when the app last closed: skip the entry banner
+    // so the reopening admin lands in the dashboard, not the public app.
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
+      if (storedAdminUi && storedAdminUi.open) return false;
+    } catch { /* fall through */ }
     try { return sessionStorage.getItem('ev-entered') !== '1'; } catch { return true; }
   });
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt || null : null));
