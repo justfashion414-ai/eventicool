@@ -1667,14 +1667,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
   // Giant footer style (dashboard setting; couples pick the look).
-  const updateFooterStyle = async (style: 'wall' | 'marquee') => {
+  const updateFooterStyle = async (style: 'wall' | 'marquee', quiet = false) => {
     setFooterStyle(style);
     try { localStorage.setItem(lsKey('footer-style'), style); } catch {}
-    if (DEMO) { showToast('Giant footer style saved for this preview.'); return; }
+    if (DEMO) { if (!quiet) showToast('Giant footer style saved for this preview.'); return; }
     if (!isAdmin) return;
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
-      showToast('Giant footer style saved.');
+      if (!quiet) showToast('Giant footer style saved.');
     } catch (err) {
       console.error('Update footer style error:', err);
       showToast('Failed to save the footer style.', 'error');
@@ -1684,14 +1684,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero style (dashboard setting): which of the four hero designs the app
   // shows. The four templates differ only by their hero, so this switches the
   // look without touching anything else.
-  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book') => {
+  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book', quiet = false) => {
     setHeroTpl(t);
     try { localStorage.setItem(lsKey('hero-tpl'), t); } catch {}
-    if (DEMO) { showToast('Hero style saved for this preview.'); return; }
+    if (DEMO) { if (!quiet) showToast('Hero style saved for this preview.'); return; }
     if (!isAdmin) return;
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { heroTemplate: t, lastUpdated: serverTimestamp() }, { merge: true });
-      showToast('Hero style saved.');
+      if (!quiet) showToast('Hero style saved.');
     } catch (err) {
       console.error('Update hero style error:', err);
       showToast('Failed to save the hero style.', 'error');
@@ -5327,9 +5327,11 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
 // The dashboard's Preview popup shows a lightweight look at the home page,
 // drawn right here from the dashboard's current state: no iframe, no routing,
 // nothing loads, exactly like the template preview on the landing page.
-function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages }: any) {
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle }: any) {
   const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES).slice(0, 3);
-  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim()).slice(0, 4);
+  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim()).slice(0, 8);
+  const heroTpl: string = tpl || 'classic';
+  const wallMode: string = wallStyle || 'wall';
   const cd = (() => {
     try {
       if (!wedDate) return null;
@@ -5342,20 +5344,47 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
   const tilts = [-5, 4, -4];
   const wall: string[] = heroes.length ? Array.from({ length: 8 }, (_, i) => heroes[i % heroes.length]) : [];
   const wedLine = (() => { try { return wedDate ? new Date(`${wedDate}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch { return ''; } })();
+  // The hero draws in the style the admin picked: Polaroid fan, Fan arc,
+  // Card stack or Flip book, as simplified stills of the real animations.
+  const heroCards = (() => {
+    if (heroTpl === 'halo') {
+      const spots = [{ left: '13%', top: '62%', r: -13 }, { left: '50%', top: '46%', r: 0 }, { left: '87%', top: '62%', r: 13 }];
+      return heroes.map((src: string, i: number) => {
+        const sp = spots[i % 3];
+        return (
+          <div key={i} className="absolute w-[40%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ left: sp.left, top: sp.top, transform: `translate(-50%, -50%) rotate(${sp.r}deg)`, zIndex: 10 - Math.abs(i - 1) }}>
+            <img src={src} alt="" className="w-full h-[100px] object-cover rounded-sm pointer-events-none" draggable={false} />
+          </div>
+        );
+      });
+    }
+    if (heroTpl === 'hero') {
+      return heroes.map((src: string, i: number) => (
+        <div key={i} className="absolute top-1/2 left-1/2 w-[56%] bg-white p-1.5 pb-4 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ transform: `translate(-50%, -50%) rotate(${i === 0 ? -2 : i === 1 ? 1.5 : 0}deg) scale(${0.82 + i * 0.09})`, zIndex: 10 + i }}>
+          <img src={src} alt="" className="w-full h-[108px] object-cover rounded-sm pointer-events-none" draggable={false} />
+        </div>
+      ));
+    }
+    if (heroTpl === 'book') {
+      return (
+        <div className="absolute top-1/2 left-1/2 w-[62%] bg-white p-2 pb-3 rounded-md shadow-[0_18px_36px_rgba(0,0,0,0.4)]" style={{ transform: 'translate(-50%, -50%)' }}>
+          <img src={heroes[0]} alt="" className="w-full h-[130px] object-cover rounded-sm pointer-events-none" draggable={false} />
+        </div>
+      );
+    }
+    return heroes.map((src: string, i: number) => (
+      <div key={i} className="absolute top-1/2 left-1/2 w-[44%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]" style={{ transform: `translate(-50%, -50%) rotate(${tilts[i % tilts.length]}deg) translateX(${(i - 1) * 40}%)`, zIndex: 10 - i }}>
+        <img src={src} alt="" className="w-full h-[104px] object-cover rounded-sm pointer-events-none" draggable={false} />
+      </div>
+    ));
+  })();
   return (
     <div className="ev-preview-mockup w-full h-full overflow-y-auto bg-[var(--ann-accent)] text-white">
       <style>{`.ev-preview-mockup::-webkit-scrollbar { display: none } .ev-preview-mockup { scrollbar-width: none; -ms-overflow-style: none }`}</style>
       <div className="flex items-center justify-center px-4 py-3">
         <span className="font-display italic text-lg font-semibold">{bride} & {groom}</span>
       </div>
-      <div className="relative h-[190px] mx-5 mt-1">
-        {heroes.map((src: string, i: number) => (
-          <div key={i} className="absolute top-1/2 left-1/2 w-[44%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]"
-            style={{ transform: `translate(-50%, -50%) rotate(${tilts[i % tilts.length]}deg) translateX(${(i - 1) * 40}%)`, zIndex: 10 - i }}>
-            <img src={src} alt="" className="w-full h-[104px] object-cover rounded-sm pointer-events-none" draggable={false} />
-          </div>
-        ))}
-      </div>
+      <div className="relative h-[190px] mx-5 mt-1">{heroCards}</div>
       <div className="mt-3 bg-black/25 px-6 py-5 text-center">
         <p className="text-[0.55rem] font-black uppercase tracking-[0.2em] text-white/70">Together with their families</p>
         <p className="font-display text-2xl font-bold mt-2">{bride}</p>
@@ -5387,6 +5416,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
               <div key={i} className="bg-white p-1.5 pb-2 rounded-md shadow-lg" style={{ transform: `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` }}>
                 <img src={heroes[i % heroes.length] || ''} alt="" className="w-full h-20 object-cover rounded-sm pointer-events-none" draggable={false} />
                 <p className="text-center text-[0.6rem] font-bold text-[#1a1a2e] mt-1.5 truncate">{e.name}</p>
+                {e.date ? (() => { try { return <p className="text-center text-[0.5rem] font-bold uppercase tracking-widest text-[#1a1a2e]/60">{new Date(`${e.date}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>; } catch { return null; } })() : null}
               </div>
             ))}
           </div>
@@ -5402,13 +5432,21 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         </div>
       )}
       <div className="mt-8 px-1.5">
-        {wall.length > 0 && (
+        {wall.length > 0 && (wallMode === 'marquee' ? (
+          <div className="bg-black/40 rounded-2xl p-2">
+            <div className="grid grid-cols-4 gap-1.5">
+              {wall.map((src: string, i: number) => (
+                <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-lg pointer-events-none" style={{ filter: 'brightness(0.82)' }} draggable={false} />
+              ))}
+            </div>
+          </div>
+        ) : (
           <div className="grid grid-cols-4 gap-1">
             {wall.map((src: string, i: number) => (
               <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-[3px] pointer-events-none" style={{ filter: 'grayscale(1) brightness(0.58)' }} draggable={false} />
             ))}
           </div>
-        )}
+        ))}
         <div className="py-6 text-center">
           <p className="font-display text-lg font-bold">{bride} <span className="italic font-normal">&</span> {groom}</p>
           <p className="text-[0.55rem] font-bold uppercase tracking-[0.25em] text-white/50 mt-1.5">Wedding memories, kept for life</p>
@@ -5417,6 +5455,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
     </div>
   );
 }
+
 
 function AdminDashboardModal({ 
   isOpen, 
@@ -5476,8 +5515,9 @@ function AdminDashboardModal({
   const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
     try {
       const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
-      const storedTab = storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'hero', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      // Nov 20 2026: the Hero photos tab merged into Events & photos.
+      const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
@@ -5716,19 +5756,62 @@ function AdminDashboardModal({
   useEffect(() => { setDetDraft(withDerivedHashtag(weddingDetails)); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
-  // The photos the hero actually shows right now: the admin's list when one
-  // exists, otherwise the built-in placeholder photos the site falls back to.
-  // Editing from the admin grid always writes the full list, so removing a
-  // placeholder or adding a photo takes the hero over from the placeholders.
-  const heroShown: string[] = heroImages.length ? heroImages : PLACEHOLDER_IMAGES;
+  // One page, one save (Nov 20 2026 direction): every edit on Events & photos
+  // stays a draft. The preview mockup draws the drafts live, and only the
+  // Save bar at the bottom writes anything to the app.
+  const [heroImgDraft, setHeroImgDraft] = useState<string[]>(heroImages);
+  const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
+  const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
+  const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee'>(footerStyle);
+  const draftBaseRef = useRef<any>(null);
+  if (!draftBaseRef.current) {
+    draftBaseRef.current = {
+      story,
+      det: JSON.stringify(withDerivedHashtag(weddingDetails)),
+      ev: JSON.stringify(events),
+      hero: JSON.stringify(heroImages),
+      heroLabels: JSON.stringify(heroImageLabels || {}),
+      heroTpl,
+      footerStyle
+    };
+  }
+  // The photos the hero shows right now: the draft list when one exists,
+  // otherwise the built-in placeholder photos the site falls back to.
+  // Editing from the admin grid always writes the full draft list, so removing
+  // a placeholder or adding a photo takes the hero over from the placeholders.
+  const heroShown: string[] = heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES;
+  const pageDirty = storyDraft !== draftBaseRef.current.story
+    || JSON.stringify(detDraft) !== draftBaseRef.current.det
+    || JSON.stringify(evDraft) !== draftBaseRef.current.ev
+    || JSON.stringify(heroImgDraft) !== draftBaseRef.current.hero
+    || JSON.stringify(heroLabelDraft) !== draftBaseRef.current.heroLabels
+    || heroTplDraft !== draftBaseRef.current.heroTpl
+    || footerStyleDraft !== draftBaseRef.current.footerStyle;
 
-  // Per-section saves: each card in Events & details commits on its own, so the
-  // couple never has to save unrelated sections together. The Preview button
-  // saves everything first, then opens the live website in a new tab so they
-  // can see the changes without leaving the console.
-  const saveStory = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ story: storyDraft }); } finally { setWeddingBusy(false); } };
-  const saveDetails = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ weddingDetails: detDraft }); } finally { setWeddingBusy(false); } };
-  const saveEvents = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ events: evDraft }); } finally { setWeddingBusy(false); } };
+  // One Save for the whole page: story, wedding day details, the journey, hero
+  // photos and labels, hero style and the giant footer style commit together.
+  // Until it is tapped nothing reaches the app; the preview mockup shows the
+  // drafts meanwhile. quiet=true keeps the style setters from double-toasting.
+  const saveEverything = async () => {
+    setWeddingBusy(true);
+    try {
+      await onSaveWeddingSection({ story: storyDraft, weddingDetails: detDraft, events: evDraft });
+      onUpdateHeroImages(heroImgDraft.slice(0, 14));
+      onUpdateHeroLabels(heroLabelDraft || {});
+      if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
+      if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true);
+      draftBaseRef.current = {
+        story: storyDraft,
+        det: JSON.stringify(detDraft),
+        ev: JSON.stringify(evDraft),
+        hero: JSON.stringify(heroImgDraft.slice(0, 14)),
+        heroLabels: JSON.stringify(heroLabelDraft || {}),
+        heroTpl: heroTplDraft,
+        footerStyle: footerStyleDraft
+      };
+      showToast('Saved. Your app now shows these changes.', 'success');
+    } finally { setWeddingBusy(false); }
+  };
   // Eventicor admin contact + payment account details (super admin only).
   const [contactDraft, setContactDraft] = useState<any>(null);
   useEffect(() => {
@@ -5749,7 +5832,7 @@ function AdminDashboardModal({
     });
   };
   // Journey step photos (dashboard): up to 2 images per event step, uploaded
-  // two at a time, saved with the rest of the journey.
+  // two at a time, kept as a draft until Save changes.
   const [evUpBusy, setEvUpBusy] = useState<string | null>(null);
   const uploadEventStepPhotos = async (eid: string, files: File[]) => {
     const ev = evDraft.find((x) => x.id === eid) as any;
@@ -5764,9 +5847,8 @@ function AdminDashboardModal({
       const urls: string[] = [];
       for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
       const next = evDraft.map((x) => (x.id === eid ? { ...x, images: [...existing, ...urls].slice(0, 2) } : x)) as WeddingEvent[];
+      // Draft only: step photos reach the app when Save changes is tapped.
       setEvDraft(next);
-      setWeddingBusy(true);
-      try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
     } catch (err: any) {
       console.error('Event step photo upload error:', err);
       showToast(err?.message || 'Photo upload failed.', 'error');
@@ -5774,11 +5856,9 @@ function AdminDashboardModal({
       setEvUpBusy(null);
     }
   };
-  const removeEventStepPhoto = async (eid: string, idx: number) => {
+  const removeEventStepPhoto = (eid: string, idx: number) => {
     const next = evDraft.map((x) => (x.id === eid ? { ...x, images: (((x as any).images || []) as string[]).filter((_: string, i: number) => i !== idx) } : x)) as WeddingEvent[];
     setEvDraft(next);
-    setWeddingBusy(true);
-    try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
   };
   const previewSite = () => {
     // Preview is only a look, never a save: it opens the in-dashboard popup
@@ -6053,11 +6133,9 @@ function AdminDashboardModal({
                           { id: 'overview', label: 'Overview', icon: Home },
                           { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                           { id: 'posts', label: 'All posts', icon: Film },
-                          { id: 'events', label: 'Events & details', icon: Calendar },
-                          { id: 'hero', label: 'Hero photos', icon: ImageIcon },
+                          { id: 'events', label: 'Events & photos', icon: Calendar },
                           { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
-                    { id: 'security', label: 'Security', icon: Lock },
                           { id: 'security', label: 'Security', icon: Lock },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
@@ -6124,8 +6202,7 @@ function AdminDashboardModal({
                     { id: 'overview', label: 'Overview', icon: Home },
                     { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                     { id: 'posts', label: 'All posts', icon: Film },
-                    { id: 'events', label: 'Events & details', icon: Calendar },
-                    { id: 'hero', label: 'Hero photos', icon: ImageIcon },
+                    { id: 'events', label: 'Events & photos', icon: Calendar },
                     { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
                   ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
@@ -6404,24 +6481,144 @@ function AdminDashboardModal({
               )}
 
               {activeAdminTab === 'events' && (
-                <div className="space-y-6">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                      <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; details</h2>
-                      <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
-                    </div>
-                    {/* Saves everything, then opens the preview popup. */}
-                    <button onClick={previewSite} title="Previews the app here" className="px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">
-                      Preview app
-                    </button>
+                <div className="space-y-8">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; photos</h2>
+                    <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app.</p>
                   </div>
+
+                  {adminPermissions?.canUploadImages && (
+                    <section>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
+                          Hero photos ({heroShown.length} / 14)
+                        </label>
+                        {heroShown.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setHeroImgDraft([])}
+                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      {/* Label attached to every photo added from the tile below. */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
+                        <select value={newHeroLabel} onChange={(e) => setNewHeroLabel(e.target.value)} className="p-2 rounded-lg border border-[#DAD8E3] dark:border-[#22363E] bg-transparent text-xs font-bold">
+                          <option value="">No label</option>
+                          {evDraft.map((ev: any) => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-4">
+                        {heroShown.slice(0, 14).map((img: string, idx: number) => (
+                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
+                            <img src={img} className="w-full h-full object-cover" alt="" />
+                            <div className="absolute top-1 right-1 flex gap-1">
+                              {idx > 0 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; setHeroImgDraft(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
+                                  <ChevronLeft className="w-3 h-3" />
+                                </button>
+                              )}
+                              {idx < heroShown.length - 1 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx + 1]; u[idx + 1] = u[idx]; u[idx] = t; setHeroImgDraft(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move later">
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              )}
+                              <button type="button" onClick={() => setHeroImgDraft(heroShown.filter((_: string, i: number) => i !== idx))} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {/* Event label attached to this photo, editable any time. */}
+                            <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
+                              <select value={heroLabelDraft?.[img] || ''} onChange={(e) => setHeroLabelDraft({ ...(heroLabelDraft || {}), [img]: e.target.value })} className="w-full bg-transparent text-white text-[9px] font-bold outline-none" title="Photo label">
+                                <option value="" className="text-black">No label</option>
+                                {evDraft.map((ev: any) => <option key={ev.id} value={ev.name} className="text-black">{ev.name}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                        {heroShown.length < 14 && (
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*"
+                              className="hidden"
+                              disabled={isBulkUploading}
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+
+                                const remainingSlots = 14 - heroShown.length;
+                                const filesToUpload = files.slice(0, remainingSlots);
+                                if (files.length > remainingSlots) {
+                                  showToast(`Maximum 14 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
+                                }
+
+                                setIsBulkUploading(true);
+                                const uploadedUrls: string[] = [];
+
+                                try {
+                                  for (const file of filesToUpload) {
+                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'hero');
+                                    uploadedUrls.push(url);
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                  }
+
+                                  if (uploadedUrls.length > 0) {
+                                    // Draft only: the new photos reach the app when Save changes is tapped.
+                                    setHeroImgDraft([...heroShown, ...uploadedUrls].slice(0, 14));
+                                    // Attach the chosen label to every newly added photo.
+                                    if (newHeroLabel) {
+                                      const labelMap = { ...(heroLabelDraft || {}) };
+                                      uploadedUrls.forEach((u) => { labelMap[u] = newHeroLabel; });
+                                      setHeroLabelDraft(labelMap);
+                                    }
+                                  }
+                                } catch (err: any) {
+                                  console.error("Bulk upload error:", err);
+                                  showToast(err?.message || "Failed to upload hero images.", "error");
+                                } finally {
+                                  setIsBulkUploading(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            {isBulkUploading ? (
+                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                            ) : (
+                              <>
+                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({14 - heroShown.length})</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImgDraft.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
+                    </section>
+                  )}
+
+                  <section>
+                    <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
+                    <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {([['classic', 'Polaroid fan'], ['halo', 'Fan arc'], ['hero', 'Card stack'], ['book', 'Flip book']] as [string, string][]).map(([tk, label]) => (
+                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[0.7rem] opacity-50 mt-2">Polaroid fan · Classic · Fan arc · Halo · Card stack · Hero Deck · Flip book · Open Book</p>
+                  </section>
+
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Our story</h3>
                     <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
-                    <div className="mt-3 flex justify-end">
-                      <button onClick={saveStory} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
-                    </div>
                   </div>
+
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Wedding day details</h3>
                     <div className="grid sm:grid-cols-2 gap-3">
@@ -6436,10 +6633,8 @@ function AdminDashboardModal({
                         </div>
                       ))}
                     </div>
-                    <div className="mt-3 flex justify-end">
-                      <button onClick={saveDetails} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
-                    </div>
                   </div>
+
                   <div>
                     <h3 className="font-black font-display text-lg mb-3">The journey</h3>
                     <div className="space-y-4">
@@ -6493,7 +6688,6 @@ function AdminDashboardModal({
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={saveEvents} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60">{weddingBusy ? '…' : 'Save'}</button>
                               {i > 0 && (
                                 <button type="button" onClick={() => { const u = [...evDraft]; const t = u[i - 1]; u[i - 1] = u[i]; u[i] = t; setEvDraft(u); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Move up</button>
                               )}
@@ -6505,22 +6699,82 @@ function AdminDashboardModal({
                     </div>
                     <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
                   </div>
+
+                  {adminPermissions?.canUploadImages && (
+                    <section>
+                      <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
+                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {(['wall', 'marquee'] as const).map((st) => (
+                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                            {st === 'wall' ? 'Style 1 · Photo wall' : 'Style 2 · Marquee'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
+                      <p className="text-[0.75rem] opacity-60 italic mt-3">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
+                    </section>
+                  )}
+
+                  {/* One save for the whole page. */}
+                  <div className={`sticky bottom-24 z-20 -mx-6 md:-mx-8 px-6 md:px-8 pt-3 pb-3 flex items-center gap-4 flex-wrap ${isDarkMode ? 'bg-[#0B171C]/95 backdrop-blur border-t border-[#22363E]' : 'bg-white/95 backdrop-blur border-t border-[#DAD8E3]'}`}>
+                    <p className={`text-xs font-bold flex-1 min-w-[220px] ${pageDirty ? 'text-[var(--ann-accent)]' : 'opacity-50'}`}>
+                      {pageDirty ? 'You have unsaved changes. Tap Save changes for them to reach your app.' : 'All saved. Your app shows exactly what you see here.'}
+                    </p>
+                    <button onClick={saveEverything} disabled={weddingBusy} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">
+                      {weddingBusy ? 'Saving…' : 'Save changes'}
+                    </button>
+                  </div>
+
+                  {/* Floating preview: opens the in-page mockup, saves nothing. */}
+                  <button onClick={previewSite} title="Preview the app" aria-label="Preview the app" className="fixed right-4 top-1/2 -translate-y-1/2 z-[130] w-14 h-14 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform">
+                    <Eye className="w-6 h-6" />
+                  </button>
                 </div>
               )}
 
               <AnimatePresence>
                 {sitePreviewOpen && (
                   <>
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSitePreviewOpen(false)} className="fixed inset-0 bg-black/70 z-[140] backdrop-blur-sm" />
-                    <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }} className="fixed inset-0 z-[141] flex flex-col items-center justify-center px-4 pointer-events-none">
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      onClick={() => setSitePreviewOpen(false)}
+                      className="fixed inset-0 bg-black/70 z-[140] backdrop-blur-sm"
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                      className="fixed inset-0 z-[141] flex flex-col items-center justify-center px-4 pointer-events-none"
+                    >
                       <div className="pointer-events-auto flex flex-col items-center">
                         <div className="flex items-center justify-between gap-4 w-[340px] max-w-[92vw] mb-3">
-                          <p className="font-display text-white text-sm font-bold">Preview · your saved changes</p>
-                          <button onClick={() => setSitePreviewOpen(false)} className="px-4 py-2 rounded-full bg-white/10 text-white text-[0.65rem] font-black uppercase tracking-widest active:bg-white/20" aria-label="Close preview">Close</button>
+                          <p className="font-display text-white text-sm font-bold">Preview · your latest changes</p>
+                          <button
+                            onClick={() => setSitePreviewOpen(false)}
+                            className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-[0.6rem] font-black uppercase tracking-widest"
+                          >
+                            Close
+                          </button>
                         </div>
                         <div className="relative w-[340px] max-w-[92vw] h-[660px] max-h-[calc(100vh-120px)] rounded-[2.6rem] bg-[#0B171C] p-[10px] shadow-2xl shrink-0">
                           <div className="w-full h-full rounded-[2rem] overflow-hidden bg-white">
-                            <PreviewHomeMockup bride={demoBride()} groom={demoGroom()} city={demoCity()} wedDate={previewWedDate()} events={evDraft} story={storyDraft} details={detDraft} heroImages={heroImages.length ? heroImages : PLACEHOLDER_IMAGES} />
+                            <PreviewHomeMockup
+                              bride={demoBride()}
+                              groom={demoGroom()}
+                              city={demoCity()}
+                              wedDate={previewWedDate()}
+                              events={evDraft}
+                              story={storyDraft}
+                              details={detDraft}
+                              heroImages={heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES}
+                              tpl={heroTplDraft}
+                              wallStyle={footerStyleDraft}
+                            />
                           </div>
                         </div>
                         <p className="mt-3 text-[0.6rem] font-black uppercase tracking-widest text-white/40">Just the home page · scroll inside the mockup</p>
@@ -6529,162 +6783,6 @@ function AdminDashboardModal({
                   </>
                 )}
               </AnimatePresence>
-
-              {activeAdminTab === 'hero' && (
-                <div className="space-y-8">
-                  <div>
-                    <h2 className="text-2xl font-black font-display tracking-tight">Hero photos</h2>
-                    <p className="text-sm opacity-60 mt-0.5">Photos that float across the top of the Home screen, and the giant footer grid.</p>
-                  </div>
-                  <div className="space-y-6">
-                  {adminPermissions?.canUploadImages && (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Hero photos ({heroShown.length} / 14)
-                        </label>
-                        {heroShown.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateHeroImages([])}
-                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
-                          >
-                            Clear All
-                          </button>
-                        )}
-                      </div>
-                      {/* Label attached to every photo added from the tile below. */}
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
-                        <select value={newHeroLabel} onChange={(e) => setNewHeroLabel(e.target.value)} className="p-2 rounded-lg border border-[#DAD8E3] dark:border-[#22363E] bg-transparent text-xs font-bold">
-                          <option value="">No label</option>
-                          {(events || []).map((ev: any) => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 mb-4">
-                        {heroShown.slice(0, 14).map((img: string, idx: number) => (
-                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
-                            <img src={img} className="w-full h-full object-cover" alt="" />
-                            <div className="absolute top-1 right-1 flex gap-1">
-                              {idx > 0 && (
-                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
-                                  <ChevronLeft className="w-3 h-3" />
-                                </button>
-                              )}
-                              {idx < heroShown.length - 1 && (
-                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx + 1]; u[idx + 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move later">
-                                  <ChevronRight className="w-3 h-3" />
-                                </button>
-                              )}
-                              <button type="button" onClick={() => onUpdateHeroImages(heroShown.filter((_: string, i: number) => i !== idx))} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                            {/* Event label attached to this photo, editable any time. */}
-                            <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
-                              <select value={heroImageLabels?.[img] || ''} onChange={(e) => onUpdateHeroLabels({ ...(heroImageLabels || {}), [img]: e.target.value })} className="w-full bg-transparent text-white text-[9px] font-bold outline-none" title="Photo label">
-                                <option value="" className="text-black">No label</option>
-                                {(events || []).map((ev: any) => <option key={ev.id} value={ev.name} className="text-black">{ev.name}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                        ))}
-                        {heroShown.length < 14 && (
-                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
-                            <input 
-                              type="file" 
-                              multiple 
-                              accept="image/*" 
-                              className="hidden" 
-                              disabled={isBulkUploading}
-                              onChange={async (e) => {
-                                const files = Array.from(e.target.files || []);
-                                if (files.length === 0) return;
-
-                                const remainingSlots = 14 - heroShown.length;
-                                const filesToUpload = files.slice(0, remainingSlots);
-                                if (files.length > remainingSlots) {
-                                  showToast(`Maximum 14 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
-                                }
-                                
-                                setIsBulkUploading(true);
-                                const uploadedUrls: string[] = [];
-                                
-                                try {
-                                  for (const file of filesToUpload) {
-                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'hero');
-                                    uploadedUrls.push(url);
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                  }
-                                  
-                                  if (uploadedUrls.length > 0) {
-                                    onUpdateHeroImages([...heroShown, ...uploadedUrls].slice(0, 14));
-                                    // Attach the chosen label to every newly added photo.
-                                    if (newHeroLabel) {
-                                      const labelMap = { ...(heroImageLabels || {}) };
-                                      uploadedUrls.forEach((u) => { labelMap[u] = newHeroLabel; });
-                                      onUpdateHeroLabels(labelMap);
-                                    }
-                                  }
-                                } catch (err: any) {
-                                  console.error("Bulk upload error:", err);
-                                  showToast(err?.message || "Failed to upload hero images.", "error");
-                                } finally {
-                                  setIsBulkUploading(false);
-                                  e.target.value = '';
-                                }
-                              }}
-                            />
-                            {isBulkUploading ? (
-                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
-                            ) : (
-                              <>
-                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({14 - heroShown.length})</span>
-                              </>
-                            )}
-                          </label>
-                        )}
-                      </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
-                    <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the app switches to it.</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {([['classic', 'Polaroid fan'], ['halo', 'Fan arc'], ['hero', 'Card stack'], ['book', 'Flip book']] as [string, string][]).map(([tk, label]) => (
-                        <button key={tk} type="button" onClick={() => onUpdateHeroTemplate && onUpdateHeroTemplate(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTpl === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[0.7rem] opacity-50 mt-2">Polaroid fan · Classic · Fan arc · Halo · Card stack · Hero Deck · Flip book · Open Book</p>
-                  </div>
-
-                  {adminPermissions?.canUploadImages && (
-                    <div>
-                      <div>
-                      <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
-                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
-                      <div className="flex gap-2 flex-wrap">
-                        {(['wall', 'marquee'] as const).map((st) => (
-                          <button key={st} type="button" onClick={() => onUpdateFooterStyle && onUpdateFooterStyle(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyle === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
-                            {st === 'wall' ? 'Style 1 · Photo wall' : 'Style 2 · Marquee'}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
-                    </div>
-                    <div>
-                      <p className="text-[0.75rem] opacity-60 italic">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
-                    </div>
-                    </div>
-                  )}
-                  </div>
-                </div>
-              )}
 
               {activeAdminTab === 'albums' && (
                 <div className="space-y-8">
