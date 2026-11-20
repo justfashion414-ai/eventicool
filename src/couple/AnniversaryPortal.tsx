@@ -6457,6 +6457,7 @@ function AdminDashboardModal({
                     { id: 'events', label: 'Events & photos', icon: Calendar },
                     { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
+                    { id: 'security', label: 'Security', icon: Lock },
                   ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                     <button
                       key={tab.id}
