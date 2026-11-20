@@ -1363,8 +1363,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const unsub = onSnapshot(doc(db, scopedPath('app_config'), 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.activeAccessCode) {
+        // The guest code comes from the couple's own names unless they saved
+        // one of their own: the AMARA26 placeholder never reaches the gate, and
+        // a code the couple changed always wins.
+        if (data.activeAccessCode && (data.accessCodeCustom || data.activeAccessCode !== DEMO_ACCESS_CODE)) {
           setActiveAccessCode(normalizeCode(data.activeAccessCode));
+        } else {
+          const derivedCode = nameCode(demoBride(), demoGroom());
+          if (derivedCode) setActiveAccessCode(normalizeCode(derivedCode));
         }
         if (!DEMO && Array.isArray(data.heroImages)) {
           setHeroImages(data.heroImages);
@@ -1459,15 +1465,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const initConfig = async () => {
       try {
         const snap = await getDoc(doc(db, scopedPath('app_config'), 'main'));
-        if (snap.exists() && snap.data().activeAccessCode === DEMO_ACCESS_CODE) {
-          const derived = (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : '';
-          if (derived && derived !== DEMO_ACCESS_CODE) {
-            await setDoc(doc(db, scopedPath('app_config'), 'main'), { activeAccessCode: derived }, { merge: true });
-          }
+        const derived = (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : '';
+        // Seed or repair the guest code from the couple's own names whenever it
+        // is still the AMARA26 placeholder or missing; a code the couple saved
+        // (accessCodeCustom) or an earlier derived code is left untouched.
+        if (snap.exists() && !snap.data().accessCodeCustom && derived
+            && (snap.data().activeAccessCode === DEMO_ACCESS_CODE || !snap.data().activeAccessCode)) {
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), { activeAccessCode: derived }, { merge: true });
         }
         if (!snap.exists()) {
           await setDoc(doc(db, scopedPath('app_config'), 'main'), {
-            activeAccessCode: (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : DEMO_ACCESS_CODE,
+            activeAccessCode: derived || DEMO_ACCESS_CODE,
             createdAt: serverTimestamp(),
             events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
             story: demoStory(),
@@ -1650,6 +1658,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         activeAccessCode: normalized,
+        accessCodeCustom: true,
         lastUpdated: serverTimestamp()
       }, { merge: true });
       
@@ -3291,6 +3300,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               )}
 
+              {isUploading && (
+                <p className="mt-3 text-[0.7rem] opacity-60 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Attaching your file…</span>
+                </p>
+              )}
+
               <div className="mt-4">
                 <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Which part of the celebration is this?</span>
                 <div className="flex flex-wrap gap-2">
@@ -3316,7 +3332,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <p className="text-[0.7rem] text-center mt-2 text-red-500 font-bold uppercase tracking-wider">Posting is temporarily unavailable</p>
                 )}
                 {DEMO && configLoaded && activeAccessCode && (
-                  <p className="text-[0.7rem] text-center mt-2 opacity-60 font-bold uppercase tracking-wider">Preview access code: {DEMO_ACCESS_CODE}</p>
+                  <p className="text-[0.7rem] text-center mt-2 opacity-60 font-bold uppercase tracking-wider">Preview access code: {activeAccessCode}</p>
                 )}
               </div>
 
@@ -3377,13 +3393,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           let orientation: 'portrait' | 'landscape' | undefined = undefined;
 
                           if (isVid) {
+                            // Some phones hand over videos the browser cannot read
+                            // metadata from (HEVC .mov files are the usual case) and
+                            // then neither event ever fires: without a timeout the
+                            // composer would wait forever and look frozen.
                             orientation = await new Promise<'portrait' | 'landscape'>((resolve) => {
+                              let settled = false;
+                              const finish = (o: 'portrait' | 'landscape') => { if (!settled) { settled = true; resolve(o); } };
                               const v = document.createElement('video');
                               v.preload = 'metadata';
                               v.onloadedmetadata = () => {
-                                resolve(v.videoHeight > v.videoWidth ? 'portrait' : 'landscape');
+                                finish(v.videoHeight > v.videoWidth ? 'portrait' : 'landscape');
                               };
-                              v.onerror = () => resolve('landscape');
+                              v.onerror = () => finish('landscape');
+                              window.setTimeout(() => finish('landscape'), 4000);
                               v.src = localUrl;
                             });
                           }
@@ -5337,13 +5360,13 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 z-[560] backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 z-[800] backdrop-blur-sm"
           />
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[561] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
+            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[801] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
           >
             <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
               <Trash2 className="w-8 h-8" />
@@ -6068,7 +6091,9 @@ function AdminDashboardModal({
           // never fit in a demo data URL or the demo store).
           url = isVideoFile(f) ? URL.createObjectURL(f) : await demoImageDataUrl(f);
         } else {
-          url = await uploadToCloudinary(f, 'albums');
+          url = await uploadToCloudinaryWithProgress(f, 'albums', (pct) => {
+            setAlbumProgressPct(Math.min(99, Math.round(((i + pct / 100) / albumPicked.length) * 100)));
+          });
         }
         media.push({ url, type: isVideoFile(f) ? 'video' : 'image' });
       } catch (err) {
