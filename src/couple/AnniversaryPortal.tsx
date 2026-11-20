@@ -6108,9 +6108,30 @@ function AdminDashboardModal({
     const url = window.location.origin + window.location.pathname + (p.toString() ? `?${p.toString()}` : '');
     setQrUrl(url);
     let dead = false;
-    import('qrcode').then((m: any) => (m.default || m).toDataURL(url, { width: 512, margin: 2, errorCorrectionLevel: 'M' }))
-      .then((d: string) => { if (!dead) setQrDataUrl(d); })
-      .catch(() => { /* keep the placeholder if the QR chunk fails */ });
+    (async () => {
+      try {
+        const mod: any = await import('qrcode-generator');
+        const make = mod.default || mod;
+        const qr = make(0, 'M');
+        qr.addData(url);
+        qr.make();
+        const n = qr.getModuleCount();
+        const scale = 8;
+        const margin = 4;
+        const dim = (n + margin * 2) * scale;
+        const cv = document.createElement('canvas');
+        cv.width = dim;
+        cv.height = dim;
+        const ctx = cv.getContext('2d');
+        if (!ctx) throw new Error('no canvas');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, dim, dim);
+        ctx.fillStyle = '#14122b';
+        for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) ctx.fillRect((c + margin) * scale, (r + margin) * scale, scale, scale);
+        const d = cv.toDataURL('image/png');
+        if (!dead) setQrDataUrl(d);
+      } catch { /* keep the placeholder if the QR chunk fails */ }
+    })();
     return () => { dead = true; };
   }, []);
   const downloadQrPng = () => {
