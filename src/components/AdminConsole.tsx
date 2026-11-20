@@ -1095,7 +1095,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       const t = l.template || 'classic'
       const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
       // A paid, active account gets a permanent link: no trial expiry in it.
-      const exp = !l.activatedAt && l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
+      // Real customers (landing leads) are governed by their lead doc too, so
+      // their links never carry ?exp: a stale countdown would make an expired
+      // trial read as a sample app. Only console sample links carry ?exp.
+      const exp = l.source !== 'landing' && !l.activatedAt && l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
       return `${window.location.origin}/app?tpl=${t}&acc=${a}${exp ? `&exp=${exp}` : ''}&lead=${l.id}`
     }
     const planStatus = (l: LeadDoc) => {

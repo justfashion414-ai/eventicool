@@ -502,11 +502,17 @@ export default function CoupleApp() {
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
   if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" adminWhatsapp={lead.adminWhatsapp} />;
-  if ((expired || leadExpired) && !activatedAt) {
+  // A customer's own app (a landing lead) is governed by its lead doc: the
+  // lead's expiresAt ends the trial and activatedAt renews it. A stale ?exp=
+  // riding on a copied link must never demote a real customer to the
+  // sample-expired screen (user report Nov 20 2026), so the URL countdown is
+  // ignored for landing leads and the ?lead resolution is awaited first.
+  const landingLead = !!(lead && (lead as any).source === 'landing');
+  if (lead !== undefined && ((expired && !landingLead) || (leadExpired && !activatedAt))) {
     // Sample links (their own ?exp countdown) point back to the landing page;
     // a customer's own app whose 24-hour trial ended gets the payment flow
     // instead (user direction Nov 20 2026).
-    if (!expired && lead && (lead as any).source === 'landing') {
+    if (leadId && landingLead && leadExpired) {
       return <TrialEnded accent={acc.accent} lead={lead} appId={leadId} />;
     }
     return <SampleExpired accent={acc.accent} />;
@@ -521,7 +527,7 @@ export default function CoupleApp() {
           <AnniversaryPortal previewMode={false} onBackToMain={() => { window.location.href = '/'; }} template={tpl as any} adminMode={adminMode} installable={!!lead && (lead as any).source === 'landing'} />
         </Suspense>
       )}
-      {isSample && expRaw > 0 && !!lead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={lead?.source === 'landing'} />}
+      {isSample && expRaw > 0 && !!lead && !landingLead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={false} />}
       {isSample && !!lead && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
     </div>
   );
