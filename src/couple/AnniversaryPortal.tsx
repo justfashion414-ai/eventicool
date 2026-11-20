@@ -5324,6 +5324,99 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
   }
 }
 
+// The dashboard's Preview popup shows a lightweight look at the home page,
+// drawn right here from the dashboard's current state: no iframe, no routing,
+// nothing loads, exactly like the template preview on the landing page.
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages }: any) {
+  const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES).slice(0, 3);
+  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim()).slice(0, 4);
+  const cd = (() => {
+    try {
+      if (!wedDate) return null;
+      const t = new Date(`${wedDate}T12:00:00`).getTime();
+      if (!isFinite(t)) return null;
+      const diff = Math.max(0, t - Date.now());
+      return { d: Math.floor(diff / 86400000), h: Math.floor(diff / 3600000) % 24, m: Math.floor(diff / 60000) % 60, s: Math.floor(diff / 1000) % 60 };
+    } catch { return null; }
+  })();
+  const tilts = [-5, 4, -4];
+  const wall: string[] = heroes.length ? Array.from({ length: 8 }, (_, i) => heroes[i % heroes.length]) : [];
+  const wedLine = (() => { try { return wedDate ? new Date(`${wedDate}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch { return ''; } })();
+  return (
+    <div className="w-full h-full overflow-y-auto bg-[var(--ann-accent)] text-white">
+      <div className="flex items-center justify-center px-4 py-3">
+        <span className="font-display italic text-lg font-semibold">{bride} & {groom}</span>
+      </div>
+      <div className="relative h-[190px] mx-5 mt-1">
+        {heroes.map((src: string, i: number) => (
+          <div key={i} className="absolute top-1/2 left-1/2 w-[44%] bg-white p-1.5 pb-5 rounded-md shadow-[0_14px_30px_rgba(0,0,0,0.35)]"
+            style={{ transform: `translate(-50%, -50%) rotate(${tilts[i % tilts.length]}deg) translateX(${(i - 1) * 40}%)`, zIndex: 10 - i }}>
+            <img src={src} alt="" className="w-full h-[104px] object-cover rounded-sm pointer-events-none" draggable={false} />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 bg-black/25 px-6 py-5 text-center">
+        <p className="text-[0.55rem] font-black uppercase tracking-[0.2em] text-white/70">Together with their families</p>
+        <p className="font-display text-2xl font-bold mt-2">{bride}</p>
+        <p className="font-display italic text-sm text-white/70 my-0.5">and</p>
+        <p className="font-display text-2xl font-bold">{groom}</p>
+        <p className="text-[0.6rem] font-bold uppercase tracking-widest text-white/60 mt-2">{wedLine}{city ? ` · ${city}` : ''}</p>
+        {cd && (
+          <div className="mt-3 flex justify-center gap-1.5">
+            {[['days', cd.d], ['hrs', cd.h], ['mins', cd.m], ['secs', cd.s]].map(([k, v]: any) => (
+              <div key={k} className="w-11 rounded-lg bg-white/10 py-1.5">
+                <div className="text-sm font-black leading-none">{String(v).padStart(2, '0')}</div>
+                <div className="text-[0.5rem] uppercase tracking-widest text-white/50 mt-1">{k}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {(story || '').trim() && (
+        <div className="px-6 pt-6">
+          <p className="font-display text-base font-bold">Our story</p>
+          <p className="text-[0.68rem] leading-relaxed text-white/80 mt-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{story}</p>
+        </div>
+      )}
+      {evs.length > 0 && (
+        <div className="px-6 pt-6">
+          <p className="font-display text-base font-bold">The journey</p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            {evs.map((e: any, i: number) => (
+              <div key={i} className="bg-white p-1.5 pb-2 rounded-md shadow-lg" style={{ transform: `rotate(${i % 2 === 0 ? -1.5 : 1.5}deg)` }}>
+                <img src={heroes[i % heroes.length] || ''} alt="" className="w-full h-20 object-cover rounded-sm pointer-events-none" draggable={false} />
+                <p className="text-center text-[0.6rem] font-bold text-[#1a1a2e] mt-1.5 truncate">{e.name}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {(details?.churchTime || details?.receptionTime || details?.asoEbi) && (
+        <div className="px-6 pt-6">
+          <p className="font-display text-base font-bold">Wedding day</p>
+          {details?.churchTime && <p className="text-[0.68rem] text-white/80 mt-1.5">Church wedding · {details.churchTime}{details.churchVenue ? ` · ${details.churchVenue}` : ''}</p>}
+          {details?.receptionTime && <p className="text-[0.68rem] text-white/80 mt-1">Reception · {details.receptionTime}{details.receptionVenue ? ` · ${details.receptionVenue}` : ''}</p>}
+          {details?.asoEbi && <p className="text-[0.68rem] text-white/80 mt-1">Aso-ebi: {details.asoEbi}</p>}
+          {details?.hashtag && <p className="text-[0.68rem] text-white/80 mt-1">Share your looks with <b>{details.hashtag}</b></p>}
+        </div>
+      )}
+      <div className="mt-8 px-1.5">
+        {wall.length > 0 && (
+          <div className="grid grid-cols-4 gap-1">
+            {wall.map((src: string, i: number) => (
+              <img key={i} src={src} alt="" className="w-full aspect-square object-cover rounded-[3px] pointer-events-none" style={{ filter: 'grayscale(1) brightness(0.58)' }} draggable={false} />
+            ))}
+          </div>
+        )}
+        <div className="py-6 text-center">
+          <p className="font-display text-lg font-bold">{bride} <span className="italic font-normal">&</span> {groom}</p>
+          <p className="text-[0.55rem] font-bold uppercase tracking-[0.25em] text-white/50 mt-1.5">Wedding memories, kept for life</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminDashboardModal({ 
   isOpen, 
   asPage, 
@@ -5692,14 +5785,15 @@ function AdminDashboardModal({
     setSitePreviewOpen(true);
   };
 
-  // The popup loads the couple app on the same origin with the same app
-  // parameters (site / template / accent / sample lead) plus ?home=1, which
-  // forces the Home tab instead of the visitor's last one.
-  const previewSrc = () => {
-    const qs = new URLSearchParams(window.location.search);
-    const keep: string[] = [];
-    ['site', 'tpl', 'acc', 'lead', 'exp'].forEach((k) => { const v = qs.get(k); if (v) keep.push(`${k}=${encodeURIComponent(v)}`); });
-    return `/app?${[...keep, 'home=1', 'nochrome=1'].join('&')}`;
+  // The mockup is drawn right here from the dashboard's current state: no
+  // iframe, no routing, nothing loads, the same idea as the landing page's
+  // template preview. The countdown day follows the app's own rule: the
+  // couple's chosen date, then the church, the reception, the latest event.
+  const previewWedDate = () => {
+    const church = evDraft.find((e: any) => e.id === 'church');
+    const reception = evDraft.find((e: any) => e.id === 'reception');
+    const latest = evDraft.map((e: any) => e.date).filter(Boolean).sort().pop() as string | undefined;
+    return ((leadOverride()?.weddingDate) || church?.date || reception?.date || latest || WEDDING_DATE) as string;
   };
 
   const saveWedding = async () => {
@@ -6425,7 +6519,7 @@ function AdminDashboardModal({
                         </div>
                         <div className="relative w-[340px] max-w-[92vw] h-[660px] max-h-[calc(100vh-120px)] rounded-[2.6rem] bg-[#0B171C] p-[10px] shadow-2xl shrink-0">
                           <div className="w-full h-full rounded-[2rem] overflow-hidden bg-white">
-                            <iframe title="App preview" src={previewSrc()} className="w-full h-full bg-white border-0" />
+                            <PreviewHomeMockup bride={demoBride()} groom={demoGroom()} city={demoCity()} wedDate={previewWedDate()} events={evDraft} story={storyDraft} details={detDraft} heroImages={heroImages.length ? heroImages : PLACEHOLDER_IMAGES} />
                           </div>
                         </div>
                         <p className="mt-3 text-[0.6rem] font-black uppercase tracking-widest text-white/40">Just the home page · scroll inside the mockup</p>
