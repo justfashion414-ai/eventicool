@@ -7725,7 +7725,7 @@ function AdminDashboardModal({
                       the actual upload happen inside it, as many files as they
                       like, all going into one album. */}
                   {albumPopupKind && (
-                    <div className="fixed inset-0 z-[550] flex items-center justify-center p-4 bg-black/60" onClick={() => { if (!albumUploading) { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); } }}>
+                    <div className="fixed inset-0 z-[570] flex items-center justify-center p-4 bg-black/60" onClick={() => { if (!albumUploading) { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); } }}>
                       <div className={`w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`} onClick={(e) => e.stopPropagation()}>
                         <div className="p-5 pb-3 flex items-start justify-between gap-3">
                           <div>
