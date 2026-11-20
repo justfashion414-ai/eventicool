@@ -2460,7 +2460,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
 
               {/* GIFTS & SUPPORT — the couple's account details, edited in Settings */}
-              {DETAILS && DETAILS.giftInfo && DETAILS.giftInfo.enabled && (DETAILS.giftInfo.accountNumber || DETAILS.giftInfo.accountName) && (
+              {DETAILS && DETAILS.giftInfo && (DETAILS.giftInfo.accountNumber || DETAILS.giftInfo.accountName) && !((DETAILS.hiddenSections || []).includes('gifts')) && (
                 <section className="mt-8">
                   <div className={`relative overflow-hidden rounded-[24px] border p-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--ann-accent)]/15 blur-2xl pointer-events-none" />
@@ -5602,7 +5602,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
       </section>
       {/* Gifts & support: mirrors the real home section */}
-      {details && details.giftInfo && details.giftInfo.enabled && (details.giftInfo.accountNumber || details.giftInfo.accountName) && (
+      {details && details.giftInfo && (details.giftInfo.accountNumber || details.giftInfo.accountName) && !((details.hiddenSections || []).includes('gifts')) && (
         <section className="px-5 pt-7">
           <div className="relative overflow-hidden rounded-[18px] border border-[#DAD8E3] bg-white p-4">
             <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-[var(--ann-accent)]/15 blur-xl pointer-events-none" />
@@ -6038,7 +6038,16 @@ function AdminDashboardModal({
       if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true);
       draftBaseRef.current = {
         story: storyDraft,
-        det: JSON.stringify(detDraft),
+        det: JSON.stringify(giftDraft ? {
+          ...(detDraft || {}),
+          giftInfo: {
+            enabled: true,
+            bank: (giftDraft.bank || '').trim(),
+            accountNumber: (giftDraft.accountNumber || '').trim(),
+            accountName: (giftDraft.accountName || '').trim(),
+            note: (giftDraft.note || '').trim()
+          }
+        } : detDraft),
         ev: JSON.stringify(evDraft),
         hero: JSON.stringify(heroImgDraft.slice(0, 14)),
         heroLabels: JSON.stringify(heroLabelDraft || {}),
@@ -6048,15 +6057,16 @@ function AdminDashboardModal({
       showToast('Saved. Your app now shows these changes.', 'success');
     } finally { setWeddingBusy(false); }
   };
-  // Section eye toggles (Events & photos): 'story' and 'details' keys hide
-  // whole home sections; single events carry their own hidden flag.
+  // Section eye toggles (Events & photos): 'story', 'details' and 'gifts' keys
+  // hide whole home sections; single events carry their own hidden flag.
   const toggleSectionHidden = (key: string) => {
     const cur: string[] = detDraft?.hiddenSections || [];
     const next = cur.includes(key) ? cur.filter((k: string) => k !== key) : [...cur, key];
     setDetDraft({ ...(detDraft || {}), hiddenSections: next });
   };
-  // Gifts & support (Settings): the couple's account details for guests who
-  // want to send money. Lives on weddingDetails.giftInfo.
+  // Gifts & support (Events & photos tab): the couple's account details for
+  // guests who want to send money. Lives on weddingDetails.giftInfo; the eye
+  // button (hiddenSections 'gifts') decides who sees it, not a toggle.
   const [giftDraft, setGiftDraft] = useState<any>(null);
   useEffect(() => {
     if (!giftDraft && weddingDetails) {
@@ -6074,7 +6084,7 @@ function AdminDashboardModal({
   const saveGiftInfo = async () => {
     if (!giftDraft) return;
     const g = {
-      enabled: !!giftDraft.enabled,
+      enabled: true,
       bank: (giftDraft.bank || '').trim(),
       accountNumber: (giftDraft.accountNumber || '').trim(),
       accountName: (giftDraft.accountName || '').trim(),
@@ -6085,6 +6095,55 @@ function AdminDashboardModal({
     await onSaveWeddingSection({ weddingDetails: merged });
     if (draftBaseRef.current) draftBaseRef.current.det = JSON.stringify(merged);
     showToast('Gift details saved. Your app now shows them.', 'success');
+  };
+  // QR code (Settings): the couple's app link as a scannable code. Guests scan
+  // it from a printed banner and land straight in the app. Only the couple
+  // sees it here; they download it as an image or PDF for their banner designer.
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrUrl, setQrUrl] = useState<string>('');
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    p.delete('nochrome');
+    p.delete('home');
+    const url = window.location.origin + window.location.pathname + (p.toString() ? `?${p.toString()}` : '');
+    setQrUrl(url);
+    let dead = false;
+    import('qrcode').then((m: any) => (m.default || m).toDataURL(url, { width: 512, margin: 2, errorCorrectionLevel: 'M' }))
+      .then((d: string) => { if (!dead) setQrDataUrl(d); })
+      .catch(() => { /* keep the placeholder if the QR chunk fails */ });
+    return () => { dead = true; };
+  }, []);
+  const downloadQrPng = () => {
+    if (!qrDataUrl) return;
+    try {
+      const a = document.createElement('a');
+      a.href = qrDataUrl;
+      a.download = `eventicor-qr-${(activeCode || 'app').toLowerCase()}.png`;
+      a.click();
+      showToast('QR image saved.');
+    } catch {}
+  };
+  const downloadQrPdf = async () => {
+    if (!qrDataUrl) return;
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const W = 297;
+      const size = 92;
+      const x = (W - size) / 2;
+      const y = 50;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(26);
+      pdf.setTextColor(20, 18, 43);
+      pdf.text('Scan to open our wedding memories', W / 2, 26, { align: 'center' });
+      pdf.addImage(qrDataUrl, 'PNG', x, y, size, size);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.setTextColor(90, 105, 112);
+      pdf.text(qrUrl, W / 2, y + size + 13, { align: 'center' });
+      pdf.save(`eventicor-qr-${(activeCode || 'app').toLowerCase()}.pdf`);
+      showToast('QR PDF saved.');
+    } catch {}
   };
   // Eventicor admin contact + payment account details (super admin only).
   const [contactDraft, setContactDraft] = useState<any>(null);
@@ -6978,7 +7037,36 @@ function AdminDashboardModal({
                     <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
                   </div>
 
-                  {adminPermissions?.canUploadImages && (
+                                    <section className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Gifts &amp; support</h3>
+                        <p className="text-sm opacity-60">Guests who want to gift you money see this on your home page, right before the photo wall. Tap hide and nobody sees it until you bring it back.</p>
+                      </div>
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('gifts')} onClick={() => toggleSectionHidden('gifts')} isDarkMode={isDarkMode} />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
+                        <input type="text" value={giftDraft?.bank ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), bank: e.target.value })} placeholder="GTBank" className={`${inputCls} w-full`} />
+                      </div>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
+                        <input type="text" inputMode="numeric" value={giftDraft?.accountNumber ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountNumber: e.target.value.replace(/[^0-9]/g, '') })} placeholder="0123456789" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
+                        <input type="text" value={giftDraft?.accountName ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountName: e.target.value })} placeholder="Amara &amp; Daniel" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Message to guests</span>
+                        <textarea rows={2} value={giftDraft?.note ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), note: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`} />
+                      </div>
+                    </div>
+                    <button onClick={saveGiftInfo} className="mt-2 px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save gifts section</button>
+                  </section>
+
+{adminPermissions?.canUploadImages && (
                     <section>
                       <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
                       <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
@@ -7214,36 +7302,26 @@ function AdminDashboardModal({
                     )}
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Gifts &amp; support</h3>
-                    <p className="text-sm opacity-60 mb-4">Guests who want to gift you money see this on your home page, right before the photo wall. Leave it off and the section stays hidden.</p>
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="min-w-0">
-                        <b className="block text-[0.95rem]">Show the gifts section on the app</b>
-                        <small className="block opacity-50 text-sm">It only shows once an account number or name is set.</small>
+                    <h3 className="font-black font-display text-lg mb-1">QR code</h3>
+                    <p className="text-sm opacity-60 mb-4">Print this on your banner or programme. Guests scan it at your event and land straight in the app, no link to type. Download it and send it to your printer or banner designer.</p>
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-white' : 'bg-white border border-[#DAD8E3]'}`}>
+                        {qrDataUrl ? (
+                          <img src={qrDataUrl} alt="Your app QR code" width={148} height={148} className="block" />
+                        ) : (
+                          <div className="w-[148px] h-[148px] flex items-center justify-center text-xs opacity-40">Making QR…</div>
+                        )}
                       </div>
-                      <button type="button" aria-label="Show the gifts section" onClick={() => setGiftDraft({ ...(giftDraft || {}), enabled: !(giftDraft?.enabled) })} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${giftDraft?.enabled ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
-                        <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${giftDraft?.enabled ? 'left-6' : 'left-1'}`} />
-                      </button>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2 mb-3">
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
-                        <input type="text" value={giftDraft?.bank ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), bank: e.target.value })} placeholder="GTBank" className={`${inputCls} w-full`} />
-                      </div>
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
-                        <input type="text" inputMode="numeric" value={giftDraft?.accountNumber ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountNumber: e.target.value.replace(/[^0-9]/g, '') })} placeholder="0123456789" className={`${inputCls} w-full`} />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
-                        <input type="text" value={giftDraft?.accountName ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountName: e.target.value })} placeholder="Amara &amp; Daniel" className={`${inputCls} w-full`} />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Message to guests</span>
-                        <textarea rows={2} value={giftDraft?.note ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), note: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`} />
+                      <div className="min-w-0 flex-1">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1">Scanning opens</span>
+                        <p className="text-sm break-all mb-3">{qrUrl}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy link</button>
+                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">Save as image</button>
+                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">Save as PDF</button>
+                        </div>
                       </div>
                     </div>
-                    <button onClick={saveGiftInfo} className="px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white">Save gifts section</button>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
