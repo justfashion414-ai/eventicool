@@ -1507,7 +1507,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // so edits in Events & details snapped back before they could save.
   const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = useMemo(() => withDerivedHashtag(cfgDetails || detailsData()), [cfgDetails]);
+  const DETAILS: any = useMemo(() => {
+    const base = cfgDetails || detailsData();
+    // giftInfo defaults on: a config saved before the gifts section existed (or a
+    // config that never stored it) still gets the section as soon as the couple
+    // fills their account details in Settings.
+    return withDerivedHashtag({ ...base, giftInfo: { enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...(base.giftInfo || {}) } });
+  }, [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
