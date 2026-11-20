@@ -1162,8 +1162,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if (snap.exists()) {
         setAdminSync('exists');
         setIsAdmin(true);
-        setAdminPermissions(snap.data().permissions);
-        setMustSetPassword(!!snap.data().mustSetPassword);
+        // Owner, couple, admin, bride and groom always keep full dashboard
+        // rights: a stale or damaged permissions object on their doc must not
+        // hide the Hero photos and Giant footer cards again.
+        const admDoc = snap.data() as any;
+        const admPerms = admDoc.permissions || {};
+        const admFullRole = ['owner', 'couple', 'admin', 'bride', 'groom'].includes(String(admDoc.role || ''));
+        setAdminPermissions(admFullRole
+          ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
+          : { canDeletePosts: !!admPerms.canDeletePosts, canUploadImages: admPerms.canUploadImages !== false, canSetAccessCode: !!admPerms.canSetAccessCode });
+        setMustSetPassword(!!admDoc.mustSetPassword);
         const mins = Number(snap.data().sessionMinutes);
         if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
@@ -2726,11 +2734,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       : feedReal
                         ? []
                         : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel').map((sp) => ({ ...sp, text: sampleCoupleText(sp.text) }));
-                    if (finalReels.length === 0) {
-                      return (
-                        <p className={`py-10 text-center text-[0.8rem] font-bold ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>No reels yet · the couple's portrait videos land here</p>
-                      );
-                    }
+                    // ReelsFeed maps over this prop, so an empty result must
+                    // come back as [] and let its own empty state render.
+                    if (finalReels.length === 0) return [];
 
                     const activeReelAds = shuffledReelAds.length > 0 ? shuffledReelAds : reelAds;
                     if (activeReelAds.length === 0) return finalReels;
