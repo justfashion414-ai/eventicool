@@ -5972,7 +5972,7 @@ function AdminDashboardModal({
       list.push({
         id: '__self__',
         email: currentUserEmail,
-        role: (myAdminDoc as any)?.role || 'couple',
+        role: (myAdminDoc as any)?.role || 'owner',
         mustSetPassword: false,
         permissions: (myAdminDoc as any)?.permissions || { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
         isSelf: true
