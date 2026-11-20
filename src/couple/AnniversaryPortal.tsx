@@ -5343,7 +5343,8 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
   const wall: string[] = heroes.length ? Array.from({ length: 8 }, (_, i) => heroes[i % heroes.length]) : [];
   const wedLine = (() => { try { return wedDate ? new Date(`${wedDate}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; } catch { return ''; } })();
   return (
-    <div className="w-full h-full overflow-y-auto bg-[var(--ann-accent)] text-white">
+    <div className="ev-preview-mockup w-full h-full overflow-y-auto bg-[var(--ann-accent)] text-white">
+      <style>{`.ev-preview-mockup::-webkit-scrollbar { display: none } .ev-preview-mockup { scrollbar-width: none; -ms-overflow-style: none }`}</style>
       <div className="flex items-center justify-center px-4 py-3">
         <span className="font-display italic text-lg font-semibold">{bride} & {groom}</span>
       </div>
