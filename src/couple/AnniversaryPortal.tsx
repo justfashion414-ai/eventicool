@@ -1235,7 +1235,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       showToast("Still connecting you. Try again in a moment.", "error");
       return;
     }
-    
+
+    // Guests must save a profile (a residents doc with a display name) before
+    // they can react; admins signed into the dashboard can always react.
+    const isAdminCaller = !!(user && !user.isAnonymous && isAdmin);
+    if (!isAdminCaller) {
+      const resSnap = await getDoc(doc(db, scopedPath('residents'), uid));
+      if (!resSnap.exists() || !resSnap.data()?.displayName) {
+        showToast('Save your profile first: add your name in Settings, then you can react to posts.', 'error');
+        return;
+      }
+    }
     const isActive = type === 'like' ? !!userLikes[postId] : !!userLoves[postId];
     const otherTypeActive = type === 'like' ? !!userLoves[postId] : !!userLikes[postId];
     
@@ -4719,6 +4729,14 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
         if (!auth.currentUser) {
           try { await signInAnonymously(auth); } catch {}
         }
+        // Guests must save a profile first; admins can always comment.
+        if (!isAdmin && auth.currentUser?.uid) {
+          const resSnap = await getDoc(doc(db, scopedPath('residents'), auth.currentUser.uid));
+          if (!resSnap.exists() || !resSnap.data()?.displayName) {
+            showToast?.('Save your profile first: add your name in Settings, then you can comment.', 'error');
+            return;
+          }
+        }
         await addDoc(collection(db, scopedPath('posts'), post.id, 'comments'), {
           authorUid: user?.uid || null,
           authorName: displayName || 'Guest',
@@ -7390,8 +7408,6 @@ function AdminDashboardModal({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1">Scanning opens</span>
-                        <p className="text-sm break-all mb-3">{qrUrl}</p>
                         <div className="flex gap-2 flex-wrap">
                           <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); setQrDone('copied'); window.setTimeout(() => setQrDone((cur) => (cur === 'copied' ? '' : cur)), 1800); }} className={`px-4 py-2 rounded-full border text-[0.65rem] font-black uppercase tracking-widest transition-colors ${qrDone === 'copied' ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E]'}`}>{qrDone === 'copied' ? 'Copied' : 'Copy link'}</button>
                           <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'png' ? 'Saving…' : qrDone === 'png' ? 'Saved' : 'Save as image'}</button>
