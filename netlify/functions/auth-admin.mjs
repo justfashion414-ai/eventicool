@@ -205,7 +205,7 @@ export default async (req) => {
         name: name || null,
         role,
         mustSetPassword: true,
-        status: 'active',
+        status: 'invited',
         sessionMinutes: 30,
         permissions,
         addedAt: FieldValue.serverTimestamp(),
@@ -233,6 +233,48 @@ export default async (req) => {
         html
       )
       return json(200, { ok: true, uid: cu.uid, emailed: mailed.ok, mailError: mailed.ok ? undefined : mailed.why })
+    }
+
+    if (action === 'resend') {
+      const email = String(body.email || '').trim().toLowerCase()
+      if (!email) return json(400, { error: 'The email is required' })
+      const doc = await adminsCol.doc(email).get()
+      if (!doc.exists) return json(404, { error: 'That admin is not on this app.' })
+      // A fresh temporary password replaces the old one; the account keeps
+      // its invited state until they sign in and set their own password.
+      const password = 'Ev-' + randomBytes(9).toString('base64url')
+      let uid = null
+      try {
+        const u = await auth.getUserByEmail(email)
+        uid = u.uid
+        await auth.updateUser(uid, { password, disabled: false })
+      } catch (e) {
+        if (e && e.code === 'auth/user-not-found') {
+          const cu = await auth.createUser({ email, password, emailVerified: false, disabled: false })
+          uid = cu.uid
+        } else { throw e }
+      }
+      await adminsCol.doc(email).set({ mustSetPassword: true, status: 'invited' }, { merge: true })
+      const appUrl = String(body.appUrl || '').slice(0, 300)
+      const html = `<div style="font-family:Arial,sans-serif;max-width:560px">
+        <h2 style="color:#1e3a8a">Your Eventicor invite (resent)</h2>
+        <p>We are sending your login details again. Sign in with:</p>
+        <p style="background:#f4f4f6;padding:14px;border-radius:10px;font-size:15px">
+          Email: <b>${email}</b><br>
+          Temporary password: <b style="letter-spacing:1px">${password}</b>
+        </p>
+        <p>The first time you sign in you will be asked to choose your own password.</p>
+        ${appUrl ? `<p><a href="${appUrl}" style="color:#1e3a8a">Open the app</a></p>` : ''}
+        <p style="color:#888;font-size:13px">Eventicor - wedding memories, kept for life.</p>
+      </div>`
+      const mailed = await zeptoSend(
+        process.env.ZEPTOMAIL_FROM_ADDRESS || '',
+        process.env.ZEPTOMAIL_FROM_NAME || 'Eventicor',
+        email,
+        'Your Eventicor admin invite',
+        html
+      )
+      return json(200, { ok: true, uid, emailed: mailed.ok, mailError: mailed.ok ? undefined : mailed.why })
     }
 
     if (action === 'suspend' || action === 'reinstate') {

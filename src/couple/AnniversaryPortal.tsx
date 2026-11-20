@@ -1531,7 +1531,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setSetPasswordBusy(true);
     try {
       if (user) await updatePassword(user, newPassword);
-      if (user?.email) await setDoc(doc(platformDb, scopedPath('admins'), user.email), { mustSetPassword: false }, { merge: true });
+      if (user?.email) await setDoc(doc(platformDb, scopedPath('admins'), user.email), { mustSetPassword: false, status: 'active' }, { merge: true });
       setMustSetPassword(false);
       setNewPassword('');
       setConfirmNewPassword('');
@@ -3984,11 +3984,11 @@ function Post({
           )}
           <div className="contents">
           </div>
-          {(isAdmin || (user && user.uid === authorUid)) && (
+          {isAdmin && (
             <button 
               onClick={onDelete}
               className="p-1.5 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-              title={isAdmin ? 'Delete post' : 'Remove your post'}
+              title='Delete post'
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -4798,7 +4798,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
                   <span className={`text-[0.75rem] ${mutedCls}`}> · {fmt(c)}</span>
                 </p>
                 <p className="text-[0.95rem] mt-0.5 whitespace-pre-wrap">{c.text}</p>
-                {(isAdmin || (user && c.authorUid === user.uid)) && (
+                {isAdmin && (
                   <button onClick={() => removeComment(c)} className="text-[13px] text-[#d23b3b] mt-1">Remove</button>
                 )}
               </div>
@@ -5909,6 +5909,7 @@ function AdminDashboardModal({
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteStep, setInviteStep] = useState<'form' | 'done'>('form');
   const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
+  const [inviteResendBusy, setInviteResendBusy] = useState<string | null>(null);
 
   const openInviteModal = () => {
     setInviteEmail('');
@@ -5993,7 +5994,7 @@ function AdminDashboardModal({
             role: inviteRole,
             mustSetPassword: true,
             permissions: rolePerms,
-            status: 'active',
+            status: 'invited',
             sessionMinutes: 30,
             addedAt: serverTimestamp(),
             addedBy: currentUserEmail
@@ -6400,9 +6401,10 @@ function AdminDashboardModal({
         addedBy: currentUserEmail
       });
       setNewAdminEmail('');
-      alert("Admin added successfully!");
+      showToast(`${newAdminEmail.toLowerCase().trim()} added to administrators.`, 'success');
     } catch (err) {
       console.error("Add admin error:", err);
+      showToast('Could not add that administrator.', 'error');
     }
   };
 
@@ -6438,6 +6440,30 @@ function AdminDashboardModal({
         console.error("Remove admin error:", err);
         showToast('Could not remove that administrator.', 'error');
       }
+    }
+  };
+
+  const handleResendInvite = async (email: string) => {
+    setInviteResendBusy(email);
+    try {
+      const cu = auth.currentUser;
+      const token = cu ? await cu.getIdToken() : '';
+      const res = await fetch('/api/auth-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'resend', email, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        showToast(data.emailed ? `Invite resent to ${email}. The new temporary password went to their email.` : `The invite email failed to send${data.mailError ? ` (${data.mailError})` : ''}. Try again or share the password another way.`, data.emailed ? 'success' : 'error');
+      } else {
+        showToast(data.error || 'Could not resend the invite. Try again.', 'error');
+      }
+    } catch (err: any) {
+      console.error('Resend invite error:', err);
+      showToast('Could not resend the invite.', 'error');
+    } finally {
+      setInviteResendBusy(null);
     }
   };
 
@@ -7476,6 +7502,9 @@ function AdminDashboardModal({
                                 ) : (
                                   <button onClick={() => handleSuspendAdmin(adm.email, true)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#C8932A] text-[#C8932A]">Suspend</button>
                                 )}
+                                {adm.mustSetPassword === true && (
+                                  <button onClick={() => handleResendInvite(adm.email)} disabled={inviteResendBusy === adm.email} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)] disabled:opacity-50">{inviteResendBusy === adm.email ? 'Resending…' : 'Resend invite'}</button>
+                                )}
                                 <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -7489,7 +7518,7 @@ function AdminDashboardModal({
                             {adm.status === 'suspended' ? (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
                             ) : adm.mustSetPassword === true ? (
-                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Inactive</span>
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
                             )}
@@ -7586,7 +7615,7 @@ function AdminDashboardModal({
                                   <Check className="w-7 h-7" />
                                 </div>
                                 <h4 className="text-center font-black font-display text-lg">{inviteResult?.email} is invited</h4>
-                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">A temporary password was emailed to them. They sign in with it once, then choose their own. Until then they show as Inactive on the list.</p>
+                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">A temporary password was emailed to them. They sign in with it once, then choose their own. Until then they show as Invited on the list.</p>
                                 {inviteResult && !inviteResult.emailed && (
                                   <p className="text-center text-[0.78rem] text-red-500 mb-4">We couldn't send the email{inviteResult.mailError ? ` (${inviteResult.mailError})` : ''}. The account exists, so share the temporary password with them another way.</p>
                                 )}
