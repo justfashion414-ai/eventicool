@@ -655,6 +655,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // True once the auth listener has reported for this page load, so a refresh
   // never flashes the sign-in screen while the session is being restored.
   const [authChecked, setAuthChecked] = useState(false);
+  // True once the signed-in user's admins-doc lookup has answered (either
+  // verdict). The /admin gate must wait for it too, or a refreshing admin
+  // glimpses the sign-in screen in the gap before isAdmin resolves.
+  const [adminStatusChecked, setAdminStatusChecked] = useState(false);
   // Eventicor admin contact + payment details saved in app_config.
   const [cfgContact, setCfgContact] = useState<any>(null);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
@@ -1036,6 +1040,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
     if (!user || user.isAnonymous) return;
+    setAdminStatusChecked(false);
 
     const isSuper = user.email === "justfashion414@gmail.com";
 
@@ -1053,8 +1058,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     // Sync admin status
     setAdminSync('sub:' + (user.email || 'anonymous'));
-    getDoc(doc(platformDb, scopedPath('admins'), user.email || 'anonymous')).then((d) => setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')), (e: any) => setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))));
+    getDoc(doc(platformDb, scopedPath('admins'), user.email || 'anonymous')).then((d) => { setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')); setAdminStatusChecked(true); }, (e: any) => { setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))); setAdminStatusChecked(true); });
     const adminUnsub = onSnapshot(doc(platformDb, scopedPath('admins'), user.email || 'anonymous'), (snap) => {
+      setAdminStatusChecked(true);
       if (snap.exists()) {
         setAdminSync('exists');
         setIsAdmin(true);
@@ -1086,6 +1092,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
     }, (err) => {
       setAdminSync('err:' + ((err as any).code || String(err)));
+      setAdminStatusChecked(true);
       handleFirestoreError(err, OperationType.GET, `admins/${user.email}`);
     });
 
@@ -2879,7 +2886,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           listener is still restoring the session after a refresh, show a boot
           loader instead, never the sign-in screen. */}
       {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
-        authChecked ? (
+        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked)) ? (
           <AuthScreen
             screen={authScreen ?? 'signin'}
             setScreen={setAuthScreen}

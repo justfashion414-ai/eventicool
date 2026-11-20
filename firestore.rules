@@ -1,85 +1,51 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Marketing sample apps: anyone opening a sample link may read the lead.
-    // All other platform writes stay on /api/proxy (service account).
-    match /leads/{leadId} {
-      allow read: if true;
-    }
-    // First sign-in flow: the couple signs in with the emailed temporary
-    // password, the app reads their own admins doc to show the
-    // set-permanent-password screen, and saving the new password flips
-    // mustSetPassword in place.
-    //
-    // Couple apps also run their admin panel against this collection
-    // (invites for photographers/vendors, removals, the team list), gated on
-    // the caller having their own admins doc.
-    function isAdmin() {
-      return request.auth != null
-        && request.auth.token.email != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
-    }
+  function isSuper() {
+    return request.auth != null && request.auth.token.email == 'justfashion414@gmail.com';
+  }
+  function isAdminIn(app) {
+    return isSuper() || (request.auth != null && request.auth.token.email != null
+      && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
+  }
+    match /platform/{doc=**} { allow read: if true; allow write: if false; }
+    match /leads/{doc=**} { allow read: if true; allow write: if false; }
+    match /events/{doc=**} { allow read: if false; allow write: if false; }
+    match /health/{doc} { allow read: if true; allow write: if false; }
+    match /app_config/{doc=**} { allow read: if true; allow write: if false; }
+    match /posts/{doc=**} { allow read: if true; allow write: if false; }
+    match /residents/{doc=**} { allow read: if true; allow write: if false; }
+    match /albums/{doc=**} { allow read: if true; allow write: if false; }
+    match /deleted_posts/{doc=**} { allow read: if true; allow write: if false; }
     match /admins/{email} {
-      allow read: if request.auth != null
-        && (request.auth.token.email == email || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow write: if request.auth != null && request.auth.token.email == email;
     }
-
-    // ── Couple app content (the anniversary portal) ──────────────────────
-    // Shared content is publicly readable. Guests are anonymous sign-ins;
-    // admins hold an admins doc with their email as the doc id.
-
-    match /posts/{postId} {
-      allow read: if true;
-      // Guests share memories that stay pending until an admin approves.
-      allow create: if request.auth != null
-        && (request.resource.data.pending == true || isAdmin());
-      // Admins approve, edit and clear reports; guests may only bump the
-      // comment count on a post they just commented on.
-      allow update: if isAdmin()
-        || (request.auth != null
-            && request.resource.data.diff(resource.data)
-                 .affectedKeys().hasOnly(['commentCount']));
-      allow delete: if isAdmin();
-      match /comments/{commentId} {
+    match /apps/{app} {
+      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /posts/{postId} {
         allow read: if true;
-        allow create: if request.auth != null;
-        allow delete: if isAdmin();
+        allow create: if request.auth != null && (request.resource.data.get('pending', false) == true || isAdminIn(app));
+        allow update, delete: if isAdminIn(app);
+        match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
+        match /comments/{cid} {
+          allow read: if true;
+          allow create: if request.auth != null;
+          allow update, delete: if isAdminIn(app);
+        }
       }
-      match /reactions/{uid} {
+      match /residents/{uid} {
         allow read: if true;
-        allow create, update, delete: if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(app));
+        allow delete: if isAdminIn(app);
       }
-    }
-
-    match /residents/{uid} {
-      allow read: if true;
-      allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null
-        && (request.auth.uid == uid || isAdmin());
-      allow delete: if isAdmin();
-    }
-
-    match /albums/{albumId} {
-      allow read: if true;
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Soft-deleted posts, visible to admins only (auto-purge after 3 days).
-    match /deleted_posts/{postId} {
-      allow read, write: if isAdmin();
-    }
-
-    // App configuration: guests read the access code and event details,
-    // admins write.
-    match /app_config/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /{document=**} {
-      allow read, write: if false;
+      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /admins/{email} {
+        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(app));
+        allow create, update: if isAdminIn(app) || (request.auth != null && request.auth.token.email == email);
+        allow delete: if isAdminIn(app);
+      }
     }
   }
 }
