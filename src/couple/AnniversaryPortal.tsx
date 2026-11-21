@@ -951,9 +951,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Reopen the admin dashboard where it was left after a refresh
   const adminUiFirstRunRef = useRef(true);
   const adminAutoOpenedRef = useRef(false);
-  // Remembers which signed-in account was already told it is not an admin of
-  // this app, so the notice fires once per session, not on every sync.
-  const adminDeniedToastRef = useRef<string>('');
   useEffect(() => {
     if (adminUiFirstRunRef.current) {
       adminUiFirstRunRef.current = false;
@@ -1168,7 +1165,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   useEffect(() => {
     if (DEMO && adminMode !== 'real') return; // Previews and sample apps run fully offline; a real couple's app runs the real auth flow (guest anonymous sign-in, admin sign-in state)
     const unsub = onAuthStateChanged(auth, async (currUser) => {
-      setAuthChecked(true);
+      try { setAuthChecked(true);
       // The preview mockup's iframe is only a look: it reads the signed-in
       // user and never mutates auth, so opening it can never disturb the
       // admin's real session.
@@ -1226,6 +1223,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setSessionExpiry(null);
         signInAnonymously(auth).catch(err => console.error("Anonymous auth error:", err));
       }
+      } catch (eAuth) { console.error('Auth state listener error:', eAuth); }
     });
     return () => unsub();
   }, [adminMode]);
@@ -1334,7 +1332,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         const admDoc = snap.data() as any;
         setSelfAdminRole(String(admDoc.role || 'owner'));
         const admPerms = admDoc.permissions || {};
-        const admFullRole = ['owner', 'couple', 'admin', 'bride', 'groom'].includes(String(admDoc.role || ''));
+        const admFullRole = ['owner', 'couple', 'admin', 'bride', 'groom'].includes(String(admDoc.role || 'owner'));
         setAdminPermissions(admFullRole
           ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
           : { canDeletePosts: !!admPerms.canDeletePosts, canUploadImages: admPerms.canUploadImages !== false, canSetAccessCode: !!admPerms.canSetAccessCode });
@@ -1374,11 +1372,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setIsAdmin(false);
         setAdminPermissions(null);
         adminAutoOpenedRef.current = false;
-        // Tell a signed-in non-admin once, so the refusal is obvious.
-        if (user && !user.isAnonymous && adminDeniedToastRef.current !== user.uid) {
-          adminDeniedToastRef.current = user.uid;
-          showToast('This account is not an admin of this app.', 'info');
-        }
       }
     }, (err) => {
       setAdminSync('err:' + ((err as any).code || String(err)));
