@@ -325,7 +325,8 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
 // Demo previews have no upload backend: downscale to a data URL so journey
 // step photos survive a refresh inside the preview itself.
 const hsvToHex = (h: number, s: number, v: number): string => {
-  const f = (n: number) => { const k = (n + h / 60) % 6; const x = v - v * (s / 100) * Math.max(0, Math.min(k, 4 - k, 1)); return Math.round(255 * x).toString(16).padStart(2, '0'); };
+  const S = s / 100, V = v / 100;
+  const f = (n: number) => { const k = (n + h / 60) % 6; const x = V - V * S * Math.max(0, Math.min(k, 4 - k, 1)); return Math.round(255 * x).toString(16).padStart(2, '0'); };
   return '#' + f(5) + f(3) + f(1);
 };
 const hexToHsv = (hex: string): [number, number, number] => {
