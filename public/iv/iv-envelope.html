@@ -5,9 +5,10 @@
 (function () {
   var q = new URLSearchParams(location.search);
   var o = {};
-  ['name1','name2','date','venue','address','rsvpBy','whatsapp','hashtag','photo','story','dress','schedule'].forEach(function (k) {
+  ['name1','name2','date','venue','address','rsvpBy','whatsapp','hashtag','photo','story','dress','schedule','music'].forEach(function (k) {
     var v = q.get(k); if (v) o[k] = v;
   });
+  var dcv = q.get('dressColors'); if (dcv) { try { var dca = JSON.parse(dcv); if (Array.isArray(dca)) o.dressColors = dca; } catch (e) {} }
   var id = (q.get('i') || '').trim();
   var ivApp = (q.get('app') || '').trim();
   var ivAppQ = ivApp ? '&app=' + encodeURIComponent(ivApp) : '';
@@ -396,14 +397,10 @@ p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
         <p class="err" id="rErr" role="alert"></p>
         <button class="btn solid" type="submit" style="margin-top:0;width:100%">Send my reply</button>
       </form>
-      <div class="sent" id="sent" hidden>
-        <h4>One last step</h4>
-        <p>Send your reply to <span data-f="couple"></span> so it reaches them.</p>
-        <textarea id="rPreview" readonly aria-label="Your reply message"></textarea>
-        <div class="row">
-          <a class="btn solid" id="waLink" href="#" target="_blank" rel="noopener">Send on WhatsApp</a>
-          <button class="btn ghost" type="button" id="copyBtn">Copy message</button>
-        </div>
+            <div class="sent" id="sent" hidden>
+        <h4>Thank you!</h4>
+        <p>Your reply is in. <span data-f="couple"></span> will see it right away in their app.</p>
+      </div>
         <p class="copied" id="copied" aria-live="polite"></p>
       </div>
     </section>
@@ -801,22 +798,13 @@ $("#rsvpForm").addEventListener("submit", e => {
   const name = $("#rName").value.trim(), note = $("#rNote").value.trim();
   if (!name) { $("#rErr").textContent = "Please add your name so they know who is replying."; $("#rName").focus(); return; }
   $("#rErr").textContent = "";
-  const dateStr = D.getDate() + " " + MONTHS[D.getMonth()] + " " + D.getFullYear();
-  const msg = `RSVP for ${couple}'s wedding, ${dateStr}\nName: ${name}\nReply: ${attend === "yes" ? "Joyfully accepts" : "Regretfully declines"}` + (note ? `\nNote: ${note}` : "");
   try {
     const q = new URLSearchParams(location.search);
     const ivId = q.get('i'), gid = q.get('g');
     if (ivId && gid) fetch('/api/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', id: ivId, app: q.get('app') || '', g: gid, name: name, attend: attend, note: note }) }).catch(function (e2) {});
   } catch (err2) {}
-  $("#rPreview").value = msg;
-  $("#waLink").href = "https://wa.me/" + C.whatsapp.replace(/\D/g, "") + "?text=" + encodeURIComponent(msg);
-  $("#sent").hidden = false; $("#copied").textContent = "";
+  $("#sent").hidden = false;
   $("#sent").scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "center"});
-});
-$("#copyBtn").addEventListener("click", async () => {
-  const ta = $("#rPreview");
-  try { await navigator.clipboard.writeText(ta.value); $("#copied").textContent = "Copied. Paste it into any chat."; }
-  catch (e) { ta.focus(); ta.select(); $("#copied").textContent = "Selected. Press copy on your keyboard."; }
 });
 </script>
 

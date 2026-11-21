@@ -388,7 +388,7 @@ const BrandedColorPicker = ({ initial, onDone, onClose, isDarkMode }: { initial:
 
 const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: string[]; onChange: (next: string[]) => void; isDarkMode: boolean }) => {
   const [pick, setPick] = useState<number | null>(null);
-  const slots = Math.max(2, colors.length);
+  const slots = Math.max(2, colors.length + (colors.length ? 1 : 0));
   const rows: (string | null)[] = [];
   for (let i = 0; i < slots; i++) rows.push(colors[i] || null);
   return (
@@ -7120,6 +7120,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [savedLink, setSavedLink] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [previewTpl, setPreviewTpl] = useState<string | null>(null);
+  const [musicOpen, setMusicOpen] = useState(false);
 
   // Load the couple's saved card, if one exists, so the form reopens with it.
   useEffect(() => {
@@ -7183,7 +7184,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     if (f.hashtag) p.set('hashtag', f.hashtag);
     if (f.story) p.set('story', f.story);
     if (f.dress) p.set('dress', f.dress);
-    if (f.whatsapp) p.set('whatsapp', f.whatsapp);
+    if (Array.isArray(dressColors) && dressColors.length) p.set('dressColors', JSON.stringify(dressColors));
     if (f.music) p.set('music', f.music);
     if (f.photos && f.photos.length) p.set('photo', f.photos[0]);
     if (f.schedule && f.schedule.length) p.set('schedule', JSON.stringify(f.schedule));
@@ -7245,7 +7246,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         setSavedLink(buildLink(tpl, res.id));
         showToast('Invitation card created. Send the link to your guests', 'success');
       }
-    } catch { showToast('Could not save the invitation. Try again', 'error'); }
+    } catch (e: any) { showToast('Could not save the invitation' + (e && e.code ? ' (' + e.code + ')' : '') + '. Try again', 'error'); }
     setSaving(false);
   };
 
@@ -7341,14 +7342,16 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       </div>
 
       <section>
-        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-3">Card style</label>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">Card style</label>
+          <button type="button" onClick={() => setPreviewTpl(tpl)} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)]/50 text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0" style={{ touchAction: 'manipulation' }}><Eye className="w-3.5 h-3.5" />Preview</button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {IV_STYLES.map((s) => (
             <div key={s.id} className={`relative rounded-2xl border p-4 cursor-pointer transition-all ${tpl === s.id ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/30' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} onClick={() => setTpl(s.id)}>
               {tpl === s.id && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center"><Check className="w-3 h-3" /></span>}
               <b className="text-sm font-black block pr-6">{s.n}</b>
               <span className="text-xs opacity-50 block mt-1">{s.d}</span>
-              <button type="button" onClick={(e) => { e.stopPropagation(); setPreviewTpl(s.id); }} className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--ann-accent)]"><Eye className="w-3.5 h-3.5" />Preview</button>
             </div>
           ))}
         </div>
@@ -7417,16 +7420,29 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
             </InvSec>
             <InvSec id="replies" title="Replies">
-              <label className={labCls}>WhatsApp number for RSVPs</label>
-              <input className={inputCls} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="0803 000 0000" inputMode="tel" />
+              <p className="text-sm opacity-70">Replies come straight back to you here in the app, on each invitee's card below: whether they opened their invite, and whether they are coming. No WhatsApp needed.</p>
             </InvSec>
             <InvSec id="music" title="Music">
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
-                <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
-                {musicLib.map((tr) => (
-                  <button key={tr.id} type="button" className={chipCls(f.music === tr.url)} onClick={() => setF({ ...f, music: tr.url })}>{tr.name}</button>
-                ))}
+              <div className="relative">
+                {musicOpen && <div className="fixed inset-0 z-20" onClick={() => setMusicOpen(false)} />}
+                <button type="button" onClick={() => setMusicOpen(!musicOpen)} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
+                  <span className="truncate">{f.music === '' ? 'Built-in music' : f.music === 'none' ? 'No music' : ((musicLib.find((tr) => tr.url === f.music) || {}).name || 'Selected track')}</span>
+                  <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${musicOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {musicOpen && (
+                  <div className={`absolute left-0 right-0 mt-2 rounded-xl border shadow-xl z-30 max-h-[260px] overflow-auto ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    {[
+                      { id: 'builtin', name: 'Built-in music', v: '' },
+                      { id: 'none', name: 'No music', v: 'none' },
+                      ...musicLib.map((tr) => ({ id: tr.id, name: tr.name, v: tr.url })),
+                    ].map((o) => (
+                      <button key={o.id} type="button" onClick={() => { setF({ ...f, music: o.v }); setMusicOpen(false); }} className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover:bg-[var(--ann-accent)]/5">
+                        <span className="truncate">{o.name}</span>
+                        {f.music === o.v && <Check className="w-4 h-4 text-[var(--ann-accent)] shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </InvSec>
           </>
@@ -7471,7 +7487,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         </section>
       )}
 
-      <div className="sticky bottom-4 z-20">
+      <div>
         <div className={`${cardCls} flex items-center justify-between gap-3`}>
           <span className="text-xs opacity-60">{docId ? 'Your card is live. Changes update the same link.' : 'Nothing saved yet.'}</span>
           <button type="button" onClick={saveInvite} disabled={saving} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
