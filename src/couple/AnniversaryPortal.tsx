@@ -324,6 +324,97 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
 
 // Demo previews have no upload backend: downscale to a data URL so journey
 // step photos survive a refresh inside the preview itself.
+const hsvToHex = (h: number, s: number, v: number): string => {
+  const f = (n: number) => { const k = (n + h / 60) % 6; const x = v - v * (s / 100) * Math.max(0, Math.min(k, 4 - k, 1)); return Math.round(255 * x).toString(16).padStart(2, '0'); };
+  return '#' + f(5) + f(3) + f(1);
+};
+const hexToHsv = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return [210, 80, 90];
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) { if (max === r) h = ((g - b) / d) % 6; else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  return [h, max ? (d / max) * 100 : 0, max * 100];
+};
+
+// Dress colours of the day: a branded gradient picker (no native control),
+// two slots by default and as many more as the couple adds. Whatever they
+// pick here shows as colour chips on the invitation card and on the home page.
+const BrandedColorPicker = ({ initial, onDone, onClose, isDarkMode }: { initial: string; onDone: (hex: string) => void; onClose: () => void; isDarkMode: boolean }) => {
+  const start = hexToHsv(initial);
+  const [h, setH] = useState(start[0]);
+  const [s, setS] = useState(start[1]);
+  const [v, setV] = useState(start[2]);
+  const padRef = useRef<HTMLDivElement | null>(null);
+  const hueRef = useRef<HTMLDivElement | null>(null);
+  const mode = useRef<'pad' | 'hue' | null>(null);
+  const hex = hsvToHex(h, s, v);
+  const movePad = (e: any) => {
+    const r = padRef.current?.getBoundingClientRect(); if (!r) return;
+    setS(Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100)));
+    setV(Math.min(100, Math.max(0, (1 - (e.clientY - r.top) / r.height) * 100)));
+  };
+  const moveHue = (e: any) => {
+    const r = hueRef.current?.getBoundingClientRect(); if (!r) return;
+    setH(Math.min(359.9, Math.max(0, ((e.clientX - r.left) / r.width) * 360)));
+  };
+  useEffect(() => {
+    const mv = (e: PointerEvent) => { if (mode.current === 'pad') movePad(e); else if (mode.current === 'hue') moveHue(e); };
+    const up = () => { mode.current = null; };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    return () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  }, []);
+  return (
+    <div className="fixed inset-0 z-[650] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className={`w-[300px] max-w-full p-4 rounded-3xl border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Pick the colour</span>
+        <div ref={padRef} onPointerDown={(e: any) => { mode.current = 'pad'; movePad(e); }} style={{ height: 168, borderRadius: 14, position: 'relative', touchAction: 'none', background: `linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, hsl(${h},100%,50%))` }}>
+          <span style={{ position: 'absolute', left: `calc(${s}% - 9px)`, top: `calc(${100 - v}% - 9px)`, width: 18, height: 18, borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.45)', background: hex, pointerEvents: 'none' }} />
+        </div>
+        <div ref={hueRef} onPointerDown={(e: any) => { mode.current = 'hue'; moveHue(e); }} style={{ height: 14, marginTop: 14, borderRadius: 999, position: 'relative', touchAction: 'none', background: 'linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)' }}>
+          <span style={{ position: 'absolute', left: `calc(${(h / 360) * 100}% - 8px)`, top: -4, width: 16, height: 22, borderRadius: 6, border: '3px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.45)', background: `hsl(${h},100%,50%)`, pointerEvents: 'none' }} />
+        </div>
+        <div className="flex items-center justify-between mt-3">
+          <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest opacity-70"><span className="w-4 h-4 rounded-full border border-black/10" style={{ background: hex }} />{hex}</span>
+          <button type="button" onClick={() => onDone(hex)} className="px-4 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: string[]; onChange: (next: string[]) => void; isDarkMode: boolean }) => {
+  const [pick, setPick] = useState<number | null>(null);
+  const slots = Math.max(2, colors.length);
+  const rows: (string | null)[] = [];
+  for (let i = 0; i < slots; i++) rows.push(colors[i] || null);
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3">
+        {rows.map((c, i) => c ? (
+          <div key={i} className="relative">
+            <button type="button" aria-label={'Change colour ' + (i + 1)} onClick={() => setPick(i)} className="w-11 h-11 rounded-full border-2 shadow-sm" style={{ background: c, borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }} />
+            <button type="button" aria-label="Remove colour" onClick={() => onChange(colors.filter((_: string, j: number) => j !== i))} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[11px] leading-none flex items-center justify-center">×</button>
+          </div>
+        ) : (
+          <button key={i} type="button" aria-label="Pick a colour" onClick={() => setPick(i)} className={`w-11 h-11 rounded-full border-2 border-dashed flex items-center justify-center text-lg ${isDarkMode ? 'border-[#22363E] text-white/40' : 'border-[#C9C6D6] text-slate-400'}`}>+</button>
+        ))}
+      </div>
+      <p className="text-[10px] opacity-50 mt-2">Tap a circle to pick its colour. Tap + to add another.</p>
+      {pick !== null && (
+        <BrandedColorPicker initial={rows[pick] || '#B57D2C'} onDone={(hex: string) => {
+          const next = colors.slice();
+          if (pick < next.length) next[pick] = hex; else next.push(hex);
+          onChange(next.filter(Boolean));
+          setPick(null);
+        }} onClose={() => setPick(null)} isDarkMode={isDarkMode} />
+      )}
+    </div>
+  );
+};
+
 const demoImageDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onerror = () => reject(new Error('Could not read the photo.'));
@@ -2896,7 +2987,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   </div>
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <div>
-                    <strong className="block text-[0.93rem]">Aso-ebi: {DETAILS.asoEbi}</strong>
+                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: string, i: number) => <span key={i} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: c }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{demoText(DETAILS.hashtag)}</span></p>
                   </div>
                 </div>
@@ -6848,7 +6939,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           )}
           {details && details.asoEbi && (
             <div>
-              <strong className="block text-[0.85rem]">Aso-ebi: {details.asoEbi}</strong>
+              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: string, i: number) => <span key={i} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: c }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
             </div>
           )}
@@ -7131,7 +7222,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       year: dt ? String(dt.getFullYear()) : '',
       venue: (f.venue || '').trim(), city: (f.city || '').trim(),
       message: (f.story || '').trim(), hashtag: (f.hashtag || '').trim(), dress: (f.dress || '').trim(),
-      rsvpBy: (f.rsvpBy || '').trim(), whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
+      whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
+      dressColors: (dressColors || []).filter(Boolean),
       photos: (f.photos || []).slice(0, 5),
       schedule: (f.schedule || []).filter((r: any[]) => (r[0] || r[1])),
       music: f.music || '', updatedAt: serverTimestamp(),
@@ -7161,6 +7253,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   };
 
   const [guests, setGuests] = useState<any[] | null>(null);
+  const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const [guestName, setGuestName] = useState('');
   const [addingGuest, setAddingGuest] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -7202,6 +7295,20 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       showToast('Invitee added. Copy their link and send it', 'success');
     } catch { showToast('Could not add the invitee. Try again', 'error'); }
     setAddingGuest(false);
+  };
+
+  const [dressColors, setDressColors] = useState<string[]>(() => {
+    try { const v = JSON.parse(localStorage.getItem(lsKey('dress-colors')) || 'null'); if (Array.isArray(v)) return v; } catch { /* private mode */ }
+    return (weddingDetails && weddingDetails.dressColors) || [];
+  });
+  useEffect(() => {
+    const dc = weddingDetails && weddingDetails.dressColors;
+    if (Array.isArray(dc)) setDressColors(dc);
+  }, [weddingDetails]);
+  const saveColorsShared = async (next: string[]) => {
+    setDressColors(next);
+    if (DEMO) { try { localStorage.setItem(lsKey('dress-colors'), JSON.stringify(next)); } catch { /* private mode */ } return; }
+    try { await setDoc(doc(db, scopedPath('app_config'), 'main'), { weddingDetails: { dressColors: next } }, { merge: true }); } catch { showToast('Could not save the colours', 'error'); }
   };
 
   const guestMsg = (gl: string) => `You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${gl}`;
@@ -7246,66 +7353,84 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         </div>
       </section>
 
-      <section className={cardCls}>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div><label className={labCls}>Bride</label><input className={inputCls} value={f.bride} onChange={(e) => setF({ ...f, bride: e.target.value })} placeholder="Bride's name" /></div>
-          <div><label className={labCls}>Groom</label><input className={inputCls} value={f.groom} onChange={(e) => setF({ ...f, groom: e.target.value })} placeholder="Groom's name" /></div>
-          <div><label className={labCls}>Wedding date</label><BrandedDateField value={f.date} onChange={(v: string) => setF({ ...f, date: v })} isDarkMode={isDarkMode} inputCls={inputCls} /></div>
-          <div><label className={labCls}>Hashtag</label><input className={inputCls} value={f.hashtag} onChange={(e) => setF({ ...f, hashtag: e.target.value })} placeholder="#YourNames" /></div>
-          <div><label className={labCls}>Venue</label><input className={inputCls} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} placeholder="Venue name" /></div>
-          <div><label className={labCls}>Address / city</label><input className={inputCls} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} placeholder="12 Palm Avenue, Lekki, Lagos" /></div>
-          <div><label className={labCls}>RSVP by</label><input className={inputCls} value={f.rsvpBy} onChange={(e) => setF({ ...f, rsvpBy: e.target.value })} placeholder="1 May 2027" /></div>
-          <div><label className={labCls}>Dress code</label><input className={inputCls} value={f.dress} onChange={(e) => setF({ ...f, dress: e.target.value })} placeholder="Aso ebi: wine and gold" /></div>
-        </div>
-        <div className="mt-4">
-          <label className={labCls}>A note to your guests</label>
-          <textarea className={inputCls + ' min-h-[70px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
-        </div>
-        <div className="mt-4">
-          <label className={labCls}>WhatsApp number for RSVPs</label>
-          <input className={inputCls} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="0803 000 0000" inputMode="tel" />
-        </div>
-        <div className="mt-4">
-          <label className={labCls}>Day schedule</label>
-          <div className="space-y-2">
-            {f.schedule.map((r: any[], i: number) => (
-              <div key={i} className="grid grid-cols-3 gap-2">
-                <input className={inputCls} value={r[0] || ''} onChange={(e) => setRow(i, 0, e.target.value)} placeholder="2:00 PM" />
-                <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="Ceremony" />
-                <input className={inputCls} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note" />
+      {(() => {
+        const InvSec = ({ id, title, children }: any) => (
+          <section className={cardCls}>
+            <div className="flex items-center justify-between gap-3">
+              <label className={labCls + ' !mb-0'}>{title}</label>
+              <button type="button" onClick={() => setOpenSec((o) => ({ ...o, [id]: !o[id] }))} className="text-[0.6rem] font-black uppercase tracking-widest text-[var(--ann-accent)] whitespace-nowrap">{openSec[id] === false ? 'Show' : 'Hide'}</button>
+            </div>
+            {openSec[id] !== false && <div className="mt-3">{children}</div>}
+          </section>
+        );
+        return (
+          <>
+            <InvSec id="couple" title="The couple">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div><label className={labCls}>Bride</label><input className={inputCls} value={f.bride} onChange={(e) => setF({ ...f, bride: e.target.value })} placeholder="Bride's name" /></div>
+                <div><label className={labCls}>Groom</label><input className={inputCls} value={f.groom} onChange={(e) => setF({ ...f, groom: e.target.value })} placeholder="Groom's name" /></div>
+                <div><label className={labCls}>Wedding date</label><BrandedDateField value={f.date} onChange={(v: string) => setF({ ...f, date: v })} isDarkMode={isDarkMode} inputCls={inputCls} /></div>
+                <div><label className={labCls}>Hashtag</label><input className={inputCls} value={f.hashtag} onChange={(e) => setF({ ...f, hashtag: e.target.value })} placeholder="#YourNames" /></div>
               </div>
-            ))}
-          </div>
-        </div>
-        <div className="mt-4">
-          <label className={labCls}>Your photos on the card</label>
-          <div className="grid grid-cols-3 gap-2 mt-1">
-            {(f.photos || []).map((u: string, i: number) => (
-              <div key={i} className={`relative rounded-xl overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ aspectRatio: '3/4' }}>
-                <img src={u} alt="" className="w-full h-full object-cover" />
-                <button type="button" onClick={() => setF({ ...f, photos: f.photos.filter((_: string, j: number) => j !== i) })} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+            </InvSec>
+            <InvSec id="venue" title="The venue">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div><label className={labCls}>Venue</label><input className={inputCls} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} placeholder="Venue name" /></div>
+                <div><label className={labCls}>Address / city</label><input className={inputCls} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} placeholder="12 Palm Avenue, Lekki, Lagos" /></div>
               </div>
-            ))}
-            {(f.photos || []).length < 5 && (
-              <button type="button" onClick={() => photoInputRef.current?.click()} className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E] text-white/50' : 'border-[#DAD8E3] text-slate-400'}`} style={{ aspectRatio: '3/4' }}>
-                {photoBusy ? 'Uploading…' : '+ Photo'}
-              </button>
-            )}
-          </div>
-          <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
-          <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
-        </div>
-        <div className="mt-4">
-          <label className={labCls}>Music</label>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
-            <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
-            {musicLib.map((tr) => (
-              <button key={tr.id} type="button" className={chipCls(f.music === tr.url)} onClick={() => setF({ ...f, music: tr.url })}>{tr.name}</button>
-            ))}
-          </div>
-        </div>
-      </section>
+            </InvSec>
+            <InvSec id="note" title="A note to your guests">
+              <textarea className={inputCls + ' min-h-[70px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
+            </InvSec>
+            <InvSec id="dress" title="Dress colours">
+              <ColorSwatchesRow colors={dressColors} onChange={(next: string[]) => saveColorsShared(next)} isDarkMode={isDarkMode} />
+              <p className="text-[10px] opacity-50 mt-1">The colours of the day. They show on the card and on the home page, and match the events section.</p>
+            </InvSec>
+            <InvSec id="schedule" title="Day schedule">
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2 text-[10px] font-black uppercase tracking-widest opacity-50 px-0.5"><span>Time</span><span>What</span><span>Note</span></div>
+                {f.schedule.map((r: any[], i: number) => (
+                  <div key={i} className="grid grid-cols-3 gap-2">
+                    <input className={inputCls} value={r[0] || ''} onChange={(e) => setRow(i, 0, e.target.value)} placeholder="2:00 PM" />
+                    <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="Ceremony" />
+                    <input className={inputCls} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note" />
+                  </div>
+                ))}
+              </div>
+            </InvSec>
+            <InvSec id="photos" title="Photos on the card">
+              <div className="grid grid-cols-3 gap-2">
+                {(f.photos || []).map((u: string, i: number) => (
+                  <div key={i} className={`relative rounded-xl overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ aspectRatio: '3/4' }}>
+                    <img src={u} alt="" className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => setF({ ...f, photos: f.photos.filter((_: string, j: number) => j !== i) })} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+                  </div>
+                ))}
+                {(f.photos || []).length < 5 && (
+                  <button type="button" onClick={() => photoInputRef.current?.click()} className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E] text-white/50' : 'border-[#DAD8E3] text-slate-400'}`} style={{ aspectRatio: '3/4' }}>
+                    {photoBusy ? 'Uploading…' : '+ Photo'}
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
+              <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
+            </InvSec>
+            <InvSec id="replies" title="Replies">
+              <label className={labCls}>WhatsApp number for RSVPs</label>
+              <input className={inputCls} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="0803 000 0000" inputMode="tel" />
+            </InvSec>
+            <InvSec id="music" title="Music">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
+                <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
+                {musicLib.map((tr) => (
+                  <button key={tr.id} type="button" className={chipCls(f.music === tr.url)} onClick={() => setF({ ...f, music: tr.url })}>{tr.name}</button>
+                ))}
+              </div>
+            </InvSec>
+          </>
+        );
+      })()}
 
       {docId && (
         <section className={cardCls}>
@@ -8042,6 +8167,22 @@ function AdminDashboardModal({
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
   const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] }));
+  const [detColors, setDetColors] = useState<string[]>(() => {
+    try { const v = JSON.parse(localStorage.getItem(lsKey('dress-colors')) || 'null'); if (Array.isArray(v)) return v; } catch { /* private mode */ }
+    return (weddingDetails && weddingDetails.dressColors) || [];
+  });
+  useEffect(() => {
+    const dc = weddingDetails && weddingDetails.dressColors;
+    if (Array.isArray(dc)) setDetColors(dc);
+  }, [weddingDetails]);
+  // Aso-ebi colours are shared live: the events section and the invite form
+  // both write this one field, so they never drift apart.
+  const saveColorsLive = async (next: string[]) => {
+    setDetColors(next);
+    setDetDraft({ ...(detDraft || {}), dressColors: next });
+    if (DEMO) { try { localStorage.setItem(lsKey('dress-colors'), JSON.stringify(next)); } catch { /* private mode */ } return; }
+    try { await setDoc(doc(db, scopedPath('app_config'), 'main'), { weddingDetails: { dressColors: next } }, { merge: true }); } catch { /* the next full save carries it */ }
+  };
   const [weddingBusy, setWeddingBusy] = useState(false);
   useEffect(() => { setEvDraft(events); }, [events]);
   useEffect(() => { setStoryDraft(story); }, [story]);
@@ -9146,7 +9287,7 @@ function AdminDashboardModal({
                       <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('details')} onClick={() => toggleSectionHidden('details')} isDarkMode={isDarkMode} />
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
-                      {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['asoEbi', 'Aso-ebi'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
+                      {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
                         <div key={k}>
                           <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">{label}</span>
                           {k === 'churchTime' || k === 'receptionTime' ? (
@@ -9156,6 +9297,11 @@ function AdminDashboardModal({
                           )}
                         </div>
                       ))}
+                    </div>
+                    <div className="mt-3">
+                      <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Aso-ebi colours</span>
+                      <ColorSwatchesRow colors={detColors} onChange={(next: string[]) => saveColorsLive(next)} isDarkMode={isDarkMode} />
+                      <p className="text-[10px] opacity-50 mt-1">The colours of the day. They show on the home page and on the invitation card.</p>
                     </div>
                   </div>
 

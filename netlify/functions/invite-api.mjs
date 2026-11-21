@@ -25,7 +25,7 @@ const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...cors } })
 
 // The only fields a guest's card needs. Nothing else leaves the doc.
-const PUBLIC = ['bride', 'groom', 'tpl', 'wedDate', 'month', 'day', 'year', 'venue', 'city', 'message', 'hashtag', 'dress', 'rsvpBy', 'whatsapp', 'schedule', 'music', 'photos']
+const PUBLIC = ['bride', 'groom', 'tpl', 'wedDate', 'month', 'day', 'year', 'venue', 'city', 'message', 'hashtag', 'dress', 'rsvpBy', 'whatsapp', 'schedule', 'music', 'photos', 'dressColors']
 const ID_OK = /^[A-Za-z0-9_-]{6,40}$/
 
 export default async (req) => {

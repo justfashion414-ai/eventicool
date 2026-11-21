@@ -61,6 +61,10 @@ service cloud.firestore {
         allow create, update: if isAdminIn(app) || (request.auth != null && request.auth.token.email == email);
         allow delete: if isAdminIn(app);
       }
+      match /invites/{id} {
+        allow read, write: if isAdminIn(app);
+        match /guests/{gid} { allow read, write: if isAdminIn(app); }
+      }
     }
   }
 }
