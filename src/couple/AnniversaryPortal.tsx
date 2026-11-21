@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   Menu,
   ChevronRight,
+  ArrowUp,
   ChevronDown,
   ExternalLink,
   MessageSquare,
@@ -4386,7 +4387,13 @@ function BrandedSelect({ value, onChange, options, ariaLabel, className, isDarkM
     const close = () => setOpen(false);
     const onDoc = (e: any) => { const t = e.target as Node; if (btnRef.current && panelRef.current && !btnRef.current.contains(t) && !panelRef.current.contains(t)) close(); };
     const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    const onScroll = () => close();
+    // Scrolling the option list itself must not close the panel (user report
+    // Nov 21 2026): only a scroll outside it does.
+    const onScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      if (panelRef.current && t && panelRef.current.contains(t)) return;
+      close();
+    };
     document.addEventListener('click', onDoc);
     document.addEventListener('keydown', onEsc);
     window.addEventListener('scroll', onScroll, true);
@@ -8385,7 +8392,7 @@ function AdminDashboardModal({
               </aside>
 
               {/* Modal Body */}
-              <div className="flex-1 overflow-y-auto overscroll-contain p-6 md:p-8 pt-6">
+              <div id="admin-dash-scroll" className="flex-1 overflow-y-auto overscroll-contain p-6 md:p-8 pt-6">
               <TabErrorBoundary label={activeAdminTab} isDarkMode={isDarkMode}>
               {activeAdminTab === 'overview' && (
                 <div className="space-y-6">
@@ -9056,6 +9063,17 @@ function AdminDashboardModal({
                       {weddingBusy ? 'Saving…' : 'Save changes'}
                     </button>
                   </div>
+
+                  {/* Back to top (user direction Nov 21 2026): bottom-left arrow on
+                      Events & photos; one tap takes the page back to the top. */}
+                  <button
+                    onClick={() => { try { document.getElementById('admin-dash-scroll')?.scrollTo({ top: 0, behavior: 'smooth' }); } catch { document.getElementById('admin-dash-scroll')?.scrollTo(0, 0); } }}
+                    title="Back to top"
+                    aria-label="Back to top"
+                    className="fixed left-4 bottom-6 z-[130] w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform"
+                  >
+                    <ArrowUp className="w-6 h-6" />
+                  </button>
 
                   {/* Floating preview: opens the in-page mockup, saves nothing. */}
                   <button onClick={previewSite} title="Preview the app" aria-label="Preview the app" className="fixed right-4 top-1/2 -translate-y-1/2 z-[130] w-14 h-14 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform">
