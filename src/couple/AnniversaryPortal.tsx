@@ -2944,25 +2944,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our partners</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
                 <div className="flex flex-col gap-3">
-                  {(partners || []).map((p: any) => {
-                    const wa = String(p.whatsapp || '').replace(/[^0-9]/g, '');
-                    const ig = String(p.instagram || '').replace(/^@/, '');
-                    const link = p.website || (ig ? `https://instagram.com/${ig}` : '') || (wa ? `https://wa.me/${wa}` : '');
-                    const cardCls = `flex items-center gap-3 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
-                    return (
-                      <div key={p.id || p.name} className={cardCls}>
-                        {p.photo
-                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
-                          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
-                        <div className="min-w-0 flex-1">
-                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
-                          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
-                          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
-                        </div>
-                        {link ? <a href={link} target="_blank" rel="noreferrer" className="shrink-0" aria-label={`Open ${p.name || 'partner'}`}><ExternalLink className="w-4 h-4 opacity-40" /></a> : null}
-                      </div>
-                    );
-                  })}
+                  {(partners || []).map((p: any) => (
+                      <PartnerHomeCard key={p.id || p.name} p={p} isDarkMode={isDarkMode} />
+                    ))}
                 </div>
               </section>
               )}
@@ -2978,10 +2962,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{demoHeader()}</h4>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · {WED_LONG}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || `Happy Wedding · ${WED_LONG}`}</p>
                   </div>
                   <div className="pt-2 opacity-40">
-                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">Wedding memories, kept for life</p>
+                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || 'Wedding memories, kept for life'}</p>
                   </div>
                 </div>
               </footer>
@@ -4354,6 +4338,125 @@ function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string
           <VolumeX className="w-4 h-4" />
           Tap for sound
         </button>
+      )}
+    </div>
+  );
+}
+
+// Branded dropdown (user direction Nov 21 2026): replaces every native
+// <select> in the app. A button styled like the app's own fields opens a
+// panel of options; the panel never fights the screen edge: not enough room
+// below the button and it opens upward, not enough room above and it opens
+// downward. Nothing here is a browser picker.
+function BrandedSelect({ value, onChange, options, ariaLabel, className, isDarkMode, compact }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel?: string; className?: string; isDarkMode: boolean; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<{ left: number; top: number; bottom: number; width: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const est = Math.min(options.length * 40 + 14, 236);
+  const openUp = rect ? rect.bottom + est + 10 > window.innerHeight && rect.top - est - 10 > 0 : false;
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const el = btnRef.current;
+    if (el) { const r = el.getBoundingClientRect(); setRect({ left: r.left, top: r.top, bottom: r.bottom, width: Math.max(r.width, 150) }); }
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onDoc = (e: any) => { const t = e.target as Node; if (btnRef.current && panelRef.current && !btnRef.current.contains(t) && !panelRef.current.contains(t)) close(); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const onScroll = () => close();
+    document.addEventListener('click', onDoc);
+    document.addEventListener('keydown', onEsc);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('click', onDoc);
+      document.removeEventListener('keydown', onEsc);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+  const current = options.find((o) => o.value === value);
+  const btnCls = className || `p-3 rounded-xl border font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`;
+  return (
+    <div className="relative w-full">
+      <button type="button" ref={btnRef} onClick={toggle} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} className={`flex items-center justify-between gap-2 w-full text-left ${btnCls}`}>
+        <span className="truncate">{current ? current.label : 'Select'}</span>
+        <ChevronDown className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && rect && (
+        <div
+          ref={panelRef}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{ position: 'fixed', left: rect.left, top: openUp ? undefined : rect.bottom + 6, bottom: openUp ? window.innerHeight - rect.top + 6 : undefined, width: rect.width, maxHeight: Math.min(est, window.innerHeight - 24), zIndex: 1200 }}
+          className={`rounded-2xl border shadow-2xl py-1 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`flex items-center justify-between gap-3 w-full text-left px-4 py-2 text-sm font-bold ${o.value === value ? 'text-[var(--ann-accent)]' : isDarkMode ? 'text-white/80' : 'text-[#14262D]'} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-[#EEEDF3]'}`}
+            >
+              <span className="truncate">{o.label}</span>
+              {o.value === value && <Check className="w-4 h-4 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A partner card on the app's home page (user direction Nov 21 2026): the
+// basics always show, and a branded dropdown reveals the contact details the
+// couple saved (WhatsApp, Instagram, website, TikTok, Facebook, YouTube),
+// whichever of those are filled. Nothing here leads out of the app: the
+// website address is plain text, never a link.
+function PartnerHomeCard({ p, isDarkMode }: { p: any; isDarkMode: boolean }) {
+  const [open, setOpen] = useState(false);
+  const rows = [
+    { label: 'WhatsApp', value: String(p.whatsapp || '').trim() },
+    { label: 'Instagram', value: String(p.instagram || '').trim() },
+    { label: 'Website', value: String(p.website || '').trim() },
+    { label: 'TikTok', value: String(p.tiktok || '').trim() },
+    { label: 'Facebook', value: String(p.facebook || '').trim() },
+    { label: 'YouTube', value: String(p.youtube || '').trim() },
+  ].filter((r) => r.value);
+  const cardCls = `flex flex-col p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+  return (
+    <div className={cardCls}>
+      <button
+        type="button"
+        onClick={() => { if (rows.length) setOpen(!open); }}
+        className={`flex items-center gap-3 w-full text-left ${rows.length ? 'cursor-pointer' : 'cursor-default'}`}
+        style={rows.length ? { touchAction: 'manipulation' } : { pointerEvents: 'none' }}
+        aria-expanded={rows.length ? open : undefined}
+      >
+        {p.photo
+          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
+          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+        <div className="min-w-0 flex-1">
+          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
+          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
+        </div>
+        {rows.length > 0 && <ChevronDown className={`w-4 h-4 opacity-50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />}
+      </button>
+      {open && rows.length > 0 && (
+        <div className={`mt-3 pt-3 border-t space-y-1.5 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between gap-3">
+              <span className={`shrink-0 text-[0.6rem] font-black uppercase tracking-widest ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'} opacity-70`}>{r.label}</span>
+              <span className={`truncate text-[0.78rem] ${isDarkMode ? 'text-white/85' : 'text-[#14262D]'}`}>{r.value}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -6651,7 +6754,7 @@ function AdminDashboardModal({
   // runs keep the list locally so the preview always has something to show.
   const [demoPartnersLocal, setDemoPartnersLocal] = useState<any[]>(DEMO_PARTNERS);
   const partnersList: any[] = DEMO ? demoPartnersLocal : (partners || []);
-  const [partnerForm, setPartnerForm] = useState<any>({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' });
+  const [partnerForm, setPartnerForm] = useState<any>({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' });
   const [partnerEditing, setPartnerEditing] = useState<any>(null);
   const [partnerDelete, setPartnerDelete] = useState<any>(null);
   const [partnerLogoBusy, setPartnerLogoBusy] = useState(false);
@@ -6698,6 +6801,9 @@ function AdminDashboardModal({
       whatsapp: String(partnerForm.whatsapp || '').trim(),
       instagram: String(partnerForm.instagram || '').trim(),
       website: String(partnerForm.website || '').trim(),
+      tiktok: String(partnerForm.tiktok || '').trim(),
+      facebook: String(partnerForm.facebook || '').trim(),
+      youtube: String(partnerForm.youtube || '').trim(),
     };
     try {
       if (DEMO) {
@@ -6709,7 +6815,7 @@ function AdminDashboardModal({
         await addDoc(collection(db, scopedPath('partners')), { ...payload, createdAt: serverTimestamp() });
       }
       showToast(partnerEditing ? 'Partner updated.' : 'Partner added. It is live on the app now.', 'success');
-      setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' });
+      setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' });
       setPartnerEditing(null);
     } catch {
       showToast('Could not save the partner. Check your connection and try again.', 'error');
@@ -7255,6 +7361,12 @@ function AdminDashboardModal({
       note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
     };
   });
+  // Footer (Events & photos): the words at the very bottom of the home page,
+  // after the photo wall. Empty fields keep the app's default wording.
+  const [footerDraft, setFooterDraft] = useState<any>(() => {
+    const fi = (weddingDetails || ({} as any)).footer || {};
+    return { message: fi.message || '', caption: fi.caption || '' };
+  });
   const draftBaseRef = useRef<any>(null);
   if (!draftBaseRef.current) {
     draftBaseRef.current = {
@@ -7264,6 +7376,7 @@ function AdminDashboardModal({
       hero: JSON.stringify(heroImages),
       heroLabels: JSON.stringify(heroImageLabels || {}),
       gift: JSON.stringify(giftDraft || {}),
+      footer: JSON.stringify(footerDraft || {}),
       heroTpl,
       footerStyle
     };
@@ -7280,7 +7393,8 @@ function AdminDashboardModal({
     || JSON.stringify(heroLabelDraft) !== draftBaseRef.current.heroLabels
     || heroTplDraft !== draftBaseRef.current.heroTpl
     || footerStyleDraft !== draftBaseRef.current.footerStyle
-    || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift;
+    || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift
+    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer;
 
   // One Save for the whole page: story, wedding day details, the journey, hero
   // photos and labels, hero style and the giant footer style commit together.
@@ -7300,6 +7414,10 @@ function AdminDashboardModal({
           accountNumber: (giftDraft.accountNumber || '').trim(),
           accountName: (giftDraft.accountName || '').trim(),
           note: (giftDraft.note || '').trim()
+        },
+        footer: {
+          message: (footerDraft.message || '').trim(),
+          caption: (footerDraft.caption || '').trim()
         }
       };
       setDetDraft(mergedDet);
@@ -7316,7 +7434,8 @@ function AdminDashboardModal({
         heroLabels: JSON.stringify(heroLabelDraft || {}),
         heroTpl: heroTplDraft,
         footerStyle: footerStyleDraft,
-        gift: JSON.stringify(giftDraft || {})
+        gift: JSON.stringify(giftDraft || {}),
+        footer: JSON.stringify(footerDraft || {})
       };
       showToast('Saved. Your app now shows these changes.', 'success');
     } finally { setWeddingBusy(false); }
@@ -8081,13 +8200,8 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mt-0.5">{realPosts.length} {realPosts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <select value={postEventFilter} onChange={(e) => setPostEventFilter(e.target.value)} aria-label="Filter by event" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
-                      <option value="all">All events</option>
-                      {(events || []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
-                    <select value={postTypeFilter} onChange={(e) => setPostTypeFilter(e.target.value)} aria-label="Filter by type" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
-                      {['all', 'Photo', 'Video', 'Reel', 'Wish'].map((t) => <option key={t} value={t}>{t === 'all' ? 'All types' : t}</option>)}
-                    </select>
+                    <BrandedSelect value={postEventFilter} onChange={(v: string) => setPostEventFilter(v)} ariaLabel="Filter by event" isDarkMode={isDarkMode} options={[{ value: 'all', label: 'All events' }, ...(events || []).map((e: any) => ({ value: e.id, label: e.name }))]} />
+                    <BrandedSelect value={postTypeFilter} onChange={(v: string) => setPostTypeFilter(v)} ariaLabel="Filter by type" isDarkMode={isDarkMode} options={['all', 'Photo', 'Video', 'Reel', 'Wish'].map((t: string) => ({ value: t, label: t === 'all' ? 'All types' : t }))} />
                   </div>
                   <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
                     {(() => {
@@ -8175,10 +8289,7 @@ function AdminDashboardModal({
                       {/* Label attached to every photo added from the tile below. */}
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
-                        <select value={newHeroLabel} onChange={(e) => setNewHeroLabel(e.target.value)} className="p-2 rounded-lg border border-[#DAD8E3] dark:border-[#22363E] bg-transparent text-xs font-bold">
-                          <option value="">No label</option>
-                          {evDraft.map((ev: any) => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
-                        </select>
+                        <BrandedSelect value={newHeroLabel} onChange={(v: string) => setNewHeroLabel(v)} isDarkMode={isDarkMode} options={[{ value: '', label: 'No label' }, ...evDraft.map((ev: any) => ({ value: ev.name, label: ev.name }))]} />
                       </div>
                       <div className="grid grid-cols-4 gap-2 mb-4">
                         {heroShown.slice(0, 20).map((img: string, idx: number) => (
@@ -8201,10 +8312,7 @@ function AdminDashboardModal({
                             </div>
                             {/* Event label attached to this photo, editable any time. */}
                             <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
-                              <select value={heroLabelDraft?.[img] || ''} onChange={(e) => setHeroLabelDraft({ ...(heroLabelDraft || {}), [img]: e.target.value })} className="w-full bg-transparent text-white text-[9px] font-bold outline-none" title="Photo label">
-                                <option value="" className="text-black">No label</option>
-                                {evDraft.map((ev: any) => <option key={ev.id} value={ev.name} className="text-black">{ev.name}</option>)}
-                              </select>
+                              <BrandedSelect value={heroLabelDraft?.[img] || ''} onChange={(v: string) => setHeroLabelDraft({ ...(heroLabelDraft || {}), [img]: v })} isDarkMode={isDarkMode} compact className="p-1.5 rounded-lg border-none bg-transparent text-white text-[9px] font-bold w-full" options={[{ value: '', label: 'No label' }, ...evDraft.map((ev: any) => ({ value: ev.name, label: ev.name }))]} />
                             </div>
                           </div>
                         ))}
@@ -8434,7 +8542,7 @@ function AdminDashboardModal({
                       </div>
                     </div>
                     <div className="mt-4 space-y-4">
-    <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+    <div id="partner-form-card" className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                       <h3 className="font-black font-display text-lg mb-1">{partnerEditing ? `Edit ${partnerEditing.name || 'partner'}` : 'Add a partner'}</h3>
                       <p className="text-sm opacity-60 mb-4">{partnerEditing ? 'Change anything and save. Updates show on the app straight away.' : 'Name is the only required field; everything else makes the card richer.'}</p>
                       <div className="space-y-3">
@@ -8481,10 +8589,24 @@ function AdminDashboardModal({
                             <input type="text" value={partnerForm.website} onChange={(e) => setPartnerForm((f: any) => ({ ...f, website: e.target.value }))} placeholder="https://…" className={inputCls} />
                           </div>
                         </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">TikTok</span>
+                            <input type="text" value={partnerForm.tiktok} onChange={(e) => setPartnerForm((f: any) => ({ ...f, tiktok: e.target.value }))} placeholder="e.g. @handle" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Facebook</span>
+                            <input type="text" value={partnerForm.facebook} onChange={(e) => setPartnerForm((f: any) => ({ ...f, facebook: e.target.value }))} placeholder="Page or profile name" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">YouTube</span>
+                            <input type="text" value={partnerForm.youtube} onChange={(e) => setPartnerForm((f: any) => ({ ...f, youtube: e.target.value }))} placeholder="Channel name" className={inputCls} />
+                          </div>
+                        </div>
                         <div className="flex gap-2 flex-wrap pt-1">
                           <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
                           {partnerEditing && (
-                            <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
+                            <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
                           )}
                         </div>
                       </div>
@@ -8508,7 +8630,7 @@ function AdminDashboardModal({
                             </div>
                           </div>
                           <div className="flex flex-col gap-2 shrink-0">
-                            <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '' }); try { document.querySelector('.font-black.font-display.text-lg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
+                            <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '', tiktok: p.tiktok || '', facebook: p.facebook || '', youtube: p.youtube || '' }); try { document.getElementById('partner-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
                             <button type="button" onClick={() => setPartnerDelete(p)} className="px-4 py-2 rounded-full border border-red-400 text-red-500 text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
                           </div>
                         </div>
@@ -8544,6 +8666,27 @@ function AdminDashboardModal({
                       <p className="text-[0.75rem] opacity-60 italic mt-3">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
                     </section>
                   )}
+
+                  {/* Footer (user direction Nov 21 2026): the wording under the photo wall is
+                      editable; empty fields keep the default text. */}
+                  <section>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Footer</h3>
+                        <p className="text-sm opacity-60">The words at the very bottom of your home page, after the photo wall. Leave a field empty and the app keeps its default wording.</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Footer message</span>
+                        <textarea rows={2} value={footerDraft?.message ?? ''} onChange={(e) => setFooterDraft({ ...(footerDraft || {}), message: e.target.value })} placeholder={`Happy Wedding · ${WED_LONG}`} className={`${inputCls} resize-none`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Footer caption</span>
+                        <input type="text" value={footerDraft?.caption ?? ''} onChange={(e) => setFooterDraft({ ...(footerDraft || {}), caption: e.target.value })} placeholder="Wedding memories, kept for life" className={`${inputCls} w-full`} />
+                      </div>
+                    </div>
+                  </section>
 
                   {/* One save for the whole page. */}
                   <div className={`mt-8 flex items-center gap-4 flex-wrap border-t pt-4 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
