@@ -2,14 +2,20 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import LandingMarketing from './landing/LandingMarketing'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
-import AdminConsole from './components/AdminConsole'
 import MailTest from './components/MailTest'
 import { getAdminDoc, signOutEverywhere, watchAuth, type User } from './auth'
 import SetPassword from './components/SetPassword'
+import BootLoader from './components/BootLoader'
+const AdminConsole = lazy(() => import('./components/AdminConsole'))
 const CoupleApp = lazy(() => import('./couple/CoupleApp'))
 const InstallPage = lazy(() => import('./components/InstallPage'))
 
 type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-out' | 'check-error'
+
+// The admin console renders immediately on a refresh when a signed-in admin
+// is expected: the access check runs in the background and only a real
+// "not an admin" answer ever kicks anyone out.
+const CACHED_ADMIN_KEY = 'ev-admin-console-email'
 
 function navigate(to: string) {
   window.history.pushState({}, '', to)
@@ -33,12 +39,19 @@ export default function App() {
         setUser(u)
         if (!u) {
           setAdminState('signed-out')
+          try { localStorage.removeItem(CACHED_ADMIN_KEY) } catch { /* ignore */ }
           return
         }
         setAdminState('loading')
         try {
           const doc = await getAdminDoc(u)
-          setAdminState(!doc ? 'not-admin' : doc.mustChangePassword ? 'must-change' : 'admin')
+          if (!doc) {
+            setAdminState('not-admin')
+            try { localStorage.removeItem(CACHED_ADMIN_KEY) } catch { /* ignore */ }
+          } else {
+            setAdminState(doc.mustChangePassword ? 'must-change' : 'admin')
+            if (!doc.mustChangePassword) { try { localStorage.setItem(CACHED_ADMIN_KEY, u.email || '') } catch { /* ignore */ } }
+          }
         } catch {
           // A failed access check (network, proxy hiccup) must never log the admin out.
           setAdminState('check-error')
@@ -68,13 +81,13 @@ export default function App() {
   // installed app's start_url. Every /app* path renders the couple app; the
   // couple's names, template and accent come from the query string.
   if (route === '/app' || route.startsWith('/app/')) {
-    return <Suspense fallback={null}><CoupleApp /></Suspense>
+    return <Suspense fallback={<BootLoader />}><CoupleApp /></Suspense>
   }
   if (route === '/install') {
-    return <Suspense fallback={null}><InstallPage /></Suspense>
+    return <Suspense fallback={<BootLoader />}><InstallPage /></Suspense>
   }
   if (route === '/admin') {
-    if (adminState === 'admin') return <AdminConsole user={user} onSignOut={() => navigate('/')} />
+    if (adminState === 'admin') return <Suspense fallback={<BootLoader />}><AdminConsole user={user} onSignOut={() => navigate('/')} /></Suspense>
     if (adminState === 'must-change') {
       return <SetPassword user={user} onDone={() => setAdminState('admin')} onSignOut={() => navigate('/')} />
     }
@@ -95,6 +108,11 @@ export default function App() {
           </button>
         </main>
       )
+    }
+    // Refresh while in the admin section: straight in, access check in the background.
+    const cachedAdminEmail = (() => { try { return localStorage.getItem(CACHED_ADMIN_KEY) } catch { return null } })()
+    if (cachedAdminEmail) {
+      return <Suspense fallback={<BootLoader />}><AdminConsole user={{ uid: 'restoring', email: cachedAdminEmail } as User} onSignOut={() => navigate('/')} /></Suspense>
     }
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">

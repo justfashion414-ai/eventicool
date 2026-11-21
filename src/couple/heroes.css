@@ -5,6 +5,7 @@
    --ann-accent (accent), --ann-soft. */
 
 .hv-wrap {
+  isolation: isolate;
   --serif: 'Playfair Display', Georgia, serif;
   --body: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
@@ -77,8 +78,8 @@
 .hv3-stage:active { cursor: grabbing; }
 .hv3-ring {
   --dw: clamp(178px, 52vw, 268px);
-  --dh: calc(var(--dw) * 1.52);
-  --dr: clamp(216px, 58vw, 360px);
+  --dh: calc(var(--dw) * 1.62);
+  --dr: calc(clamp(178px, 52vw, 268px) * var(--rs, 1.094));
   position: absolute; left: 50%; top: 53%;
   width: 0; height: 0; transform-style: preserve-3d;
   transform: rotateY(var(--spin, 0deg));
@@ -102,11 +103,10 @@
   --u: 1;
 }
 @media (max-width: 480px) { .hv-book { --u: .88; } }
-.hv5-float { position: absolute; inset: 0; animation: hv5-bob 7s ease-in-out infinite; }
-@keyframes hv5-bob { 0%, 100% { transform: translateY(-6px); } 50% { transform: translateY(6px); } }
+.hv5-float { position: absolute; inset: 0; }
 .hv5-stage {
-  --pw: clamp(140px, 48vw, 260px);
-  --ph: calc(var(--pw) * 1.95);
+  --pw: clamp(150px, 50vw, 300px);
+  --ph: calc(var(--pw) * 2.05);
   position: absolute; left: 50%; top: 50%;
   width: calc(var(--pw) * 2); height: var(--ph);
   transform: translate(-50%, -50%) translateX(var(--shift, 0%));
@@ -169,3 +169,23 @@
 .hv5-cover b { font: 600 calc(24px * var(--u))/1.12 var(--serif); color: color-mix(in srgb, var(--ann-accent) 82%, #fff); }
 .hv5-cover span { font-size: calc(9.5px * var(--u)); letter-spacing: .14em; }
 .hv5-cover.kbc b, .hv5-cover.kbc span { font-size: calc(10.5px * var(--u)); }
+
+/* ---------- COMPACT: the same heroes rendered inside the dashboard preview
+   mockup, where the stage is a small fixed box instead of the viewport. The
+   JS positioning reads the stage's own size, so only the wrapper and the
+   fixed-viewport text/geometry need overrides. ---------- */
+.hv-compact.hv-halo, .hv-compact.hv-deck, .hv-compact.hv-book { margin: 0; }
+.hv-compact .hv2-names { bottom: 10px; }
+.hv-compact .hv2-names h2 { font: italic 500 16px/1.06 var(--serif); }
+.hv-compact .hv2-names p { font-size: 8.5px; margin: 3px 0 0; }
+.hv-compact .hv2-cta { display: none; }
+.hv-compact .hv2-card { border-width: 3px; border-radius: 12px; box-shadow: 0 8px 18px rgba(0,0,0,.4); }
+.hv-compact .hv2-img { border-radius: 9px; }
+.hv-compact .hv2-tag { font-size: 7px; padding: 2px 7px; bottom: -6px; }
+.hv-compact .hv3-names { top: 8px; font: italic 500 16px/1.05 var(--serif); }
+.hv-compact .hv3-stage { perspective: 700px; }
+.hv-compact .hv3-ring { --dw: 118px; --dh: calc(var(--dw) * 1.62); --dr: calc(118px * var(--rs, 1.094)); top: 56%; }
+.hv-compact .hv3-card { border-width: 3px; border-radius: 14px; box-shadow: 0 12px 24px rgba(0,0,0,.45); }
+.hv-compact.hv-book { --u: .78; }
+.hv-compact .hv5-stage { --pw: 112px; --ph: calc(var(--pw) * 2.05); }
+.hv-compact .hv5-bshadow { filter: blur(6px); }

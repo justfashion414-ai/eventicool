@@ -195,3 +195,72 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .copt.on{color:var(--acc);font-weight:700}
 #ev-l .copt.on::after{content:'\2713';font-weight:700}
 @media (prefers-reduced-motion:reduce){#ev-l .cpanel,#ev-l .cbtn .chev{transition:none}}
+
+/* Branded event-date calendar */
+#ev-l .datedd{position:relative}
+#ev-l .dbtn{width:100%;display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;color:var(--ink);text-align:left;transition:border-color .2s,box-shadow .2s}
+#ev-l .dbtn .dcal{flex:none;opacity:.65}
+#ev-l .dbtn>span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ev-l .dbtn .chev{transition:transform .2s}
+#ev-l .datedd.open .dbtn{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 18%,transparent)}
+#ev-l .datedd.open .dbtn .chev{transform:rotate(180deg)}
+#ev-l .dpanel{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:70;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 44px #17162e2e;padding:12px;opacity:0;transform:translateY(-6px) scale(.98);pointer-events:none;transition:opacity .18s ease,transform .18s cubic-bezier(.2,.7,.2,1)}
+#ev-l .datedd.open .dpanel{opacity:1;transform:none;pointer-events:auto}
+#ev-l .dhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+#ev-l .dhead b{font-size:15px;font-weight:700}
+#ev-l .dnav{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--ink)}
+#ev-l .dnav:disabled{opacity:.3;cursor:default}
+#ev-l .ddow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:3px}
+#ev-l .ddow span{font-size:10.5px;font-weight:700;color:var(--mut);text-align:center;padding:3px 0}
+#ev-l .ddays{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+#ev-l .ddays button{height:34px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--ink)}
+#ev-l .ddays button:disabled{opacity:.22;cursor:default}
+#ev-l .ddays button.nul{visibility:hidden}
+#ev-l .ddays button:hover{background:color-mix(in srgb,var(--acc) 14%,transparent)}
+#ev-l .ddays button.today{box-shadow:inset 0 0 0 1.5px var(--acc)}
+#ev-l .ddays button.sel{background:var(--ink);color:var(--bg)}
+#ev-l .ddays button.sel:hover{background:var(--ink)}
+#ev-l .dfoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+#ev-l .dclear{font-size:13px;font-weight:600;color:var(--mut)}
+#ev-l .dclear:hover{color:var(--ink)}
+#ev-l .ddone{padding:7px 18px;border-radius:99px;background:var(--ink);color:var(--bg);font-size:13px;font-weight:700}
+@media (prefers-reduced-motion:reduce){#ev-l .dpanel{transition:none}}
+/* City dropdown: the custom city field at the end of the list */
+#ev-l .ccust{padding:10px 12px 8px;border-top:1px solid var(--line);margin-top:6px}
+#ev-l .cch{display:block;font-size:12.5px;font-weight:700;color:var(--ink)}
+#ev-l .ccust .crow{display:flex;gap:6px;margin-top:7px}
+#ev-l .ccust input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;font-size:14px;color:var(--ink)}
+#ev-l .cadd{padding:8px 14px;border-radius:9px;background:var(--ink);color:var(--bg);font-size:13px;font-weight:700;touch-action:manipulation}
+#ev-l .ctag{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin-top:6px}
+/* Landing photo upload card */
+#ev-l .upcard{margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:18px;border:2px dashed color-mix(in srgb,var(--acc) 45%,var(--line));border-radius:18px;background:color-mix(in srgb,var(--acc) 6%,var(--card));cursor:pointer;transition:border-color .2s,transform .15s;touch-action:manipulation}
+#ev-l .upcard:hover{border-color:var(--acc);transform:translateY(-1px)}
+#ev-l .upcic{width:52px;height:52px;flex:none;border-radius:16px;background:var(--acc);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px color-mix(in srgb,var(--acc) 35%,transparent)}
+#ev-l .upct{flex:1;min-width:200px}
+#ev-l .upct b{display:block;font-size:17px}
+#ev-l .upct small{display:block;color:var(--mut);font-size:13.5px;line-height:1.45;margin-top:2px}
+#ev-l .upnote{display:block;font-size:12.5px;font-weight:700;color:var(--acc);margin-top:4px}
+#ev-l .upcthumbs{display:flex;gap:8px;flex-wrap:wrap;width:100%}
+#ev-l .upcthumbs .upct{position:relative;flex:none;min-width:0;width:64px;height:64px}
+#ev-l .upcthumbs img{width:64px;height:64px;object-fit:cover;border-radius:12px;border:2px solid #fff;box-shadow:0 2px 8px rgba(20,18,43,.2)}
+#ev-l .upcthumbs .uprm{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#17162e;color:#fff;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(20,18,43,.35)}
+#ev-l .gocenter{justify-content:center}
+/* Open Book: the exact same card size as the others at every width; the book
+   spread inside is enlarged instead (--u) so it still fills the screen. */
+#ev-l .tc[data-t="book"] .kbw{--u:1.22}
+
+/* City: custom-entry button + its popup */
+#ev-l .ccbtn{display:block;width:100%;text-align:left;padding:13px 14px 14px;margin-top:4px;border-top:1px solid var(--line);color:var(--acc);font-weight:600;font-size:15px;background:none;border-radius:0 0 18px 18px}
+#ev-l .cmm{position:fixed;inset:0;z-index:140;background:#17162e66;display:flex;align-items:center;justify-content:center;padding:22px}
+#ev-l .cbox{position:relative;width:min(430px,100%);background:var(--card);border-radius:22px;padding:26px 24px 24px;box-shadow:0 30px 60px #17162e44;text-align:left}
+#ev-l .cbox h3{font-size:22px;margin:0 0 6px}
+#ev-l .cbox .cps{margin:0 0 16px;color:var(--mut);font-size:15px}
+#ev-l .cbox input{width:100%;font-size:19px;padding:15px 16px;border-radius:14px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);outline:none}
+#ev-l .cbox input:focus{border-color:var(--acc)}
+#ev-l .cbox .caddb{width:100%;margin-top:14px;padding:15px;border-radius:99px;background:var(--acc);color:var(--on);font-weight:700;font-size:16px}
+#ev-l .cbox .ux{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;background:var(--soft);color:var(--ink);font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center}
+/* Upload card: thumbnails and empty placeholders (card opens the picker directly) */
+#ev-l .upth{position:relative;width:76px;height:58px;border-radius:10px;overflow:hidden;flex:none}
+#ev-l .upth img{width:100%;height:100%;object-fit:cover;display:block}
+#ev-l .uprm{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;border:2px solid var(--card);font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center}
+#ev-l .upph{width:76px;height:58px;flex:none;border:1.5px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:10.5px;text-align:center;line-height:1.25}

@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   Menu,
   ChevronRight,
+  ArrowUp,
   ChevronDown,
   ExternalLink,
   MessageSquare,
@@ -42,9 +43,16 @@ import {
   Minimize2,
   Mail,
   Images
-} from 'lucide-react';
+, Handshake, Banknote, Copy } from 'lucide-react';
 import { db, auth } from './lib/firebase';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
+import { db as platformDb } from '../firebase';
+import { APP_ID, lsKey, scopedPath } from './lib/appScope';
+import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
+import { where } from './lib/firestoreShim';
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
+import PaymentFlow from './PaymentFlow';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -52,7 +60,7 @@ import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DE
 const InstallGuide = lazy(() => import('../components/InstallPage'));
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
-import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut } from './lib/authShim';
+import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut, debugState } from './lib/authShim';
 import { 
   collection, 
   query, 
@@ -75,6 +83,7 @@ import {
 import { 
   LogIn, 
   LogOut, 
+  Lock, 
   ShieldCheck, 
   RefreshCw,
   Save,
@@ -139,6 +148,10 @@ interface AnniversaryPortalProps {
   installable?: boolean;
   adminMode?: 'none' | 'preview' | 'real';
   template?: 'classic' | 'halo' | 'hero' | 'book';
+  // When set, the app holds at the entry banner and the tap hands control back
+  // to the caller instead of entering (the expired-trial payment flow shows
+  // the banner first so the couple sees the app is theirs).
+  paywallEnter?: () => void;
 }
 
 export interface AdItem {
@@ -197,25 +210,26 @@ function recomputeWed(date?: string, time?: string) {
   WED_DOT_SPACED = WED_DOT.split('.').join(' · ');
 }
 
-const EVENTS_DATA: WeddingEvent[] = DEMO ? (demoEvents() as any) : [
-  { id: 'intro', name: 'Introduction', type: 'Traditional introduction', date: '2026-06-20', desc: 'Both families meet, gifts are exchanged and the journey becomes official.' },
-  { id: 'engage', name: 'Engagement', type: 'Engagement ceremony', date: '2026-07-18', desc: 'The ring, the yes and the first big celebration together.' },
-  { id: 'court', name: 'Court Wedding', type: 'Registry', date: '2026-08-28', desc: 'Signing the register with our closest people.' },
-  { id: 'shower', name: 'Bridal Shower', type: "Dara's party", date: '2026-11-21', desc: 'An afternoon of games, gifts and girls with the bride.' },
-  { id: 'stag', name: "Groom's Party", type: "Femi's party", date: '2026-11-28', desc: 'The groomsmen send Femi off in style.' },
-  { id: 'church', name: 'Church Wedding', type: 'Holy matrimony', date: '2026-12-12', time: '11:00', desc: 'Vows before God, family and friends.' },
-  { id: 'reception', name: 'Reception', type: 'Hall celebration', date: '2026-12-12', time: '15:00', desc: 'Food, music, aso-ebi and the first dance.' },
-  { id: 'thanks', name: 'Thanksgiving', type: 'Thanksgiving service', date: '2026-12-13', desc: 'We close the weekend giving thanks together.' },
-];
+// Journey events are generic until the couple edits them in the dashboard.
+// demoEvents() substitutes the bound couple's names at call time, so a real
+// app never shows placeholder names baked in at module load.
+const eventsData = (): WeddingEvent[] => demoEvents() as any[];
+
+// The seed feed sample apps and pre-setup real apps show: the couple's own
+// names and hero photos across the posts, with the demo reels on the Reels tab.
+const demoSeedPosts = () => {
+  const fi = demoFeedImages();
+  return fi === DEMO_PHOTOS ? DEMO_POSTS : (DEMO_POSTS as any[]).map((sp, i) => (String(sp.id || '').startsWith('demo-seed-p') ? { ...sp, mediaUrls: [fi[i % fi.length]], text: demoText(String(sp.text || '')) } : sp));
+};
 
 // Journey status is SET BY THE COUPLE in the dashboard (Done / Next up / Upcoming).
 // This helper only seeds statuses the first time the config is written; it is
 // never used to compute what guests see at render time.
-const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
+const seedEventStatuses = (events: WeddingEvent[]): Record<string, 'done' | 'next' | 'up'> => {
   const now = Date.now();
   let nextFound = false;
   const out: Record<string, 'done' | 'next' | 'up'> = {};
-  EVENTS_DATA.forEach((e) => {
+  events.forEach((e) => {
     const t = new Date(`${e.date}T${e.time || '12:00'}:00`).getTime();
     if (t < now) { out[e.id] = 'done'; return; }
     if (!nextFound) { nextFound = true; out[e.id] = 'next'; return; }
@@ -227,27 +241,58 @@ const seedEventStatuses = (): Record<string, 'done' | 'next' | 'up'> => {
 const fmtEventDate = (e: { date: string; time?: string }) =>
   new Date(`${e.date}T${e.time || '12:00'}:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
-const DEFAULT_STORY = DEMO ? demoText(DEMO_STORY) : "Dara and Femi met at a friend's book launch in 2022. Four years, two families and one very patient pastor later, here we are. This page keeps every moment of it in one place, for life.";
+// The story text is computed at call time: a bound couple's names replace
+// the placeholder ones before anything is shown or seeded into their config.
+const demoStory = () => demoText(DEMO_STORY);
 
-const DEFAULT_DETAILS: any = (() => {
-  if (!DEMO) return {
-    churchTime: '11:00 am',
-    churchVenue: 'Redeemed Chapel, Ikeja, Lagos',
-    receptionTime: '3:00 pm',
-    receptionVenue: 'The Grand Hall, Victoria Island, Lagos',
-    asoEbi: 'emerald green and gold',
-    hashtag: '#DaraAndFemi2026',
-  };
-  // Under a bound couple, the details card shows THEIR city instead of the
-  // demo venues: no invented hall names, just their chosen location.
+// Details are generic until the couple edits them. Under a bound couple the
+// venue lines point at THEIR city (no invented hall names) and the hashtag
+// renders through demoText, so their names win everywhere.
+// Gift defaults for any details object: the section is on by default, and a
+// config saved before the gifts section existed gets the demo's placeholder
+// account details in demo mode (real apps stay empty until the couple saves
+// their own details in Settings).
+const withGiftDefaults = (base: any): any => {
+  const seed = DEMO ? ((DEMO_DETAILS as any).giftInfo || {}) : {};
+  const gi: any = { enabled: true, bank: '', accountNumber: '', accountName: '', note: '', ...seed, ...((base && base.giftInfo) || {}) };
+  // In demo mode a config saved before the gifts section existed carries empty
+  // fields; fall back to the demo placeholder details so the section shows.
+  if (DEMO && !gi.accountNumber && !gi.accountName) {
+    gi.bank = gi.bank || seed.bank || '';
+    gi.accountNumber = seed.accountNumber || '';
+    gi.accountName = seed.accountName || '';
+    gi.note = gi.note || seed.note || '';
+  }
+  return { ...base, giftInfo: gi };
+};
+
+const detailsData = (): any => {
   const d = { ...DEMO_DETAILS };
   const ov = leadOverride();
   if (ov && ov.city) {
     d.churchVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
     d.receptionVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
   }
+  d.hashtag = derivedHashtag();
   return d;
-})();
+};
+
+// The couple's own hashtag, derived from their names (#SolAndOkx), is the
+// default everywhere a hashtag shows. The details field stays editable, so a
+// hashtag they type themselves always wins over the derived one.
+const derivedHashtag = (): string => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const b = cap(demoBride()) || 'Amara';
+  const g = cap(demoGroom()) || 'Daniel';
+  return `#${b}And${g}`;
+};
+// A saved hashtag that is still the demo placeholder (or empty) falls back to
+// the couple's own derived one; anything they typed themselves stays.
+const withDerivedHashtag = (d: any): any => {
+  if (!d || typeof d !== 'object') return d;
+  if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
+  return d;
+};
 
 // Local placeholder photos used until real ones are uploaded (hero + footer grid)
 const PLACEHOLDER_IMAGES = [
@@ -308,18 +353,63 @@ const demoImageDataUrl = (file: File): Promise<string> => new Promise((resolve, 
 // Helper for centralized file uploads (Direct signed Cloudinary upload + Server proxy + Fallback)
 // Same signed Cloudinary upload as uploadToCloudinary, but reports live
 // progress (0-100) through onProgress so the feed card can show a percentage.
-const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+// Big files go up in chunks (Cloudinary's chunked-upload protocol), so a
+// 200MB or 500MB video neither trips a single-request size cap nor leaves
+// the bar frozen while the connection or the server takes its time.
+const CLOUDINARY_CHUNK_BYTES = 10 * 1024 * 1024;
+
+// ---- Storage gate (Eventicor platform settings) ----
+// Every app runs on a plan whose photo + video storage is set by the
+// Eventicor admin in the console (platform/settings). Uploads are refused
+// before any bytes leave the device once the app's media reaches the limit,
+// and every accepted upload records its size on the app's usage record so
+// the dashboard's storage chart stays live.
+export const STORAGE_FULL_MESSAGE = 'Your storage is full. Upgrade your plan to keep uploading photos and videos.';
+const GB = 1073741824;
+
+// Partners: the people, brands and businesses a couple wants their guests to
+// know, managed in the dashboard's Partners tab and shown on the app's home
+// page. Demo previews show these two.
+const DEMO_PARTNERS = [
+  { id: 'demo-lens', name: 'Lens & Light Studio', category: 'Photography', description: 'The studio shooting the wedding day. Their full album lands here first.' },
+  { id: 'demo-kiln', name: 'Kiln Films', category: 'Videography', description: 'Every highlight reel and the wedding film come from Kiln Films.' },
+];
+interface UsageRec { imagesBytes: number; videosBytes: number; count: number; updatedAt?: number }
+let platSettings: { feedPageSize: number; storage: Record<string, number> } = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } };
+let usageRec: UsageRec | null = null;
+let usagePlan = 'essential';
+export function setPlatformSettingsClient(next: { feedPageSize: number; storage: Record<string, number> }) {
+  platSettings = next;
+}
+export function setUsageClient(u: UsageRec | null, plan: string) {
+  usageRec = u;
+  usagePlan = ['essential', 'complete', 'legacy'].includes(plan) ? plan : 'essential';
+}
+export function usageLimitGB(): number { return platSettings.storage[usagePlan] || 5; }
+export function usageUsedGB(): number { return usageRec ? (usageRec.imagesBytes + usageRec.videosBytes) / GB : 0; }
+export function storageBlocked(): boolean { return usageRec ? usageRec.imagesBytes + usageRec.videosBytes >= usageLimitGB() * GB : false; }
+async function recordMediaUsage(bytes: number, isVideo: boolean) {
+  if (DEMO || !auth?.currentUser || !bytes) return;
+  try {
+    const ref = doc(db, scopedPath('usage'), 'main');
+    const patch: any = { count: increment(1), updatedAt: serverTimestamp() };
+    patch[isVideo ? 'videosBytes' : 'imagesBytes'] = increment(bytes);
+    await setDoc(ref, patch, { merge: true });
+    try { window.dispatchEvent(new Event('ann-usage-dirty')); } catch {}
+  } catch { /* the chart catches up on the next snapshot */ }
+}
+
+const uploadToCloudinaryWithProgressInner = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
   const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
 
   const signatureEndpoints = [
     `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
-    // Interim signer while this site's Cloudinary env is pending (same account).
-    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
+  let sigData: any = null;
   for (const sigEndpoint of signatureEndpoints) {
     try {
       const sigRes = await fetch(sigEndpoint, {
@@ -330,202 +420,213 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
           ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
         }
       });
-
       if (sigRes.ok) {
-        const sigData = await sigRes.json().catch(() => null);
-        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
-          const result = await new Promise<string>((resolve, reject) => {
+        const sigJson = await sigRes.json().catch(() => null);
+        if (sigJson && sigJson.signature && sigJson.cloudName && sigJson.apiKey) { sigData = sigJson; break; }
+      }
+    } catch { /* try the next signature endpoint */ }
+  }
+
+  if (!sigData) {
+    onProgress(99);
+    return await uploadToCloudinary(file, folder);
+  }
+
+  const resourceType = isVideo ? 'video' : 'auto';
+  const endpoint = `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${resourceType}/upload`;
+  const report = (doneBytes: number) => {
+    // 99 is the top while bytes are still moving; 100 only when the asset
+    // is actually accepted, so the wait after the last byte never reads as
+    // a stuck bar.
+    if (onProgress && file.size > 0) onProgress(Math.min(99, Math.round((doneBytes / file.size) * 100)));
+  };
+
+  if (file.size > CLOUDINARY_CHUNK_BYTES) {
+    try {
+      const uniqueId = `evc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      let offset = 0;
+      let lastJson: any = null;
+      while (offset < file.size) {
+        const end = Math.min(offset + CLOUDINARY_CHUNK_BYTES, file.size);
+        let attempt = 0;
+        for (;;) {
+          attempt += 1;
+          try {
             const form = new FormData();
-            form.append('file', file, fileName);
+            form.append('file', file.slice(offset, end), fileName);
+            // Every chunk needs the signed auth params: Cloudinary treats a
+            // chunk without them as unsigned and rejects it with a 400.
             form.append('api_key', sigData.apiKey);
             form.append('timestamp', String(sigData.timestamp));
             form.append('signature', sigData.signature);
             form.append('folder', sigData.folder || folder);
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${isVideo ? 'video' : 'auto'}/upload`);
-            xhr.upload.onprogress = (e) => {
-              if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-            };
-            xhr.onload = () => {
-              try {
-                const j = JSON.parse(xhr.responseText);
-                if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) resolve(j.secure_url);
-                else reject(new Error('Cloudinary upload failed'));
-              } catch {
-                reject(new Error('Bad upload response'));
-              }
-            };
-            xhr.onerror = () => reject(new Error('Network error during upload'));
-            xhr.send(form);
-          });
-          onProgress(100);
-          return result;
+            const chunkJson: any = await new Promise<any>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', endpoint);
+              xhr.setRequestHeader('X-Unique-Upload-Id', uniqueId);
+              xhr.setRequestHeader('Content-Range', `bytes ${offset}-${end - 1}/${file.size}`);
+              xhr.upload.onprogress = (e) => { if (e.lengthComputable) report(offset + e.loaded); };
+              xhr.onload = () => {
+                try {
+                  const j = JSON.parse(xhr.responseText);
+                  if (xhr.status >= 200 && xhr.status < 300) resolve(j);
+                  else reject(new Error(`Cloudinary chunk failed (${xhr.status})`));
+                } catch { reject(new Error('Bad chunk response')); }
+              };
+              xhr.onerror = () => reject(new Error('Network error during chunk upload'));
+              xhr.send(form);
+            });
+            report(end);
+            lastJson = chunkJson;
+            break;
+          } catch (chunkErr) {
+            // A dropped chunk retries twice more before the whole upload
+            // falls back, so a flaky mobile connection does not throw away
+            // everything already on the server.
+            if (attempt >= 3) throw chunkErr;
+            await new Promise((r) => setTimeout(r, 800 * attempt));
+          }
         }
+        if (lastJson?.secure_url) { onProgress(100); return lastJson.secure_url; }
+        offset = end;
       }
-    } catch (directErr) {
-      console.warn(`Progress upload via ${sigEndpoint} failed:`, directErr);
+      if (lastJson?.secure_url) { onProgress(100); return lastJson.secure_url; }
+      throw new Error('Chunked upload finished without a URL');
+    } catch (chunkedErr) {
+      console.warn('Chunked upload failed, falling back to a single request:', chunkedErr);
     }
   }
 
-  // Fallback with no live progress.
-  onProgress(99);
-  return await uploadToCloudinary(file, folder);
+  const result = await new Promise<string>((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file, fileName);
+    form.append('api_key', sigData.apiKey);
+    form.append('timestamp', String(sigData.timestamp));
+    form.append('signature', sigData.signature);
+    form.append('folder', sigData.folder || folder);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100))); };
+    xhr.onload = () => {
+      try {
+        const j = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) resolve(j.secure_url);
+        else reject(new Error('Cloudinary upload failed'));
+      } catch { reject(new Error('Bad upload response')); }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(form);
+  });
+  onProgress(100);
+  return result;
+};
+
+// A video is known by its MIME type, or by its extension when the phone's
+// file picker hands the file over with an empty type (common on Android).
+const isVideoFile = (f: any): boolean =>
+  Boolean(f?.type && String(f.type).startsWith('video/')) || /\.(mp4|mov|webm|mkv|avi|m4v|3gp)$/i.test(f?.name || '');
+
+// The six Eventicor accents (the landing page's palette). The dashboard's
+// accent picker under the hero style switches the whole app's color.
+const ACCENT_CHOICES: [string, string, string][] = [
+  ['midnight', 'Midnight', '#14122b'],
+  ['blush', 'Blush', '#d6285f'],
+  ['emerald', 'Emerald', '#0c4a36'],
+  ['royal', 'Royal', '#2236b4'],
+  ['sunset', 'Sunset', '#e07a4f'],
+  ['sage', 'Sage', '#2e5c45'],
+];
+const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }> = {
+  midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
+  blush: { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
+  emerald: { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
+  royal: { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
+  sunset: { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
+  sage: { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+};
+const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
+
+// Public wrapper: checks the app's storage before a single byte moves, then
+// records what was accepted once Cloudinary confirms the upload.
+const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+  if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
+  const url = await uploadToCloudinaryWithProgressInner(file, folder, onProgress);
+  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
+  const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
+  await recordMediaUsage(file.size || 0, isVideo);
+  return url;
 };
 
 const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
+  if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
+  const url = await uploadToCloudinaryWithProgressInner(file, folder, () => {});
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
-
-  // Attach the caller's Firebase ID token so the signature endpoint can verify them.
-  const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
-
-  console.log(`Starting upload to Cloudinary: ${file.size} bytes (${fileName}) to folder ${folder}`);
-
-  // Strategy 1: Direct signed upload to Cloudinary API (works on both Express /api/upload-signature and Netlify /.netlify/functions/upload-signature)
-  const signatureEndpoints = [
-    `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`,
-    // Interim signer while this site's Cloudinary env is pending (same account).
-    `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`
-  ];
-
-  for (const sigEndpoint of signatureEndpoints) {
-    try {
-      const sigRes = await fetch(sigEndpoint, {
-        method: 'GET',
-        credentials: sigEndpoint.startsWith('http') ? 'omit' : 'include',
-        headers: {
-          'Accept': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-        }
-      });
-
-      if (sigRes.ok) {
-        const sigText = await sigRes.text();
-        let sigData: any = null;
-        try {
-          sigData = JSON.parse(sigText);
-        } catch {
-          sigData = null;
-        }
-
-        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
-          const directForm = new FormData();
-          directForm.append('file', file, fileName);
-          directForm.append('api_key', sigData.apiKey);
-          directForm.append('timestamp', String(sigData.timestamp));
-          directForm.append('signature', sigData.signature);
-          directForm.append('folder', sigData.folder || folder);
-
-          const resourceType = isVideo ? 'video' : 'auto';
-          const directRes = await fetch(
-            `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${resourceType}/upload`,
-            {
-              method: 'POST',
-              body: directForm
-            }
-          );
-
-          const directJson = await directRes.json().catch(() => null);
-          if (directRes.ok && directJson?.secure_url) {
-            return directJson.secure_url;
-          }
-          console.warn('Direct Cloudinary upload returned non-OK, falling back:', directJson);
-          break;
-        }
-      }
-    } catch (directErr) {
-      console.warn(`Signature check via ${sigEndpoint} failed:`, directErr);
-    }
-  }
-
-  // Strategy 2: Server-side / Netlify Function proxy upload (/api/upload or /.netlify/functions/upload)
-  const formData = new FormData();
-  formData.append('file', file, fileName);
-  formData.append('folder', folder);
-
-  let res = await fetch('/api/upload', {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Accept': 'application/json',
-      ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-    },
-    body: formData
-  });
-
-  if (res.status === 404) {
-    res = await fetch('/.netlify/functions/upload', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-      },
-      body: formData
-    });
-  }
-
-  const responseText = await res.text();
-  let responseData: any = null;
-  try {
-    responseData = JSON.parse(responseText);
-  } catch {
-    // Not JSON (e.g., proxy cookie_check HTML or 413 HTML page)
-  }
-
-  if (res.ok && responseData?.url) {
-    return responseData.url;
-  }
-
-  // Strategy 3: If the proxy intercepted the request with an HTML page (like cookie_check.html)
-  // or if the file is an image that can be embedded as a compact Data URL (< 700KB), fallback gracefully
-  if (!isVideo && file.size <= 700 * 1024) {
-    try {
-      const dataUrl = await blobToDataUrl(file);
-      return dataUrl;
-    } catch {
-      // Ignore fallback error and throw descriptive error below
-    }
-  }
-
-  if (responseText.trim().toLowerCase().startsWith('<!doctype html') || responseText.trim().toLowerCase().startsWith('<html')) {
-    if (res.status === 413 || file.size > 30 * 1024 * 1024) {
-      throw new Error('File is too large (max 30MB). Please choose a smaller file.');
-    }
-    throw new Error('Session cookie check intercepted upload. Please refresh the page and try again.');
-  }
-
-  const errorInfo = responseData?.details || responseData?.error || responseData?.message || responseText.substring(0, 160) || `Status ${res.status}`;
-  throw new Error(`Upload failed: ${errorInfo}`);
+  await recordMediaUsage(file.size || 0, isVideo);
+  return url;
 };
-
-export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false }: AnniversaryPortalProps) {
+export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false, paywallEnter }: AnniversaryPortalProps) {
+  // ?nochrome=1 (the dashboard's preview mockup): the Home page only, with no
+  // splash, no header buttons, no bottom nav and no admin shortcut.
+  const noChrome = (() => { try { return new URLSearchParams(window.location.search).has('nochrome'); } catch { return false; } })();
   const [activeTab, setActiveTab] = useState<string>(() => {
-    try { return localStorage.getItem('ann-last-tab') || 'home'; } catch { return 'home'; }
+    // ?home=1 (the dashboard's preview popup) always opens Home, whatever tab
+    // the visitor last viewed.
+    try {
+      if (new URLSearchParams(window.location.search).has('home')) return 'home';
+      return localStorage.getItem(lsKey('last-tab')) || 'home';
+    } catch { return 'home'; }
   });
+  // In the preview mockup the app stays on Home: any navigation attempt is
+  // bounced straight back so the mockup only ever shows the homepage.
+  useEffect(() => { if (noChrome && activeTab !== 'home') setActiveTab('home'); }, [activeTab, noChrome]);
   const [feedSubTab, setFeedSubTab] = useState<'post' | 'reels'>(() => {
-    try { return (localStorage.getItem('ann-last-feedtab') as 'post' | 'reels') || 'post'; } catch { return 'post'; }
+    try { return (localStorage.getItem(lsKey('last-feedtab')) as 'post' | 'reels') || 'post'; } catch { return 'post'; }
   });
   const [videoOrientations, setVideoOrientations] = useState<Record<string, 'portrait' | 'landscape'>>({});
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
-  const [fontSize, setFontSize] = useState<'m' | 'l' | 'xl'>('m');
+  const [fontSize, setFontSize] = useState<'m' | 'l' | 'xl'>('l');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [footerImages, setFooterImages] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem('ann-footer-images');
+      const stored = localStorage.getItem(lsKey('footer-images'));
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
     }
   });
   const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
+  // The small thank-you line every giant footer style shows above the couple's
+  // names; editable in the dashboard's Giant footer style card.
+  const [footerThanks, setFooterThanks] = useState<string>(() => { try { return localStorage.getItem(lsKey('footer-thanks')) || ''; } catch { return ''; } });
   // Journey dropdown: which event card is expanded (one at a time).
   const [openEventId, setOpenEventId] = useState<string | null>(null);
-  const [evImgBusy, setEvImgBusy] = useState<string | null>(null);
-  // Giant footer look, chosen by the couple in the dashboard.
-  const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee'>(() => {
-    try { return localStorage.getItem('ann-footer-style') === 'marquee' ? 'marquee' : 'wall'; } catch { return 'wall'; }
+  // Giant footer look, chosen by the couple in the dashboard. A brand-new app
+  // gets one of the two styles at random (stored once), so users do not all
+  // land on the same look; a choice saved in the dashboard always wins.
+  const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee' | 'tunnel' | 'globe'>(() => {
+    try {
+      // ?fs=<style> (the admin console's giant footer Preview): forces the look
+      // for that visit, over the couple's saved choice.
+      const fsParam = new URLSearchParams(window.location.search).get('fs');
+      if (fsParam === 'wall' || fsParam === 'marquee' || fsParam === 'tunnel' || fsParam === 'globe') return fsParam;
+      const saved = localStorage.getItem(lsKey('footer-style'));
+      if (saved === 'wall' || saved === 'marquee' || saved === 'tunnel' || saved === 'globe') return saved;
+      const pick = Math.random() < 0.5 ? 'wall' : 'marquee';
+      localStorage.setItem(lsKey('footer-style'), pick);
+      return pick;
+    } catch { return Math.random() < 0.5 ? 'wall' : 'marquee'; }
+  });
+  // Hero style: which of the four hero designs the app shows. The link's
+  // template decides the starting look; a choice saved in the dashboard always
+  // wins and persists like the footer style does.
+  const [heroTpl, setHeroTpl] = useState<'classic' | 'halo' | 'hero' | 'book'>(() => {
+    try {
+      const saved = localStorage.getItem(lsKey('hero-tpl'));
+      if (saved === 'classic' || saved === 'halo' || saved === 'hero' || saved === 'book') return saved;
+    } catch { /* ignore */ }
+    return (template || 'classic') as 'classic' | 'halo' | 'hero' | 'book';
   });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
@@ -545,6 +646,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [mustSetPassword, setMustSetPassword] = useState(false);
+  const [adminSync, setAdminSync] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -554,8 +656,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Firebase & Profile State
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [displayName, setDisplayName] = useState(localStorage.getItem('ann-profile-name') || '');
-  const [avatar, setAvatar] = useState(localStorage.getItem('ann-profile-avatar') || '');
+  const [displayName, setDisplayName] = useState(localStorage.getItem(lsKey('profile-name')) || '');
+  const [avatar, setAvatar] = useState(localStorage.getItem(lsKey('profile-avatar')) || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
@@ -588,10 +690,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     adminTapCountRef.current += 1;
     if (adminTapCountRef.current < 3) return;
     adminTapCountRef.current = 0;
+    // A signed-in admin goes straight back into the dashboard without signing
+    // in again; the session timeout (the Security section) is what protects it.
+    if (user && !user.isAnonymous && isAdmin) { goAdminPage(); return; }
     shortcutLoginRef.current = true;
     setAuthScreen('signin');
   };
   const leaveAdminPage = () => {
+    // Deliberately leaving the dashboard (View app) ends the boot-restore gate:
+    // without this, the "Opening your dashboard" loader would flip back on and
+    // cover the app the moment isAdminModalOpen goes false (user report Nov 20).
+    wasAdminOpenOnLoadRef.current = false;
     setIsAdminDashboardOpen(false);
     if (window.location.hash === '#admin') {
       try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
@@ -612,6 +721,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isPosting, setIsPosting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAdminSessionValid, setIsAdminSessionValid] = useState(false);
+  // True once the auth listener has reported for this page load, so a refresh
+  // never flashes the sign-in screen while the session is being restored.
+  const [authChecked, setAuthChecked] = useState(false);
+  // True once the signed-in user's admins-doc lookup has answered (either
+  // verdict). The /admin gate must wait for it too, or a refreshing admin
+  // glimpses the sign-in screen in the gap before isAdmin resolves.
+  const [adminStatusChecked, setAdminStatusChecked] = useState(false);
+  // The preview mockup's iframe boots a second copy of this app on the same
+  // Firebase auth. Its initialization can broadcast a transient signed-out
+  // state to this tab; never tear a live admin session down for that.
+  const lastRealAdminRef = useRef(false);
+  const explicitSignOutRef = useRef(false);
+  const [authTransient, setAuthTransient] = useState(false);
+  const doSignOut = () => { explicitSignOutRef.current = true; signOut(auth); };
+  // Eventicor admin contact + payment details saved in app_config.
+  const [cfgContact, setCfgContact] = useState<any>(null);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -629,48 +754,88 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [archiveMode, setArchiveMode] = useState<boolean>(false);
   const [blockedUids, setBlockedUids] = useState<string[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  // Partners: live from this app's Firestore, managed in the dashboard's
+  // Partners tab. Demo previews show the demo partners.
+  const [partners, setPartners] = useState<any[]>(() => DEMO ? DEMO_PARTNERS : []);
+  useEffect(() => {
+    if (DEMO) return;
+    try {
+      const unsub = onSnapshot(query(collection(db, scopedPath('partners')), orderBy('createdAt', 'asc')), (snap: any) => {
+        setPartners(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+      }, () => {});
+      return () => { try { unsub(); } catch {} };
+    } catch { return; }
+  }, []);
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
+  // Private feed gate: when the admin turns the feed private, every non-admin
+  // viewer is held at the entry banner and must type the access code (checked
+  // on the server) before posts and reels show again. feedGateGen changes
+  // every time the code is revoked or replaced, which sends every device that
+  // was granted under the old code back to the banner.
+  const [feedPrivate, setFeedPrivate] = useState<boolean>(() => {
+    try { const g = JSON.parse(localStorage.getItem(lsKey('feed-gate-cfg')) || 'null'); return !!(g && g.private); } catch { return false; }
+  });
+  const [feedGateGen, setFeedGateGen] = useState<number>(() => {
+    try { const g = JSON.parse(localStorage.getItem(lsKey('feed-gate-cfg')) || 'null'); const n = Number(g && g.gen); return n > 0 ? Math.floor(n) : 1; } catch { return 1; }
+  });
+  const [feedGranted, setFeedGranted] = useState<number>(() => {
+    try { return Number(localStorage.getItem(lsKey('feed-gate'))) || 0; } catch { return 0; }
+  });
+  const [gateInput, setGateInput] = useState<string>('');
+  const [gateBusy, setGateBusy] = useState<boolean>(false);
+  const [feedPageSize, setFeedPageSize] = useState(0); // 0 = show every post (no pagination)
+  const [feedPage, setFeedPage] = useState(1);
   const [pushEnabled, setPushEnabled] = useState<boolean>(true);
   // Feed action button mode: 'share' opens the share sheet, 'download' saves the
   // media straight to the guest's device. Chosen by the admin in the console
   // Settings tab and stored on app_config/main as feedActionMode.
   const [feedActionMode, setFeedActionMode] = useState<'share' | 'download'>('share');
   const [adminPermissions, setAdminPermissions] = useState<any>(null);
+  const [selfAdminRole, setSelfAdminRole] = useState('');
   const [deletedPosts, setDeletedPosts] = useState<any[]>([]);
   const [allAdmins, setAllAdmins] = useState<any[]>([]);
   // Label attached to each hero photo (url -> event name), set in the console's
   // Hero photos tab and stored on app_config/main.
   const [heroImageLabels, setHeroImageLabels] = useState<Record<string, string>>({});
   const [heroImages, setHeroImages] = useState<string[]>(() => {
-    if (DEMO) return demoHeroImages();
     try {
-      const cached = localStorage.getItem('ann-hero-images');
+      const cached = localStorage.getItem(lsKey('hero-images'));
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length) return parsed;
       }
     } catch {
       // Ignore parse error
     }
-    return [];
+    // Until the couple saves hero photos of their own, the uploads they made
+    // on the landing page show in the hero on real apps too.
+    return demoHeroImages();
   });
   const [postAds, setPostAds] = useState<AdItem[]>([]);
   const [reelAds, setReelAds] = useState<AdItem[]>([]);
   const [shuffledPostAds, setShuffledPostAds] = useState<AdItem[]>([]);
   const [shuffledReelAds, setShuffledReelAds] = useState<AdItem[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
+  // True once Firestore reports at least one real post. Then every placeholder
+  // leaves the feed, posts and reels alike. Once an app has made a real post,
+  // that fact is remembered on the device (feed-real): a later empty snapshot,
+  // a slow connection or a listener error must never bring the sample
+  // placeholders back on that account.
+  const [feedReal, setFeedReal] = useState<boolean>(() => {
+    try { return typeof window !== 'undefined' && localStorage.getItem(lsKey('feed-real')) === '1'; } catch { return false; }
+  });
 
   // Sample-mode markers: the demo preview (and any app with no real posts yet)
   // carries a permanent sample notice and chips; they disappear the moment the
   // first real post exists.
-  const sampleMode = DEMO || !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-'));
+  const sampleMode = DEMO || (!feedReal && !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-')));
   const [isPostsLoading, setIsPostsLoading] = useState(true);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
 
   const [bookmarks, setBookmarks] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('ann-bookmarks') || '[]');
+      return JSON.parse(localStorage.getItem(lsKey('bookmarks')) || '[]');
     } catch {
       return [];
     }
@@ -678,6 +843,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
   const sessionWarningRef = useRef(false);
+  // Session length (minutes) for THIS admin; the value lives on their admins
+  // record on the server and is enforced there too. Default 30 minutes.
+  const sessionMinutesRef = useRef(30);
+  // Sliding session window: the timeout counts from the admin's last real
+  // activity, so a signed-in admin who returns is never booted by a clock
+  // that never restarted since the original sign-in.
+  const lastActivityRef = useRef(Date.now());
+  const authTimeMsRef = useRef(0);
+  const lastKnownLaRef = useRef(0);
   const [userLikes, setUserLikes] = useState<Record<string, boolean>>({});
   const [userLoves, setUserLoves] = useState<Record<string, boolean>>({});
   const [reactionsLoading, setReactionsLoading] = useState(true);
@@ -688,8 +862,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // PWA Install, Launch Follow-up Splash & Offline State
   const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => {
-    if (previewMode) return false;
-    try { return !localStorage.getItem('ann-last-tab'); } catch { return true; }
+    if (paywallEnter) return true;
+    if (previewMode || noChrome) return false;
+    // The entry banner (couple's names + Eventicor branding + Tap to enter) shows
+    // on every fresh open of the app, new session included; within one session a
+    // refresh keeps the visitor where they were instead of re-showing it.
+    // The dashboard was open when the app last closed: skip the entry banner
+    // so the reopening admin lands in the dashboard, not the public app.
+    try {
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
+      if (storedAdminUi && storedAdminUi.open) return false;
+    } catch { /* fall through */ }
+    try { return sessionStorage.getItem('ev-entered') !== '1'; } catch { return true; }
   });
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(() => (typeof window !== 'undefined' ? (window as any).__deferredPwaPrompt || null : null));
   const [isPWAInstalled, setIsPWAInstalled] = useState(false);
@@ -698,16 +882,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-  useEffect(() => {
-    const splashTimer = setTimeout(() => {
-      setShowLaunchSplash(false);
-    }, 5000);
-    return () => clearTimeout(splashTimer);
-  }, []);
+  // The private feed holds only the feed page: a non-admin viewer without a
+  // grant for the current gate generation sees the entry banner on the feed
+  // tab, while home, settings and the bottom nav stay open.
+  const feedLocked = feedPrivate && adminMode !== 'preview' && !isAdmin && feedGranted !== feedGateGen;
+
+  const enterApp = () => {
+    if (paywallEnter) { paywallEnter(); return; }
+    try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
+    setShowLaunchSplash(false);
+  };
 
   // Keep the visitor where they were across refreshes
   useEffect(() => {
-    try { localStorage.setItem('ann-last-tab', activeTab); } catch {}
+    try { localStorage.setItem(lsKey('last-tab'), activeTab); } catch {}
   }, [activeTab]);
   // The phone's back button walks the app's own history instead of quitting the app.
   const viewStackRef = useRef<string[]>([]);
@@ -738,7 +926,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    try { localStorage.setItem('ann-last-feedtab', feedSubTab); } catch {}
+    try { localStorage.setItem(lsKey('last-feedtab'), feedSubTab); } catch {}
   }, [feedSubTab]);
 
   // Reopen the admin dashboard where it was left after a refresh
@@ -750,8 +938,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return;
     }
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
-      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, open: isAdminModalOpen }));
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+      localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, open: isAdminModalOpen }));
     } catch {}
   }, [isAdminModalOpen]);
   useEffect(() => {
@@ -769,7 +957,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   useEffect(() => {
     if (!user || !isAdmin) return;
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       if (storedAdminUi && storedAdminUi.open) {
         setIsAdminDashboardOpen(true);
         setRoute('/admin');
@@ -779,6 +967,51 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
     } catch {}
   }, [user, isAdmin]);
+
+  // A refresh with the dashboard open lands straight back in the dashboard:
+  // never the public guest app, never the sign-in screen while the session is
+  // being restored. A boot gate holds a full-screen loader until the admin
+  // role is confirmed; only a genuinely signed-out or non-admin session drops
+  // to the sign-in screen, and a network hiccup on the admins lookup retries
+  // instead of kicking the admin out.
+  const wasAdminOpenOnLoadRef = useRef((() => { try { const s = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null'); return !!(s && s.open); } catch { return false; } })());
+  const adminRetryCountRef = useRef(0);
+  const [adminRetryNonce, setAdminRetryNonce] = useState(0);
+  // Bounded boot gate: the "Opening your dashboard" loader must never hold
+  // forever. On a very slow or offline network the auth session or the admins
+  // lookup can hang without erroring, which used to leave a spinner until the
+  // admin refreshed by hand. After 12 seconds the gate releases itself; the
+  // dashboard-reopen effect still opens the dashboard the moment the role
+  // actually confirms.
+  const [bootGateTimedOut, setBootGateTimedOut] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setBootGateTimedOut(true), 12000);
+    return () => window.clearTimeout(t);
+  }, []);
+  const adminLookupErrored = adminSync.startsWith('err:');
+  const adminRestorePending = !noChrome && adminMode === 'real'
+    && wasAdminOpenOnLoadRef.current
+    && !bootGateTimedOut
+    && !(
+      authChecked && (
+        (user && !user.isAnonymous && isAdmin && isAdminModalOpen) ||
+        (!user || !!user.isAnonymous) ||
+        (adminStatusChecked && !adminLookupErrored && !isAdmin)
+      )
+    );
+  // The dashboard and the admin loader stay up while a transient auth
+  // broadcast from the preview mockup's iframe is settling.
+  const adminGateOk = adminMode === 'preview' || (user && !user.isAnonymous && isAdmin) || (!!authTransient && isAdmin);
+  useEffect(() => {
+    if (adminMode !== 'real' || !wasAdminOpenOnLoadRef.current) return;
+    if (authChecked && !authTransient && (!user || !!user.isAnonymous || (adminStatusChecked && !adminLookupErrored && !isAdmin))) {
+      wasAdminOpenOnLoadRef.current = false;
+      try {
+        const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+        localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, open: false }));
+      } catch {}
+    }
+  }, [authChecked, user, isAdmin, adminStatusChecked, adminLookupErrored, adminMode]);
 
   useEffect(() => {
     const isStandalone =
@@ -911,20 +1144,31 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 1. Handle Auth & Session
   useEffect(() => {
-    if (DEMO) return; // Previews run fully offline: no anonymous sign-in, no Firebase
+    if (DEMO && adminMode !== 'real') return; // Previews and sample apps run fully offline; a real couple's app runs the real auth flow (guest anonymous sign-in, admin sign-in state)
     const unsub = onAuthStateChanged(auth, async (currUser) => {
+      try { setAuthChecked(true);
+      // The preview mockup's iframe is only a look: it reads the signed-in
+      // user and never mutates auth, so opening it can never disturb the
+      // admin's real session.
+      if (noChrome) { setUser(currUser || null); return; }
       if (currUser) {
         setUser(currUser);
+        setAuthTransient(false);
         
         // Admin Session Management
         if (!currUser.isAnonymous) {
+          lastRealAdminRef.current = true;
+          explicitSignOutRef.current = false;
           const idToken = await currUser.getIdTokenResult();
           const authTime = (idToken.claims.auth_time as any) || Math.floor(new Date(currUser.metadata.lastSignInTime || Date.now()).getTime() / 1000);
-          const expiresAt = (Number(authTime) + 1800) * 1000; // 30 minutes
+          authTimeMsRef.current = Number(authTime) * 1000;
+          const sessionMinutes = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
+          const expiresAt = (Number(authTime) + sessionMinutes * 60) * 1000;
           const now = Date.now();
           
-          if (now >= expiresAt) {
-            signOut(auth);
+          const idleExpiresAt = lastActivityRef.current + sessionMinutes * 60000;
+          if (now >= idleExpiresAt) {
+            doSignOut();
             setIsAdminSessionValid(false);
             showToast("Your admin session expired. Please sign in again.", "info");
           } else {
@@ -936,16 +1180,34 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setSessionExpiry(null);
           setIsAdminSessionValid(false);
         }
+      } else if (lastRealAdminRef.current && !explicitSignOutRef.current) {
+        // A second context booting on the same Firebase auth (the preview
+        // mockup's iframe) can broadcast a transient signed-out state. Never
+        // tear a live admin session down for it: hold, and only accept the
+        // sign-out if it really persists.
+        setAuthTransient(true);
+        window.setTimeout(() => {
+          if ((auth as any).currentUser) return; // the admin is back
+          setAuthTransient(false);
+          setUser(null);
+          setIsAdmin(false);
+          setAdminPermissions(null);
+          setSessionExpiry(null);
+          setIsAdminSessionValid(false);
+          signInAnonymously(auth).catch(err => console.error("Anonymous auth error:", err));
+        }, 3000);
       } else {
+        setAuthTransient(false);
         setUser(null);
         setIsAdmin(false);
         setAdminPermissions(null);
         setSessionExpiry(null);
         signInAnonymously(auth).catch(err => console.error("Anonymous auth error:", err));
       }
+      } catch (eAuth) { console.error('Auth state listener error:', eAuth); }
     });
     return () => unsub();
-  }, []);
+  }, [adminMode]);
 
   // 1b. Session Expiry Timers & Visibility Checks
   useEffect(() => {
@@ -953,10 +1215,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     const checkExpiry = () => {
       const now = Date.now();
-      const timeLeft = sessionExpiry - now;
+      // The window slides with use: the timeout counts from the last real
+      // interaction, not from the original sign-in.
+      const idleMins = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
+      const timeLeft = lastActivityRef.current + idleMins * 60000 - now;
 
       if (timeLeft <= 0) {
-        signOut(auth);
+        doSignOut();
         setIsAdminDashboardOpen(false);
         if (window.location.hash === '#admin') {
           try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
@@ -981,14 +1246,41 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     };
   }, [sessionExpiry, user]);
 
+  // 1c. Keep the server's idle marker current: a visible dashboard writes the
+  // admin's last activity onto their own admins record every few minutes, so
+  // the server's idle check agrees with what the admin experiences.
+  useEffect(() => {
+    if (!user || user.isAnonymous) return;
+    const email = user.email || '';
+    if (!email) return;
+    const bump = () => { lastActivityRef.current = Date.now(); };
+    const ACT = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'];
+    ACT.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    let lastWrite = lastKnownLaRef.current || Date.now();
+    const writeBeat = () => {
+      const when = lastActivityRef.current;
+      lastWrite = Math.max(lastWrite, when);
+      setDoc(doc(db, scopedPath('admins'), email), { lastActiveAt: Timestamp.fromMillis(when) }, { merge: true }).catch(() => {});
+    };
+    const beat = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (lastActivityRef.current <= lastWrite) return; // nothing new since the last write
+      writeBeat();
+    }, 4 * 60 * 1000);
+    return () => {
+      ACT.forEach((e) => window.removeEventListener(e, bump));
+      window.clearInterval(beat);
+    };
+  }, [user?.uid, user?.email]);
+
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
+    if (noChrome) return; // the preview mockup never touches admin state
     if (!user) return;
 
-    const isSuper = user.email === "justfashion414@gmail.com";
 
-    // Sync profile
-    const profileUnsub = onSnapshot(doc(db, 'residents', user.uid), (snap) => {
+    // Sync profile (real wedding apps only: the demo stub db has no residents)
+    const profileUnsub = DEMO ? null : onSnapshot(doc(db, scopedPath('residents'), user.uid), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.displayName) setDisplayName(data.displayName);
@@ -999,55 +1291,125 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       handleFirestoreError(err, OperationType.GET, `residents/${user.uid}`);
     });
 
+    // Guests sign in anonymously: the profile above is theirs. Everything from
+    // here on (admin status, provisioning) only applies to signed-in,
+    // non-anonymous accounts.
+    if (user.isAnonymous) {
+      return () => { if (profileUnsub) profileUnsub(); };
+    }
+    setAdminStatusChecked(false);
+
     // Sync admin status
-    const adminUnsub = onSnapshot(doc(db, 'admins', user.email || 'anonymous'), (snap) => {
+    setAdminSync('sub:' + (user.email || 'anonymous'));
+    getDoc(doc(platformDb, scopedPath('admins'), user.email || 'anonymous')).then((d) => { setAdminSync((prev) => prev + '|get:' + (d.exists() ? 'exists' : 'missing')); setAdminStatusChecked(true); }, (e: any) => { setAdminSync((prev) => prev + '|getErr:' + (e?.code || String(e))); setAdminStatusChecked(true); });
+    const adminUnsub = onSnapshot(doc(platformDb, scopedPath('admins'), user.email || 'anonymous'), (snap) => {
+      setAdminStatusChecked(true);
       if (snap.exists()) {
+        setAdminSync('exists');
         setIsAdmin(true);
-        setAdminPermissions(snap.data().permissions);
-        setMustSetPassword(!!snap.data().mustSetPassword);
-        if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
-      } else if (isSuper) {
-        setMustSetPassword(false);
-        setIsAdmin(true);
-        setAdminPermissions({ 
-          canDeletePosts: true, 
-          canUploadImages: true, 
-          canSetAccessCode: true 
-        });
+        // Owner, couple, admin, bride and groom always keep full dashboard
+        // rights: a stale or damaged permissions object on their doc must not
+        // hide the Hero photos and Giant footer cards again.
+        const admDoc = snap.data() as any;
+        setSelfAdminRole(String(admDoc.role || 'owner'));
+        const admPerms = admDoc.permissions || {};
+        const admFullRole = ['owner', 'couple', 'admin', 'bride', 'groom'].includes(String(admDoc.role || 'owner'));
+        setAdminPermissions(admFullRole
+          ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
+          : { canDeletePosts: !!admPerms.canDeletePosts, canUploadImages: admPerms.canUploadImages !== false, canSetAccessCode: !!admPerms.canSetAccessCode });
+        setMustSetPassword(!!admDoc.mustSetPassword);
+        const mins = Number(snap.data().sessionMinutes);
+        if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
+        // Idle session window: lastActiveAt (written while the admin works)
+        // extends the window past the original sign-in. Opening the app counts
+        // as activity only when the session is still inside its window, so an
+        // idle-expired session ends here and cannot be revived by returning.
+        const admLa: any = admDoc.lastActiveAt;
+        const laMs = admLa?.toDate ? admLa.toDate().getTime() : (Number(admLa?.seconds || 0) * 1000 || 0);
+        lastKnownLaRef.current = laMs;
+        const idleMins = mins >= 5 ? Math.min(mins, 10080) : (Number(sessionMinutesRef.current) || 30);
+        const idleStart = Math.max(authTimeMsRef.current || 0, laMs || 0);
+        if (idleStart && Date.now() - idleStart > idleMins * 60000 + 60000) {
+          doSignOut();
+          setIsAdminSessionValid(false);
+          setIsAdminDashboardOpen(false);
+          if (window.location.hash === '#admin') {
+            try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
+          }
+          setRoute('/');
+          showToast('Your admin session expired. Please sign in again.', 'info');
+        } else if (!laMs || Date.now() - laMs > 60000) {
+          // First read of this visit (or a cold record): stamp this visit's
+          // start as activity.
+          setDoc(doc(db, scopedPath('admins'), user.email || ''), { lastActiveAt: Timestamp.fromMillis(lastActivityRef.current) }, { merge: true }).catch(() => {});
+        }
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else {
+        // Every account is checked against THIS app's admins list only: the
+        // platform's own login stays inside the Eventicor console and never
+        // opens a couple's app admin (user direction Nov 21 2026).
+        setAdminSync('missing');
+        setSelfAdminRole('');
         setIsAdmin(false);
         setAdminPermissions(null);
         adminAutoOpenedRef.current = false;
       }
     }, (err) => {
+      setAdminSync('err:' + ((err as any).code || String(err)));
+      setAdminStatusChecked(true);
       handleFirestoreError(err, OperationType.GET, `admins/${user.email}`);
+      // A network hiccup on the admins lookup must never land a returning
+      // admin on the sign-in screen: retry the lookup while the boot restore
+      // is still holding the screen.
+      if (wasAdminOpenOnLoadRef.current && adminRetryCountRef.current < 3) {
+        adminRetryCountRef.current += 1;
+        setTimeout(() => setAdminRetryNonce((n) => n + 1), 1500);
+      }
     });
 
     return () => {
-      profileUnsub();
+      if (profileUnsub) profileUnsub();
       adminUnsub();
     };
-  }, [user]);
+  }, [user, adminRetryNonce]);
 
   // Handle Reactions Logic
   const handleToggleReaction = async (postId: string, type: 'like' | 'love') => {
-    if (DEMO) {
+    if (DEMO || String(postId).startsWith('demo-seed-')) {
       if (type === 'like') setUserLikes((prev) => ({ ...prev, [postId]: !prev[postId] }));
       else setUserLoves((prev) => ({ ...prev, [postId]: !prev[postId] }));
       return;
     }
-    if (!user) {
-      showToast("Please wait while we connect you...", "error");
+    // Guests authenticate anonymously; if that session has not landed yet,
+    // wait for it here instead of failing the write.
+    let uid = user?.uid as string | undefined;
+    if (!uid) {
+      try {
+        await signInAnonymously(auth);
+        uid = auth.currentUser?.uid || undefined;
+      } catch {}
+    }
+    if (!uid) {
+      showToast("Still connecting you. Try again in a moment.", "error");
       return;
     }
-    
+
+    // Guests must save a profile (a residents doc with a display name) before
+    // they can react; admins signed into the dashboard can always react.
+    const isAdminCaller = !!(user && !user.isAnonymous && isAdmin);
+    if (!isAdminCaller) {
+      const resSnap = await getDoc(doc(db, scopedPath('residents'), uid));
+      if (!resSnap.exists() || !resSnap.data()?.displayName) {
+        showToast('Save your profile first: add your name in Settings, then you can react to posts.', 'error');
+        return;
+      }
+    }
     const isActive = type === 'like' ? !!userLikes[postId] : !!userLoves[postId];
     const otherTypeActive = type === 'like' ? !!userLoves[postId] : !!userLikes[postId];
     
     const batch = writeBatch(db);
-    const reactionRef = doc(db, 'posts', postId, 'reactions', user.uid);
-    const postRef = doc(db, 'posts', postId);
+    const reactionRef = doc(db, scopedPath('posts'), postId, 'reactions', uid);
+    const postRef = doc(db, scopedPath('posts'), postId);
 
     try {
       // 1. Update the reaction document (merge)
@@ -1100,28 +1462,38 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) {
       // Previews run offline: hydrate anything saved in this preview session.
       try {
-        const saved = JSON.parse(localStorage.getItem('ann-demo-cfg') || 'null');
+        const saved = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || 'null');
         if (saved && Array.isArray(saved.events) && saved.events.length) setCfgEvents(saved.events);
         if (saved && typeof saved.story === 'string' && saved.story.trim()) setCfgStory(saved.story);
         if (saved && saved.weddingDetails && typeof saved.weddingDetails === 'object') setCfgDetails(saved.weddingDetails);
       } catch {}
       try {
-        const demoCode = localStorage.getItem('ann-demo-code');
+        const demoCode = localStorage.getItem(lsKey('demo-code'));
         setActiveAccessCode(normalizeCode(demoCode || DEMO_ACCESS_CODE));
       } catch { setActiveAccessCode(normalizeCode(DEMO_ACCESS_CODE)); }
       setConfigLoaded(true);
       return;
     }
-    const unsub = onSnapshot(doc(db, 'app_config', 'main'), (snap) => {
+    const unsub = onSnapshot(doc(db, scopedPath('app_config'), 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.activeAccessCode) {
+        // The guest code comes from the couple's own names unless they saved
+        // one of their own: the AMARA26 placeholder never reaches the gate, and
+        // a code the couple changed always wins.
+        if (data.codeRevoked === true) {
+          // The code was revoked: it works nowhere (posting or the private
+          // feed) until the admin sets a new one.
+          setActiveAccessCode('');
+        } else if (data.activeAccessCode && (data.accessCodeCustom || data.activeAccessCode !== DEMO_ACCESS_CODE)) {
           setActiveAccessCode(normalizeCode(data.activeAccessCode));
+        } else {
+          const derivedCode = nameCode(demoBride(), demoGroom());
+          if (derivedCode) setActiveAccessCode(normalizeCode(derivedCode));
         }
         if (!DEMO && Array.isArray(data.heroImages)) {
           setHeroImages(data.heroImages);
           try {
-            localStorage.setItem('ann-hero-images', JSON.stringify(data.heroImages));
+            localStorage.setItem(lsKey('hero-images'), JSON.stringify(data.heroImages));
           } catch {
             // Ignore storage quota error
           }
@@ -1129,23 +1501,45 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (Array.isArray(data.footerImages)) {
           setFooterImages(data.footerImages);
           try {
-            localStorage.setItem('ann-footer-images', JSON.stringify(data.footerImages));
+            localStorage.setItem(lsKey('footer-images'), JSON.stringify(data.footerImages));
           } catch {
             // Ignore storage quota error
           }
         }
-        if (data.footerStyle === 'wall' || data.footerStyle === 'marquee') {
+        if (!(() => { try { return new URLSearchParams(window.location.search).get('fs'); } catch { return null; } })() && (data.footerStyle === 'wall' || data.footerStyle === 'marquee' || data.footerStyle === 'tunnel' || data.footerStyle === 'globe')) {
           setFooterStyle(data.footerStyle);
-          try { localStorage.setItem('ann-footer-style', data.footerStyle); } catch {}
+          try { localStorage.setItem(lsKey('footer-style'), data.footerStyle); } catch {}
+        }
+        if (typeof data.footerThanks === 'string') {
+          setFooterThanks(data.footerThanks);
+          try { localStorage.setItem(lsKey('footer-thanks'), data.footerThanks); } catch {}
+        }
+        if (data.heroTemplate === 'classic' || data.heroTemplate === 'halo' || data.heroTemplate === 'hero' || data.heroTemplate === 'book') {
+          setHeroTpl(data.heroTemplate);
+          try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
+        }
+        if (data.accent && ACCENT_VARS[data.accent]) {
+          setAccentKey(data.accent);
+          try { localStorage.setItem(lsKey('accent'), data.accent); } catch {}
         }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
         if (typeof data.story === 'string' && data.story.trim()) setCfgStory(data.story);
         if (data.weddingDetails && typeof data.weddingDetails === 'object') setCfgDetails(data.weddingDetails);
+        setCfgContact({
+          adminWhatsapp: typeof data.adminWhatsapp === 'string' ? data.adminWhatsapp : '',
+          payBankName: typeof data.payBankName === 'string' ? data.payBankName : '',
+          payAccountNumber: typeof data.payAccountNumber === 'string' ? data.payAccountNumber : '',
+          payAccountName: typeof data.payAccountName === 'string' ? data.payAccountName : ''
+        });
         if (typeof data.archiveMode === 'boolean') setArchiveMode(data.archiveMode);
         if (Array.isArray(data.blockedUids)) setBlockedUids(data.blockedUids);
         if (Array.isArray(data.vendors)) setVendors(data.vendors);
         if (typeof data.approveGuestPosts === 'boolean') setApproveGuestPosts(data.approveGuestPosts);
+        if (typeof data.feedPrivate === 'boolean') setFeedPrivate(data.feedPrivate);
+        const gateGenRaw = Number(data.feedGateGen);
+        setFeedGateGen(Number.isFinite(gateGenRaw) && gateGenRaw > 0 ? Math.floor(gateGenRaw) : 1);
+        try { localStorage.setItem(lsKey('feed-gate-cfg'), JSON.stringify({ private: data.feedPrivate === true, gen: Number.isFinite(gateGenRaw) && gateGenRaw > 0 ? Math.floor(gateGenRaw) : 1 })); } catch {}
         if (data.feedActionMode === 'download' || data.feedActionMode === 'share') setFeedActionMode(data.feedActionMode);
         if (typeof data.pushEnabled === 'boolean') setPushEnabled(data.pushEnabled);
         if (Array.isArray(data.postAds)) {
@@ -1178,7 +1572,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 2c. Residents (guest profiles + vendor requests). Public read per rules.
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'residents'), (snap) => {
+    const unsub = onSnapshot(collection(db, scopedPath('residents')), (snap) => {
       const arr: any[] = [];
       snap.forEach((d) => arr.push({ uid: d.id, ...d.data() }));
       setResidents(arr);
@@ -1196,20 +1590,29 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     
     const initConfig = async () => {
       try {
-        const snap = await getDoc(doc(db, 'app_config', 'main'));
+        const snap = await getDoc(doc(db, scopedPath('app_config'), 'main'));
+        const derived = (demoBride() && demoGroom()) ? nameCode(demoBride(), demoGroom()) : '';
+        // Seed or repair the guest code from the couple's own names whenever it
+        // is still the AMARA26 placeholder or missing; a code the couple saved
+        // (accessCodeCustom) or an earlier derived code is left untouched.
+        if (snap.exists() && !snap.data().accessCodeCustom && !snap.data().codeRevoked && derived
+            && (snap.data().activeAccessCode === DEMO_ACCESS_CODE || !snap.data().activeAccessCode)) {
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), { activeAccessCode: derived }, { merge: true });
+        }
         if (!snap.exists()) {
-          await setDoc(doc(db, 'app_config', 'main'), {
-            activeAccessCode: 'DARAFEMI26',
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+            activeAccessCode: derived || DEMO_ACCESS_CODE,
             createdAt: serverTimestamp(),
-            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
-            story: DEFAULT_STORY,
-            weddingDetails: DEFAULT_DETAILS
+            events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
+            story: demoStory(),
+            weddingDetails: detailsData(),
+            heroImages: demoHeroImages()
           });
         } else if (!Array.isArray(snap.data().events)) {
-          await setDoc(doc(db, 'app_config', 'main'), {
-            events: EVENTS_DATA.map((e) => ({ ...e, status: seedEventStatuses()[e.id] })),
-            story: snap.data().story || DEFAULT_STORY,
-            weddingDetails: snap.data().weddingDetails || DEFAULT_DETAILS
+          await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+            events: eventsData().map((e) => ({ ...e, status: seedEventStatuses(eventsData())[e.id] })),
+            story: snap.data().story || demoStory(),
+            weddingDetails: snap.data().weddingDetails || detailsData()
           }, { merge: true });
         }
 
@@ -1223,11 +1626,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     // Also sync all admins if super admin
     if (user?.email === "justfashion414@gmail.com") {
-      const unsubAdmins = onSnapshot(collection(db, 'admins'), (snap) => {
+      const unsubAdmins = onSnapshot(collection(db, scopedPath('admins')), (snap) => {
         setAllAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
 
-      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+      const unsubDeleted = onSnapshot(collection(db, scopedPath('deleted_posts')), (snap) => {
         const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setDeletedPosts(docs);
         
@@ -1238,7 +1641,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const deletedAt = dp.deletedAt?.toDate?.() || new Date(dp.deletedAt);
           if (now - deletedAt.getTime() > threeDaysMs) {
             try {
-              await deleteDoc(doc(db, 'deleted_posts', dp.id));
+              await deleteDoc(doc(db, scopedPath('deleted_posts'), dp.id));
               console.log("Auto-purged old deleted post:", dp.id);
             } catch (err) {
               console.error("Purge error:", err);
@@ -1252,11 +1655,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         unsubDeleted();
       };
     } else if (isAdmin) {
-      // Just sync deleted posts for regular admins with permission
-      const unsubDeleted = onSnapshot(collection(db, 'deleted_posts'), (snap) => {
+      // Every admin of this app needs the admins collection, not just the
+      // platform owner: it carries their own role doc (which locks a
+      // restricted role like a photographer down to the Vendor albums tab)
+      // and the team list the owner reads from.
+      const unsubAdmins = onSnapshot(collection(db, scopedPath('admins')), (snap) => {
+        setAllAdmins(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+      const unsubDeleted = onSnapshot(collection(db, scopedPath('deleted_posts')), (snap) => {
         setDeletedPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       });
-      return () => unsubDeleted();
+      return () => { unsubAdmins(); unsubDeleted(); };
     }
   }, [isAdmin, isAdminSessionValid, user]);
 
@@ -1265,7 +1674,34 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setAuthError('');
     setAuthBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      // Only an administrator of THIS app may enter its dashboard. Anyone
+      // else (the Eventicor console owner, a couple from another app, a
+      // stray account) is signed straight back out and gets the same
+      // message a wrong password gets, so valid-but-unauthorized
+      // credentials can never hang at a loader or reveal that they exist.
+      const mail = String(cred.user?.email || email.trim()).trim();
+      const candidates: string[] = Array.from(new Set([mail, mail.toLowerCase()].filter(Boolean)));
+      let admitted = false;
+      let lookupErr: any = null;
+      for (const cand of candidates) {
+        try {
+          const adm = await getDoc(doc(db, scopedPath('admins'), cand));
+          if (adm.exists()) { admitted = true; break; }
+        } catch (e: any) {
+          // The rules refuse an admins read to anyone who is not an admin of
+          // this app: that denial is itself the answer. Anything else
+          // (offline, throttled) leaves the check unproven.
+          if (String(e?.code || '').includes('permission-denied')) continue;
+          lookupErr = e; break;
+        }
+      }
+      if (!admitted) {
+        doSignOut();
+        if (lookupErr) setAuthError('Network problem. Check your connection and try again.');
+        else setAuthError('Email or password is incorrect.');
+        return;
+      }
       setAuthScreen(null);
       setAuthPassword('');
       setAuthEmail('');
@@ -1276,8 +1712,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setAuthError('Email or password is incorrect.');
       } else if (code.includes('too-many-requests')) {
         setAuthError('Too many attempts. Try again in a moment.');
+      } else if (code.includes('invalid-email') || code.includes('missing-password')) {
+        setAuthError('Enter the email and password exactly as they appear in your login email.');
+      } else if (code.includes('network')) {
+        setAuthError('Network problem. Check your connection and try again.');
       } else {
-        setAuthError('Could not sign in. Please try again.');
+        setAuthError(`Could not sign in${code ? ` (${code})` : ''}. Please try again.`);
       }
     } finally {
       setAuthBusy(false);
@@ -1306,7 +1746,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setSetPasswordBusy(true);
     try {
       if (user) await updatePassword(user, newPassword);
-      if (user?.email) await setDoc(doc(db, 'admins', user.email), { mustSetPassword: false }, { merge: true });
+      if (user?.email) await setDoc(doc(platformDb, scopedPath('admins'), user.email), { mustSetPassword: false, status: 'active' }, { merge: true });
       setMustSetPassword(false);
       setNewPassword('');
       setConfirmNewPassword('');
@@ -1320,13 +1760,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
-  const handleLogout = () => signOut(auth);
+  const handleLogout = () => doSignOut();
 
   // Derived wedding content: Firestore values when the couple has saved them,
   // seeded defaults before their first save.
-  const EVENTS: WeddingEvent[] = cfgEvents && cfgEvents.length ? cfgEvents : EVENTS_DATA;
-  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : DEFAULT_STORY;
-  const DETAILS: any = cfgDetails || DEFAULT_DETAILS;
+  // Stable identities: these wrap in useMemo so the dashboard draft-sync
+  // effects only re-run when saved data actually changes. A fresh object per
+  // render used to reset the details form while the couple was still typing,
+  // so edits in Events & details snapped back before they could save.
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
+  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
+  const DETAILS: any = useMemo(() => withDerivedHashtag(withGiftDefaults(cfgDetails || detailsData())), [cfgDetails]);
+  const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
+  const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
   // The couple's chosen wedding day wins: the church service, else the
   // reception, else the latest saved event date. Until they save anything,
@@ -1342,7 +1788,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const wed = ((ov?.weddingDate || church?.date || reception?.date || latestDate) as string | undefined);
     recomputeWed(wed, ov?.weddingTime || church?.time || reception?.time || undefined);
   }
-  const heroTemplate = template || 'classic';
+  const heroTemplate = heroTpl || template || 'classic';
   const _heroWed = new Date(`${WEDDING_DATE}T12:00:00`);
   const heroDateShort = _heroWed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const _hpd = (x: number) => (x < 10 ? '0' : '') + x;
@@ -1354,7 +1800,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const normalizedDemo = normalizeCode(newCode);
       if (!normalizedDemo || normalizedDemo.length < 4) return;
       setActiveAccessCode(normalizedDemo);
-      try { localStorage.setItem('ann-demo-code', normalizedDemo); } catch {}
+      try { localStorage.setItem(lsKey('demo-code'), normalizedDemo); } catch {}
       showToast('Access code saved for this preview.');
       return;
     }
@@ -1363,8 +1809,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (!normalized || normalized.length < 4) return;
 
     try {
-      await setDoc(doc(db, 'app_config', 'main'), {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         activeAccessCode: normalized,
+        accessCodeCustom: true,
+        codeRevoked: false,
+        feedGateGen: feedGateGen + 1,
         lastUpdated: serverTimestamp()
       }, { merge: true });
       
@@ -1378,14 +1827,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   const updateWedding = async (events: WeddingEvent[], story: string, details: any) => {
     if (DEMO) {
-      try { localStorage.setItem('ann-demo-cfg', JSON.stringify({ events, story, weddingDetails: details })); } catch {}
+      try { localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ events, story, weddingDetails: details })); } catch {}
       setCfgEvents(events); setCfgStory(story); setCfgDetails(details);
       showToast('Saved for this preview.');
       return;
     }
-    if (!isAdmin || !isAdminSessionValid) return;
+    if (!isAdmin || !isAdminSessionValid) {
+      showToast('Sign in again to save your changes.', 'error');
+      return;
+    }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
         events,
         story,
         weddingDetails: details,
@@ -1405,7 +1857,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const updatePeople = async (patch: { vendors?: string[]; blockedUids?: string[] }) => {
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Failed to update.', 'error');
@@ -1416,9 +1868,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
       const next = approve ? Array.from(new Set([...(vendors || []), uid])) : (vendors || []).filter((u: any) => u !== uid);
-      await setDoc(doc(db, 'app_config', 'main'), { vendors: next, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { vendors: next, lastUpdated: serverTimestamp() }, { merge: true });
       try {
-        await updateDoc(doc(db, 'residents', uid), { vendorRequest: { status: approve ? 'approved' : 'declined', decidedAt: serverTimestamp() } });
+        await updateDoc(doc(db, scopedPath('residents'), uid), { vendorRequest: { status: approve ? 'approved' : 'declined', decidedAt: serverTimestamp() } });
       } catch (err: any) {
         console.error('Vendor request status update needs superadmin:', err?.message || err);
       }
@@ -1433,7 +1885,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) { showToast('Saved for this preview.'); return; }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      if (patch.approveGuestPosts === false) {
+        // Approval switched off: every post becomes visible to everybody, so
+        // clear the waiting flag on anything still pending right away.
+        try {
+          const waiting = await getDocs(query(collection(db, scopedPath('posts')), where('pending', '==', true)));
+          if (!waiting.empty) {
+            const batch = writeBatch(db);
+            waiting.forEach((d) => batch.update(d.ref, { pending: false }));
+            await batch.commit();
+          }
+        } catch (sweepErr) { console.error('approve-off sweep failed', sweepErr); }
+      }
       showToast(okMsg);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
@@ -1441,11 +1905,90 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
+  // Private feed: the admin's private/public toggle. The feed page shows the
+  // entry banner live on every guest device; the banner asks for the guest
+  // access code and the server confirms it.
+  const updateFeedPrivacy = async (publicNow: boolean) => {
+    const makePrivate = !publicNow;
+    if (DEMO) {
+      setFeedPrivate(makePrivate);
+      if (makePrivate) setFeedGateGen(g => g + 1);
+      showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
+      return;
+    }
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      // Toggling the feed private disconnects EVERY device that was granted
+      // access, live, whether the access code was revoked before or not: the
+      // gen bump sends them all back to the banner the moment it lands.
+      const patch: Record<string, any> = { feedPrivate: makePrivate, lastUpdated: serverTimestamp() };
+      if (makePrivate) patch.feedGateGen = feedGateGen + 1;
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), patch, { merge: true });
+      showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to save the setting.', 'error');
+    }
+  };
+
+  // Revoke wipes the one shared guest access code everywhere at once: it stops
+  // working for posting AND for entering the private feed, every device that
+  // was granted goes back to the feed banner live, and the field is cleared so
+  // the admin must set a new code before anything code-gated works again.
+  const revokeAccessCode = async () => {
+    if (DEMO) { setActiveAccessCode(''); showToast('Access code revoked for this preview. Set a new one.'); return; }
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+        activeAccessCode: '',
+        accessCodeCustom: true,
+        codeRevoked: true,
+        feedGateGen: feedGateGen + 1,
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      showToast('Access code revoked. It no longer works for posting or the private feed. Set a new code.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to revoke the access code.', 'error');
+    }
+  };
+
+  // The guest side of the gate: the banner tap opens this, and the code is
+  // confirmed on the server, never in the browser.
+  const submitGateCode = async () => {
+    const code = gateInput.trim().toUpperCase();
+    if (!code) { showToast('Enter the access code.', 'error'); return; }
+    setGateBusy(true);
+    try {
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'feed-gate', appId: APP_ID, code })
+      });
+      const gateData = await res.json().catch(() => null);
+      if (res.ok && gateData && gateData.ok) {
+        const gen = Number(gateData.gen) || 0;
+        try { localStorage.setItem(lsKey('feed-gate'), String(gen)); } catch { /* private mode */ }
+        setFeedGranted(gen);
+        setShowLaunchSplash(false);
+        try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
+      } else if (gateData && gateData.error === 'no-code') {
+        showToast('The couple has not set an access code yet. Ask them for one.', 'error');
+      } else {
+        showToast('Access code is incorrect or invalid.', 'error');
+      }
+    } catch {
+      showToast('We could not check that code right now. Try again.', 'error');
+    } finally {
+      setGateBusy(false);
+    }
+  };
+
   // Saves the label attached to each hero photo (url -> event name).
   const updateHeroLabels = async (map: Record<string, string>) => {
     setHeroImageLabels(map);
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { heroImageLabels: map, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { heroImageLabels: map, lastUpdated: serverTimestamp() }, { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save the label.', 'error');
@@ -1457,8 +2000,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const updateWeddingSection = async (patch: Record<string, any>) => {
     if (DEMO) {
       try {
-        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
-        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, ...patch }));
+        const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+        localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, ...patch }));
       } catch {}
       if ('events' in patch) setCfgEvents(patch.events);
       if ('story' in patch) setCfgStory(patch.story);
@@ -1466,9 +2009,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       showToast('Saved for this preview.');
       return;
     }
-    if (!isAdmin || !isAdminSessionValid) return;
+    if (!isAdmin || !isAdminSessionValid) {
+      showToast('Sign in again to save your changes.', 'error');
+      return;
+    }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
       if ('events' in patch) setCfgEvents(patch.events);
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
@@ -1480,17 +2026,60 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
   // Giant footer style (dashboard setting; couples pick the look).
-  const updateFooterStyle = async (style: 'wall' | 'marquee') => {
+  const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false, thanks?: string) => {
     setFooterStyle(style);
-    try { localStorage.setItem('ann-footer-style', style); } catch {}
-    if (DEMO) { showToast('Giant footer style saved for this preview.'); return; }
+    try { localStorage.setItem(lsKey('footer-style'), style); } catch {}
+    if (typeof thanks === 'string') {
+      setFooterThanks(thanks);
+      try { localStorage.setItem(lsKey('footer-thanks'), thanks); } catch {}
+    }
+    if (DEMO) { if (!quiet) showToast('Giant footer style saved for this preview.'); return; }
     if (!isAdmin) return;
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
-      showToast('Giant footer style saved.');
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { footerStyle: style, ...(typeof thanks === 'string' ? { footerThanks: thanks } : {}), lastUpdated: serverTimestamp() }, { merge: true });
+      if (!quiet) showToast('Giant footer style saved.');
     } catch (err) {
       console.error('Update footer style error:', err);
       showToast('Failed to save the footer style.', 'error');
+    }
+  };
+
+  // Hero style (dashboard setting): which of the four hero designs the app
+  // shows. The four templates differ only by their hero, so this switches the
+  // look without touching anything else.
+  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book', quiet = false) => {
+    setHeroTpl(t);
+    try { localStorage.setItem(lsKey('hero-tpl'), t); } catch {}
+    if (DEMO) { if (!quiet) showToast('Hero style saved for this preview.'); return; }
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { heroTemplate: t, lastUpdated: serverTimestamp() }, { merge: true });
+      if (!quiet) showToast('Hero style saved.');
+    } catch (err) {
+      console.error('Update hero style error:', err);
+      showToast('Failed to save the hero style.', 'error');
+    }
+  };
+
+  // Accent color (dashboard setting): which of the six Eventicor accents the
+  // app is dressed in. Same pattern as the hero style: chosen live, saved to
+  // app_config for real apps, local for demo previews.
+  const [accentKey, setAccentKey] = useState<string>(() => {
+    try { const sv = localStorage.getItem(lsKey('accent')); if (sv && ACCENT_VARS[sv]) return sv; } catch { /* ignore */ }
+    return TPL_DEFAULT_ACCENT[(template as any) || 'classic'] || 'midnight';
+  });
+  const updateAccent = async (k: string, quiet = false) => {
+    if (!ACCENT_VARS[k]) return;
+    setAccentKey(k);
+    try { localStorage.setItem(lsKey('accent'), k); } catch { /* ignore */ }
+    if (DEMO) { if (!quiet) showToast('Accent color saved for this preview.'); return; }
+    if (!isAdmin) return;
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { accent: k, lastUpdated: serverTimestamp() }, { merge: true });
+      if (!quiet) showToast('Accent color saved.');
+    } catch (err) {
+      console.error('Update accent error:', err);
+      showToast('Failed to save the accent color.', 'error');
     }
   };
 
@@ -1501,14 +2090,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setCfgEvents(next as any);
     if (DEMO) {
       try {
-        const cur = JSON.parse(localStorage.getItem('ann-demo-cfg') || '{}');
-        localStorage.setItem('ann-demo-cfg', JSON.stringify({ ...cur, events: next }));
+        const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+        localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, events: next }));
       } catch {}
       showToast('Saved for this preview.');
       return;
     }
     try {
-      await setDoc(doc(db, 'app_config', 'main'), { events: next, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { events: next, lastUpdated: serverTimestamp() }, { merge: true });
       showToast('Event photos saved.');
     } catch (err) {
       console.error('Update event photos error:', err);
@@ -1516,38 +2105,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   };
 
-  const addEventPhotos = async (eventId: string, files: File[]) => {
-    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
-    const existing: string[] = ev?.images || [];
-    const room = 2 - existing.length;
-    if (room <= 0) { showToast('Each step holds 2 photos. Remove one first.', 'info'); return; }
-    const use = files.slice(0, room);
-    if (files.length > room) showToast(`Only ${room} slot${room === 1 ? '' : 's'} left on this step.`, 'info');
-    if (!use.length) return;
-    setEvImgBusy(eventId);
-    try {
-      const urls: string[] = [];
-      for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
-      await saveEventStepPhotos(eventId, [...existing, ...urls].slice(0, 2));
-    } catch (err: any) {
-      console.error('Event photo upload error:', err);
-      showToast(err?.message || 'Photo upload failed.', 'error');
-    } finally {
-      setEvImgBusy(null);
-    }
-  };
-
-  const removeEventPhoto = async (eventId: string, idx: number) => {
-    const ev = (EVENTS as any[]).find((e: any) => e.id === eventId) as any;
-    const imgs = [...((ev?.images || []) as string[])];
-    if (idx < 0 || idx >= imgs.length) return;
-    imgs.splice(idx, 1);
-    await saveEventStepPhotos(eventId, imgs);
-  };
 
   const approvePost = async (postId: string) => {
     try {
-      await updateDoc(doc(db, 'posts', postId), { pending: false });
+      await updateDoc(doc(db, scopedPath('posts'), postId), { pending: false });
       showToast('Approved. Guests can now see it', 'success');
     } catch (err) {
       console.error(err);
@@ -1561,7 +2122,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
    */
   const sharePost = async (p: any) => {
     const url = `${window.location.origin}${window.location.pathname}?post=${p.id}`;
-    const title = p.text || p.caption || (DEMO ? 'A memory from Amara & Daniel' : 'A memory from Dara & Femi');
+    const title = p.text || p.caption || demoText('A memory from Amara & Daniel');
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try { await (navigator as any).share({ title: demoHeader(), text: title, url }); return; } catch { return; }
     }
@@ -1609,10 +2170,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const deleteAllGuestData = async () => {
     if (!isAdmin || adminPermissions?.canDeletePosts === false) { showToast('You do not have permission to delete posts.', 'error'); return; }
     try {
-      const snap = await getDocs(collection(db, 'posts'));
+      const snap = await getDocs(collection(db, scopedPath('posts')));
       let n = 0;
       for (const d of snap.docs) {
-        await deleteDoc(doc(db, 'posts', d.id));
+        await deleteDoc(doc(db, scopedPath('posts'), d.id));
         n += 1;
       }
       showToast(`Deleted ${n} ${n === 1 ? 'post' : 'posts'}.`);
@@ -1681,7 +2242,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const res = await fetch('/api/admin-post-action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ action, postId })
+      body: JSON.stringify({ action, postId, appId: APP_ID })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || 'Action failed.');
@@ -1732,20 +2293,128 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // 3. Handle Posts Sync
   useEffect(() => {
     if (DEMO) {
-      const fi = demoFeedImages();
-      const seeded = fi === DEMO_PHOTOS ? DEMO_POSTS : (DEMO_POSTS as any[]).map((sp, i) => (String(sp.id || '').startsWith('demo-seed-p') ? { ...sp, mediaUrls: [fi[i % fi.length]], text: demoText(String(sp.text || '')) } : sp));
-      setPosts(seeded as any); setIsPostsLoading(false); return;
+      setPosts(demoSeedPosts() as any); setIsPostsLoading(false); return;
     } // Previews read seeded demo posts only
-    const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setPosts(p);
+    // The seed content stays ONLY until the couple's first real post; after
+    // that it is gone for good. Three layers hold that:
+    //   1. a real post is remembered per device (lsKey('feed-real')), so a
+    //      stale, failed or empty snapshot can never resurrect the samples;
+    //   2. a cache-only empty snapshot is ignored (the loader stays up) until
+    //      the server answers, so a slow connection never flashes placeholders;
+    //   3. ordering happens on the client, so a post without a timestamp field
+    //      still shows instead of silently vanishing from an ordered query.
+    // A post waiting for approval is visible only to its author and to admins
+    // signed into this app (user direction Nov 21 2026). The security rules
+    // enforce that in the database and refuse any query they cannot prove, so
+    // the feed listens with provable queries: signed-in admins read everything
+    // unfiltered; everyone else reads approved posts plus their own waiting one.
+    let haveServer = false;
+    const seededAtBoot = (() => { try { return localStorage.getItem(lsKey('feed-real')) === '1'; } catch { return false; } })();
+    const realDocs = (docs: any[]) => docs.filter((p: any) => !p.localDemo && !String(p.id || '').startsWith('demo-seed-') && !String(p.id || '').startsWith('sample-'));
+    const apply = (docs: any[], answered: boolean, fromCache: boolean) => {
+      if (realDocs(docs).length > 0) {
+        haveServer = true;
+        try { localStorage.setItem(lsKey('feed-real'), '1'); } catch { /* private mode */ }
+        setFeedReal(true);
+        setPosts(docs.slice().sort((a: any, b: any) => ((b.timestamp?.toMillis?.() ?? 0) - (a.timestamp?.toMillis?.() ?? 0))));
+        setIsPostsLoading(false);
+      } else if (answered && !fromCache) {
+        // The server itself says there is nothing real here.
+        haveServer = true;
+        if (seededAtBoot) {
+          // This account posted before. Sample content never returns.
+          setFeedReal(true);
+          setPosts([]);
+        } else {
+          // Until the couple's first real post, a real app shows the same lively
+          // seed content sample apps get: their names, their hero photos and the
+          // demo reels. The first real post replaces all of it.
+          setFeedReal(false);
+          setPosts(demoSeedPosts() as any);
+        }
+        setIsPostsLoading(false);
+      }
+      // A cache-only snapshot with nothing real keeps the loader up and waits
+      // for the server; a stale cached empty view must never become the feed.
+    };
+    const bail = window.setTimeout(() => {
+      if (haveServer) return;
+      if (seededAtBoot) { setFeedReal(true); setPosts([]); }
+      else { setPosts(demoSeedPosts() as any); }
       setIsPostsLoading(false);
-    }, (err) => {
+    }, 10000);
+    const onErr = (err: any) => {
       handleFirestoreError(err, OperationType.LIST, 'posts');
+      if (seededAtBoot) setFeedReal(true);
+      if (!haveServer) {
+        setPosts((prev: any[]) => (realDocs(prev).length > 0 ? prev : (seededAtBoot ? [] : (demoSeedPosts() as any))));
+      }
       setIsPostsLoading(false);
-    });
-    return () => unsub();
+    };
+    const unsubs: Array<() => void> = [];
+    if (isAdmin && user && !user.isAnonymous) {
+      const unsub = onSnapshot(collection(db, scopedPath('posts')), (snapshot) => {
+        apply(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })), true, !!(snapshot as any).metadata?.fromCache);
+      }, onErr);
+      unsubs.push(unsub);
+    } else {
+      // Two provable queries: everything approved, plus this viewer's own
+      // post that is still waiting for approval (shown with the tag).
+      const myUid = user?.uid || '';
+      let docsApproved: any[] = [];
+      let docsMine: any[] = [];
+      let gotApproved = false;
+      let gotMine = myUid ? false : true;
+      let cacheApproved = false; let cacheMine = false;
+      const flush = () => {
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        for (const d of [...docsApproved, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        apply(merged, gotApproved && gotMine, cacheApproved || cacheMine);
+      };
+      unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', false)), (snapshot) => {
+        docsApproved = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        cacheApproved = !!(snapshot as any).metadata?.fromCache;
+        if (!cacheApproved) gotApproved = true;
+        flush();
+      }, onErr));
+      if (myUid) {
+        unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', true), where('authorUid', '==', myUid)), (snapshot) => {
+          docsMine = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+          cacheMine = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheMine) gotMine = true;
+          flush();
+        }, onErr));
+      }
+    }
+    return () => { window.clearTimeout(bail); unsubs.forEach((u) => { try { u(); } catch { /* already closed */ } }); };
+  }, [isAdmin, user?.uid]);
+
+  // Wake refresh: when the app has sat in the background a long while and the
+  // visitor comes back, the Firestore connection can be dormant with every
+  // live listener showing stale data. Cycling the network re-opens it and
+  // every onSnapshot re-emits fresh data, so the app updates itself instead
+  // of waiting for a manual refresh.
+  useEffect(() => {
+    if (DEMO) return;
+    let hiddenAt = 0;
+    const wake = () => {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
+      hiddenAt = 0;
+      if (away > 30000) {
+        try {
+          disableNetwork(db as any).then(() => enableNetwork(db as any)).catch(() => {});
+          disableNetwork(platformDb as any).then(() => enableNetwork(platformDb as any)).catch(() => {});
+        } catch { /* the wake cycle is best effort */ }
+      }
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('focus', wake);
+    return () => {
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('focus', wake);
+    };
   }, []);
 
   // Footer grid: newest posted images replace the placeholder cells first,
@@ -1835,11 +2504,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // 3. Handle Local Persistence
   useEffect(() => {
-    localStorage.setItem('ann-profile-name', displayName);
+    localStorage.setItem(lsKey('profile-name'), displayName);
   }, [displayName]);
 
   useEffect(() => {
-    localStorage.setItem('ann-profile-avatar', avatar);
+    localStorage.setItem(lsKey('profile-avatar'), avatar);
   }, [avatar]);
 
   // Handle profile save to Firestore
@@ -1857,7 +2526,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         finalAvatarUrl = url;
       }
 
-      await setDoc(doc(db, 'residents', user.uid), {
+      await setDoc(doc(db, scopedPath('residents'), user.uid), {
         displayName,
         photoUrl: finalAvatarUrl,
         updatedAt: serverTimestamp()
@@ -1909,9 +2578,35 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       root.style.fontSize = '100%';
     }
   }, [fontSize]);
+  // Feed pagination: changing the page size sends every visitor back to the
+  // first page so nobody lands mid-list on a size they didn't pick.
+  useEffect(() => { setFeedPage(1); }, [feedPageSize]);
+
+  // Feed pagination and storage come from the Eventicor console
+  // (platform/settings), not from this app's config: Eventicor manages the
+  // feed for every app. Picked up live, so an admin change lands mid-session.
+  useEffect(() => {
+    try { setFeedPageSize(getCouplePlatform().feedPageSize); } catch {}
+    setPlatformSettingsClient(getCouplePlatform());
+    const unsub = onSnapshot(doc(platformDb as any, 'platform', 'settings'), (snap: any) => {
+      try {
+        const d = snap.exists() ? snap.data() : {};
+        const st: Record<string, number> = { ...getCouplePlatform().storage };
+        for (const k of ['essential', 'complete', 'legacy'] as const) {
+          const v = Number((d as any)?.storage?.[k]);
+          if (Number.isFinite(v) && v > 0) st[k] = v;
+        }
+        const fps = Number((d as any)?.feedPageSize);
+        const next = { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage: st };
+        setFeedPageSize(next.feedPageSize);
+        setPlatformSettingsClient(next);
+      } catch {}
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('ann-bookmarks', JSON.stringify(bookmarks));
+    localStorage.setItem(lsKey('bookmarks'), JSON.stringify(bookmarks));
   }, [bookmarks]);
 
   const toggleBookmark = (id: string) => {
@@ -1931,7 +2626,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const daysToGo = Math.max(0, Math.ceil((new Date(`${WEDDING_DATE}T${WEDDING_TIME}:00`).getTime() - Date.now()) / 86400000));
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans pb-32`}>
+    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#0B171C] text-[#E8EEF0]' : 'bg-[#EEEDF3] text-[#14262D]'} font-sans ${noChrome ? 'pb-4' : 'pb-32'}`} style={{ ['--ann-accent' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).accent, ['--ann-hero' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).hero, ['--ann-soft' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).soft }}>
+      {/* BOOT RESTORE: a refresh with the dashboard open shows this loader
+          instead of the public app until the admin session is confirmed. */}
+      {adminRestorePending && (
+        <div className="fixed inset-0 z-[600] flex flex-col items-center justify-center bg-[#0B171C]">
+          <p className="font-serif-display italic text-white text-[1.4rem]">{demoHeader()}</p>
+          <div className="mt-7 w-9 h-9 rounded-full border-4 border-[var(--ann-accent)] border-t-transparent animate-spin" />
+          <p className="mt-7 text-[0.65rem] font-black uppercase tracking-widest text-white/40">Opening your dashboard</p>
+        </div>
+      )}
       {/* FOLLOW-UP LAUNCH SPLASH SCREEN AFTER PWA ICON SPLASH */}
       <AnimatePresence>
         {showLaunchSplash && (
@@ -1940,7 +2644,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 1.04, filter: 'blur(8px)' }}
             transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-            onClick={() => setShowLaunchSplash(false)}
+            onClick={() => enterApp()}
             className="fixed inset-0 z-[500] overflow-hidden flex items-center justify-center bg-[var(--ann-hero)] cursor-pointer select-none"
           >
             {/* SPLASH: DARA & FEMI */}
@@ -1952,21 +2656,30 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               >
                 <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
-                  {DEMO ? demoBride() : 'Dara'}
+                  {demoBride()}
                   <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
-                  {DEMO ? demoGroom() : 'Femi'}
+                  {demoGroom()}
                 </h1>
                 <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.75 }}
-                transition={{ delay: 0.9, duration: 0.8 }}
-                className="mt-10 text-[0.8rem] text-white"
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.9, duration: 0.6 }}
+                className="mt-10"
               >
-                Tap to enter
-              </motion.p>
+                <span className="inline-flex items-center px-8 py-3.5 rounded-full bg-white/15 border border-white/35 text-white text-[0.75rem] font-black uppercase tracking-[0.28em]">Tap to enter</span>
+              </motion.div>
             </div>
+            {/* EVENTICOR BRANDING, BOTTOM OF THE ENTRY BANNER */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.9 }}
+              transition={{ delay: 1.1, duration: 0.8 }}
+              className="absolute bottom-8 left-0 right-0 z-10 flex flex-col items-center pointer-events-none"
+            >
+              <span className="font-serif-display italic text-white text-[1.4rem]">Eventicor</span>
+            </motion.div>
           </motion.section>
         )}
       </AnimatePresence>
@@ -1983,7 +2696,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className={`flex items-center gap-2.5${noChrome ? ' hidden' : ''}`}>
               {!isPWAInstalled && (
                 <button
                   onClick={handleInstallClick}
@@ -2014,37 +2727,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           aria-hidden={activeTab !== 'home'}
         >
            {heroTemplate === 'classic' && (
-              <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS.map((e) => e.name)} />
+              <FloatingHeroSection isDarkMode={isDarkMode} images={heroImages} eventNames={EVENTS_VIS.map((e) => e.name)} />
             )}
-            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS.map((e) => e.name)} />}
-            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS.map((e) => e.name)} />}
+            {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
         </div>
 
-        {/* TOAST NOTIFICATION */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div 
-              initial={{ y: -100, x: '-50%', opacity: 0 }}
-              animate={{ y: 20, x: '-50%', opacity: 1 }}
-              exit={{ y: -100, x: '-50%', opacity: 0 }}
-              className="fixed top-0 left-1/2 z-[200] w-full max-w-[320px] pointer-events-none"
-            >
-              <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
-                toast.type === 'success' 
-                  ? 'bg-green-500 border-green-600 text-white' 
-                  : toast.type === 'info'
-                    ? 'bg-[var(--ann-accent)] border-[#0A535C] text-white'
-                    : 'bg-red-500 border-red-600 text-white'
-              }`}>
-                {toast.type === 'success' && <Check className="w-5 h-5" />}
-                {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
-                {toast.type === 'error' && <X className="w-5 h-5" />}
-                <p className="text-sm font-bold">{toast.message}</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* PROFILE SETUP MODAL */}
         <ProfilePromptModal 
@@ -2072,9 +2761,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               }}>
                 <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
                 <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  {DEMO ? demoBride() : 'Dara'}
+                  {demoBride()}
                   <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  {DEMO ? demoGroom() : 'Femi'}
+                  {demoGroom()}
                 </h2>
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
 
@@ -2113,36 +2802,27 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                               </div>
 
-              {!DEMO && !isAdmin && !(displayName.trim() !== '' && avatar && !avatar.startsWith('blob:')) && (
-                <div className={`rounded-[20px] p-[18px] mt-4 border flex items-center gap-3 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                  <div className="w-10 h-10 rounded-full bg-[#C8932A]/20 text-[#C8932A] grid place-items-center shrink-0"><User className="w-5 h-5" /></div>
-                  <div className="flex-1 min-w-0">
-                    <b className="block text-[0.95rem]">Complete your profile</b>
-                    <small className={`block text-[0.85rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Add your name and photo so the couple knows who you are.</small>
-                  </div>
-                  <button onClick={() => setActiveTab('settings')} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest shrink-0">Set up</button>
-                </div>
-              )}
 
               {/* OUR STORY */}
+              {!HIDDEN_SECTIONS.includes('story') && (
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Our story</h2>
                 <p className={`text-[0.95rem] leading-relaxed m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
                   {STORY}
                 </p>
               </section>
+              )}
 
               {/* THE JOURNEY — expandable dropdowns, one open at a time */}
               <section id="journey" className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
-                  {EVENTS.map((e, ji) => {
+                  {EVENTS_VIS.map((e, ji) => {
                     const st = e.status || 'up';
                     const open = openEventId === e.id;
                     const stepImgs: string[] = ((e as any).images || []);
                     const daysTo = Math.ceil((new Date(`${e.date}T${e.time || '12:00'}:00`).getTime() - Date.now()) / 86400000);
-                    const canManagePhotos = DEMO || isAdmin;
                     const tagCls = st === 'done'
                       ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
                       : st === 'next'
@@ -2186,20 +2866,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                                   {stepImgs.map((u, ii) => (
                                     <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
                                       <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={() => setFooterLightbox(u)} className="w-full h-full object-cover cursor-zoom-in" />
-                                      {canManagePhotos && (
-                                        <button type="button" onClick={(ev) => { ev.stopPropagation(); removeEventPhoto(e.id, ii); }} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove photo">×</button>
-                                      )}
                                     </div>
                                   ))}
-                                </div>
-                              )}
-                              {canManagePhotos && stepImgs.length < 2 && (
-                                <div>
-                                  <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest cursor-pointer">
-                                    <input type="file" accept="image/*" multiple hidden disabled={evImgBusy === e.id} onChange={(ev) => { const fs = Array.from((ev.target as HTMLInputElement).files || []); (ev.target as HTMLInputElement).value = ''; addEventPhotos(e.id, fs); }} />
-                                    {evImgBusy === e.id ? 'Uploading…' : stepImgs.length ? '+ Add photo' : '+ Add photos (up to 2)'}
-                                  </label>
-                                  <p className={`text-[0.7rem] mt-1.5 opacity-60 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photos you add here show for every guest who opens this event.</p>
                                 </div>
                               )}
                             </div>
@@ -2212,6 +2880,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
 
                             {/* WEDDING DAY DETAILS */}
+              {!HIDDEN_SECTIONS.includes('details') && (
               <section className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
@@ -2232,22 +2901,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   </div>
                 </div>
               </section>
+              )}
 
-              {/* OUR VENDORS */}
-              <section className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our vendors</h2>
-                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Official media partners. They upload full albums here.</p>
-                <div className="flex gap-3">
-                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <b className="block text-[0.95rem] font-serif-display">Lens &amp; Light Studio</b>
-                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photographer</span>
-                  </div>
-                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <b className="block text-[0.95rem] font-serif-display">Kiln Films</b>
-                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Videographer</span>
-                  </div>
-                </div>
-              </section>
+              
 
               {/* CTA */}
               <section className="mt-8 mb-2">
@@ -2260,21 +2916,76 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </button>
               </section>
 
+              {/* GIFTS & SUPPORT — the couple's account details, edited in Settings */}
+              {DETAILS && DETAILS.giftInfo && (DETAILS.giftInfo.accountNumber || DETAILS.giftInfo.accountName) && !((DETAILS.hiddenSections || []).includes('gifts')) && (
+                <section className="mt-8">
+                  <div className={`relative overflow-hidden rounded-[24px] border p-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--ann-accent)]/15 blur-2xl pointer-events-none" />
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">Gift the couple</span>
+                    <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
+                    <p className={`text-[0.9rem] mt-1.5 mb-4 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
+                    <div className="space-y-2.5">
+                      {DETAILS.giftInfo.bank && (
+                        <div className={`p-[14px_16px] rounded-[18px] border flex items-center justify-between gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <div className="min-w-0">
+                            <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Bank</span>
+                            <b className="block text-[0.95rem] font-serif-display truncate">{DETAILS.giftInfo.bank}</b>
+                          </div>
+                          <Banknote className="w-5 h-5 opacity-40 shrink-0" />
+                        </div>
+                      )}
+                      {DETAILS.giftInfo.accountNumber && (
+                        <button type="button" onClick={() => { try { navigator.clipboard?.writeText(DETAILS.giftInfo.accountNumber || ''); showToast('Account number copied.'); } catch {} }} className={`w-full text-left p-[14px_16px] rounded-[18px] border flex items-center justify-between gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <div className="min-w-0">
+                            <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Account number · tap to copy</span>
+                            <b className="block text-[1.05rem] font-display tracking-[0.08em]">{DETAILS.giftInfo.accountNumber}</b>
+                          </div>
+                          <Copy className="w-5 h-5 opacity-50 shrink-0" />
+                        </button>
+                      )}
+                      {DETAILS.giftInfo.accountName && (
+                        <div className={`p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#EEEDF3] border-transparent'}`}>
+                          <span className="block text-[0.6rem] font-black uppercase tracking-widest opacity-50">Account name</span>
+                          <b className="block text-[0.95rem] font-serif-display">{DETAILS.giftInfo.accountName}</b>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+{/* OUR PARTNERS — set in Events & photos, under Gifts & support; the eye toggle hides it */}
+              {(partners || []).length > 0 && !HIDDEN_SECTIONS.includes('partners') && (
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our partners</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
+                <div className="flex flex-col gap-3">
+                  {(partners || []).map((p: any) => (
+                      <PartnerHomeCard key={p.id || p.name} p={p} isDarkMode={isDarkMode} />
+                    ))}
+                </div>
+              </section>
+              )}
+
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
-                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+              ) : footerStyle === 'tunnel' ? (
+                <GiantFooterTunnel images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+              ) : footerStyle === 'globe' ? (
+                <GiantFooterGlobe images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               ) : (
-                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               )}
 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{demoHeader()}</h4>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Happy Wedding · {WED_LONG}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || `Happy Wedding · ${WED_LONG}`}</p>
                   </div>
                   <div className="pt-2 opacity-40">
-                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">Wedding memories, kept for life</p>
+                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || 'Wedding memories, kept for life'}</p>
                   </div>
                 </div>
               </footer>
@@ -2290,6 +3001,40 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               exit={{ opacity: 0 }}
               className="space-y-0 pt-3"
             >
+              {/* PRIVATE FEED GATE: when the feed is private, only the feed page
+                  is held at the entry banner. Home, settings and the bottom nav
+                  stay open so a guest can always move around. The banner asks
+                  for the guest access code and the server confirms it. */}
+              {feedLocked && (
+                <div
+                  className={`fixed left-1/2 -translate-x-1/2 w-full max-w-[520px] z-[56] flex items-center justify-center px-6 ${isDarkMode ? 'bg-[#0B171C]' : 'bg-[#EEEDF3]'}`}
+                  style={{ top: feedSubTab === 'reels' ? '0px' : '61px', bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
+                >
+                  <div className={`w-full max-w-sm rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white'}`}>
+                    <h2 className="font-black font-display text-xl mb-2 text-[var(--ann-accent)]">Private feed</h2>
+                    <p className={`text-sm mb-5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The couple made their memories private. Enter the access code to continue.</p>
+                    <form onSubmit={(e) => { e.preventDefault(); submitGateCode(); }}>
+                      <input
+                        type="text"
+                        value={gateInput}
+                        maxLength={20}
+                        onChange={(e) => setGateInput(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase())}
+                        placeholder="Access code"
+                        autoCapitalize="characters"
+                        className={`w-full p-4 rounded-xl border-none outline-none font-black tracking-widest text-center uppercase transition-colors ${isDarkMode ? 'bg-[#0B171C] text-[var(--ann-accent)] placeholder-[#5A6970] ring-1 ring-[#22363E]' : 'bg-[#EEEDF3] text-[var(--ann-accent)] placeholder-[#93A4AB] ring-1 ring-[#DAD8E3]'}`}
+                      />
+                      <button
+                        type="submit"
+                        disabled={gateBusy || !gateInput.trim()}
+                        className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.75rem] font-black uppercase tracking-widest disabled:opacity-50"
+                      >
+                        {gateBusy ? 'Checking…' : 'Enter'}
+                      </button>
+                    </form>
+                    <p className={`text-[0.7rem] mt-4 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'} opacity-50`}>Only the feed is locked. Home and settings stay open.</p>
+                  </div>
+                </div>
+              )}
               {/* Segmented Control: Post vs Reels (pinned at the top of the Feed on both tabs so users can always switch back) */}
               {(
                 <div className={`flex items-center p-1.5 rounded-2xl mb-4 border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -2324,8 +3069,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   style={{ top: activeTab === 'feed' && feedSubTab === 'reels' ? '0px' : '61px' }}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.8rem] font-bold leading-snug">You're viewing sample content</p>
-                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">Everything here is placeholder data. As the admin, you'll replace it all from your dashboard. This notice stays until the first real post.</p>
+                    <p className="text-[0.8rem] font-bold leading-snug">Everything here is placeholder data</p>
+                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">As the admin, you can post and your post takes effect immediately. Your guests can post too, and their posts take effect immediately, but guests need the access code shown in your admin dashboard. This notice stays until the first real post.</p>
                   </div>
                 </div>
               )}
@@ -2364,21 +3109,28 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       return !isPortraitReel;
                     });
 
+                    if (regularPosts.length === 0 && feedReal) {
+                      return (
+                        <p className={`py-10 text-center text-[0.8rem] font-bold ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>No posts yet · be the first to share a memory</p>
+                      );
+                    }
+
                     if (regularPosts.length === 0) {
                       return (
                         <>
                           <p className={`py-6 text-center text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'text-[#5A6970]' : 'text-[#93A4AB]'}`}>Sample memories · real guest posts appear here</p>
                           {SAMPLE_POSTS.filter((sp) => sp.mediaType !== 'reel').map((sp) => (
-                            <SamplePostCard key={sp.id} post={sp} isDarkMode={isDarkMode} liked={!!sampleLiked[sp.id]} onLike={() => setSampleLiked((m) => ({ ...m, [sp.id]: !m[sp.id] }))} onComment={() => setCommentsPost(sp)} onShare={() => setSharingPost(sp)} />
+                            <SamplePostCard key={sp.id} post={{ ...sp, text: sampleCoupleText(sp.text) }} isDarkMode={isDarkMode} liked={!!sampleLiked[sp.id]} onLike={() => setSampleLiked((m) => ({ ...m, [sp.id]: !m[sp.id] }))} onComment={() => setCommentsPost(sp)} onShare={() => setSharingPost(sp)} />
                           ))}
                         </>
                       );
                     }
 
+                    const pagedPosts = feedPageSize > 0 ? regularPosts.slice(0, feedPage * feedPageSize) : regularPosts;
                     const activePostAds = shuffledPostAds.length > 0 ? shuffledPostAds : postAds;
                     const feedElements: React.ReactNode[] = [];
 
-                    regularPosts.forEach((p, idx) => {
+                    pagedPosts.forEach((p, idx) => {
                       const formattedDate = p.timestamp?.toDate
                         ? new Intl.DateTimeFormat('en-GB', {
                             day: 'numeric',
@@ -2435,6 +3187,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       }
                     });
 
+                    if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
+                      feedElements.push(
+                        <div key="feed-next-page" className="flex w-full justify-center">
+                          <button onClick={() => setFeedPage((v: number) => v + 1)} className="my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
+                        </div>
+                      );
+                    }
                     return feedElements;
                   })()}
                 </div>
@@ -2468,7 +3227,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                     const finalReels = filteredReels.length > 0
                       ? filteredReels
-                      : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel');
+                      : feedReal
+                        ? []
+                        : SAMPLE_POSTS.filter((sp) => sp.mediaType === 'reel').map((sp) => ({ ...sp, text: sampleCoupleText(sp.text) }));
+                    // ReelsFeed maps over this prop, so an empty result must
+                    // come back as [] and let its own empty state render.
+                    if (finalReels.length === 0) return [];
 
                     const activeReelAds = shuffledReelAds.length > 0 ? shuffledReelAds : reelAds;
                     if (activeReelAds.length === 0) return finalReels;
@@ -2585,6 +3349,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </div>
 
               
+              {!DEMO && cfgContact && (cfgContact.adminWhatsapp || cfgContact.payBankName || cfgContact.payAccountNumber) && (
+                <>
+                  <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Payments & support</h2>
+                  <div className={`p-[24px_18px] rounded-[24px] border mb-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    {cfgContact.payBankName ? (
+                      <div className="space-y-1.5 text-sm">
+                        <p className="font-black font-display text-base">Pay Eventicor</p>
+                        <p>Bank: <b>{cfgContact.payBankName}</b></p>
+                        <p>Account number: <b>{cfgContact.payAccountNumber}</b></p>
+                        <p>Account name: <b>{cfgContact.payAccountName}</b></p>
+                      </div>
+                    ) : null}
+                    {cfgContact.adminWhatsapp ? (
+                      <a href={`https://wa.me/${String(cfgContact.adminWhatsapp).replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-3 px-4 py-2.5 rounded-full bg-[#25d366] text-white text-[0.7rem] font-black uppercase tracking-widest">WhatsApp the admin</a>
+                    ) : null}
+                  </div>
+                </>
+              )}
               <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[14px_4px_12px] leading-[1.25]">Appearance</h2>
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4">
@@ -2642,7 +3424,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               </div>
 
-              {(
+              {!noChrome && (
                 <div className="pt-6 pb-2" style={{ display: 'grid', justifyItems: 'center' }}>
                   <style>{`@keyframes evAdminHalo { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
                   {adminMode === 'none' ? (
@@ -2664,13 +3446,37 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         </AnimatePresence>
       </main>
       )}
+      {/* TOAST NOTIFICATION */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            initial={{ y: -100, x: '-50%', opacity: 0 }}
+            animate={{ y: 20, x: '-50%', opacity: 1 }}
+            exit={{ y: -100, x: '-50%', opacity: 0 }}
+            className="fixed top-0 left-1/2 z-[580] w-full max-w-[320px] pointer-events-none"
+          >
+            <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 pointer-events-auto ${
+              toast.type === 'success' || toast.type === 'info'
+                ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white'
+                : 'bg-red-500 border-red-600 text-white'
+            }`}>
+              {toast.type === 'success' && <Check className="w-5 h-5" />}
+              {toast.type === 'info' && <ShieldCheck className="w-5 h-5" />}
+              {toast.type === 'error' && <X className="w-5 h-5" />}
+              <p className="text-sm font-bold">{toast.message}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
-      {isAdminModalOpen && (adminMode === 'preview' || (user && !user.isAnonymous && isAdmin)) && (
+      {isAdminModalOpen && adminGateOk && (
+      <TabErrorBoundary label="Admin dashboard" isDarkMode={isDarkMode}>
       <AdminDashboardModal 
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
         onClose={leaveAdminPage}
+        onSignOut={() => doSignOut()}
         activeCode={activeAccessCode}
         onUpdateCode={updateAccessCode}
         posts={posts}
@@ -2680,6 +3486,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         weddingDetails={DETAILS}
         onSaveWedding={updateWedding}
         vendors={vendors}
+        partners={partners}
         blockedUids={blockedUids}
         vendorRequests={vendorRequests}
         onUpdatePeople={updatePeople}
@@ -2688,31 +3495,44 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         pushEnabled={pushEnabled}
         archiveMode={archiveMode}
         feedActionMode={feedActionMode}
+        feedPageSize={feedPageSize}
         onUpdateAppFlags={updateAppConfigFlags}
+        feedPrivate={feedPrivate}
+        updateFeedPrivacy={updateFeedPrivacy}
+        revokeAccessCode={revokeAccessCode}
         onDownloadEverything={downloadEverything}
         onCreateMemoryBook={createMemoryBook}
         onDeleteAllGuestData={deleteAllGuestData}
         onDeletePost={(id: string) => {
-          setIsAdminDashboardOpen(false);
+          // Keep the dashboard open behind the confirm modal (the confirm modal
+          // sits at z-801, above the dashboard's z-111), so rejecting a post
+          // never kicks the admin out of moderation.
           setPostToDelete(id);
         }}
+        onAdminDemoPost={(p: any) => setPosts((prev: any[]) => [p, ...prev])}
         isDarkMode={isDarkMode}
         heroImages={heroImages}
         heroImageLabels={heroImageLabels}
         onUpdateHeroLabels={updateHeroLabels}
         onSaveWeddingSection={updateWeddingSection}
+        contactSettings={cfgContact}
         onUpdateFooterStyle={updateFooterStyle}
         footerStyle={footerStyle}
+        footerThanks={footerThanks}
+        onUpdateHeroTemplate={updateHeroTemplate}
+        heroTpl={heroTpl}
+        accentKey={accentKey}
+        onUpdateAccent={updateAccent}
         onUpdateHeroImages={async (urls: string[]) => {
-          const capped = urls.slice(0, 14);
+          const capped = urls.slice(0, 20);
           setHeroImages(capped);
           try {
-            localStorage.setItem('ann-hero-images', JSON.stringify(capped));
+            localStorage.setItem(lsKey('hero-images'), JSON.stringify(capped));
           } catch {
             // Ignore quota error
           }
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               heroImages: capped,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2727,12 +3547,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           const capped = urls.slice(0, 40);
           setFooterImages(capped);
           try {
-            localStorage.setItem('ann-footer-images', JSON.stringify(capped));
+            localStorage.setItem(lsKey('footer-images'), JSON.stringify(capped));
           } catch {
             // Ignore quota error
           }
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               footerImages: capped,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2743,6 +3563,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           }
         }}
         allAdmins={allAdmins}
+        selfRole={selfAdminRole}
         deletedPosts={deletedPosts}
         onRestorePost={handleRestorePost}
         onPermanentDelete={handlePermanentDelete}
@@ -2754,7 +3575,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         reelAds={reelAds}
         onUpdatePostAds={async (ads: AdItem[]) => {
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               postAds: ads,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2766,7 +3587,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         }}
         onUpdateReelAds={async (ads: AdItem[]) => {
           try {
-            await setDoc(doc(db, 'app_config', 'main'), {
+            await setDoc(doc(db, scopedPath('app_config'), 'main'), {
               reelAds: ads,
               lastUpdated: serverTimestamp()
             }, { merge: true });
@@ -2777,22 +3598,38 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           }
         }}
       />
+      </TabErrorBoundary>
       )}
 
-      {/* /admin sign-in screen for signed-out visitors */}
-      {route === '/admin' && adminMode === 'real' && !(user && !user.isAnonymous && isAdmin) && (
-        <AuthScreen
-          screen={authScreen ?? 'signin'}
-          setScreen={setAuthScreen}
-          coupleLabel={demoHeader()}
-          onClose={leaveAdminPage}
-          onSignIn={handleAdminLogin}
-          onForgot={handleForgotPassword}
-          busy={authBusy}
-          error={authError}
-          clearError={() => setAuthError('')}
-          isDarkMode={isDarkMode}
-        />
+      {/* /admin sign-in screen for signed-out visitors. While the auth
+          listener is still restoring the session after a refresh, show a boot
+          loader instead, never the sign-in screen. */}
+      {route === '/admin' && adminMode === 'real' && !adminGateOk && (
+        ((authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending && !authTransient) || bootGateTimedOut) ? (
+          <AuthScreen
+            screen={authScreen ?? 'signin'}
+            setScreen={setAuthScreen}
+            coupleLabel={demoHeader()}
+            onClose={leaveAdminPage}
+            onSignIn={handleAdminLogin}
+            onForgot={handleForgotPassword}
+            busy={authBusy}
+            error={authError}
+            clearError={() => setAuthError('')}
+            isDarkMode={isDarkMode}
+          />
+        ) : (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-[#0B171C]">
+            <div className="w-9 h-9 rounded-full border-4 border-[var(--ann-accent)] border-t-transparent animate-spin" />
+          </div>
+        )
+      )}
+
+      {/* Temporary debug banner: only renders with ?authdebug=1 */}
+      {new URLSearchParams(window.location.search).has('authdebug') && (
+        <div style={{position:'fixed',left:8,bottom:8,zIndex:99999,background:'#111',color:'#4f4',padding:'8px 10px',fontSize:'11px',fontFamily:'monospace',whiteSpace:'pre-wrap',maxWidth:'70vw',borderRadius:8}}>
+          {'AUTHDEBUG\nadminMode ' + adminMode + '\nlistener ' + (debugState().listenerMode || '-') + ' realAuth ' + debugState().realAuth + '\nuser ' + (user ? ((user as any).email || user.uid) + (user.isAnonymous ? ' anon' : ' real') : 'null') + '\nisAdmin ' + isAdmin + ' mustSetPw ' + mustSetPassword + '\nroute ' + route + ' dash ' + isAdminModalOpen + '\nadmins ' + adminSync + ' pid ' + ((platformDb as any).app?.options?.projectId || '-')}
+        </div>
       )}
 
       <DeleteConfirmationModal 
@@ -2870,6 +3707,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               )}
 
+              {isUploading && (
+                <p className="mt-3 text-[0.7rem] opacity-60 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Attaching your file…</span>
+                </p>
+              )}
+
               <div className="mt-4">
                 <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Which part of the celebration is this?</span>
                 <div className="flex flex-wrap gap-2">
@@ -2895,7 +3739,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <p className="text-[0.7rem] text-center mt-2 text-red-500 font-bold uppercase tracking-wider">Posting is temporarily unavailable</p>
                 )}
                 {DEMO && configLoaded && activeAccessCode && (
-                  <p className="text-[0.7rem] text-center mt-2 opacity-60 font-bold uppercase tracking-wider">Preview access code: {DEMO_ACCESS_CODE}</p>
+                  <p className="text-[0.7rem] text-center mt-2 opacity-60 font-bold uppercase tracking-wider">Preview access code: {activeAccessCode}</p>
                 )}
               </div>
 
@@ -2956,13 +3800,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           let orientation: 'portrait' | 'landscape' | undefined = undefined;
 
                           if (isVid) {
+                            // Some phones hand over videos the browser cannot read
+                            // metadata from (HEVC .mov files are the usual case) and
+                            // then neither event ever fires: without a timeout the
+                            // composer would wait forever and look frozen.
                             orientation = await new Promise<'portrait' | 'landscape'>((resolve) => {
+                              let settled = false;
+                              const finish = (o: 'portrait' | 'landscape') => { if (!settled) { settled = true; resolve(o); } };
                               const v = document.createElement('video');
                               v.preload = 'metadata';
                               v.onloadedmetadata = () => {
-                                resolve(v.videoHeight > v.videoWidth ? 'portrait' : 'landscape');
+                                finish(v.videoHeight > v.videoWidth ? 'portrait' : 'landscape');
                               };
-                              v.onerror = () => resolve('landscape');
+                              v.onerror = () => finish('landscape');
+                              window.setTimeout(() => finish('landscape'), 4000);
                               v.src = localUrl;
                             });
                           }
@@ -2994,9 +3845,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <button 
                   disabled={(!newPostText.trim() && attachedMedia.length === 0) || isPosting || !configLoaded || !activeAccessCode}
                   onClick={async () => {
-                    if (archiveMode) { showToast('This wedding is archived. New posts are turned off.', 'error'); return; }
+                    if (archiveMode) return; // Archive mode: the send button does not respond at all.
                     if (!newPostEvent) { showToast('Select the part of the celebration first.', 'error'); return; }
                     if (!accessCode.trim()) { showToast('Enter the access code before posting.', 'error'); return; }
+                    if (!activeAccessCode) { showToast('No access code is set right now. Ask the couple for the new one.', 'error'); return; }
                     if (normalizeCode(accessCode) === normalizeCode(activeAccessCode ?? '')) {
                       if (DEMO) {
                         // Preview: the memory lives in this page only. Nothing is
@@ -3025,7 +3877,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         setAccessCode('');
                         setNewPostEvent('');
                         setAttachedMedia([]);
-                        showToast('Shared. Waiting for the couple to approve');
+                        showToast('Shared! Your post will be approved soon', 'success');
                         return;
                       }
                       setIsPosting(true);
@@ -3041,7 +3893,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           const url = await uploadToCloudinary(tempAvatar, 'residents');
                           finalAvatarUrl = url;
                           // Update residents collection too
-                          await setDoc(doc(db, 'residents', user.uid), {
+                          await setDoc(doc(db, scopedPath('residents'), user.uid), {
                             displayName,
                             photoUrl: finalAvatarUrl,
                             updatedAt: serverTimestamp()
@@ -3095,7 +3947,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           setUploadingPost((prev) => prev ? { ...prev, uploadProgress: Math.min(99, Math.round((uploadedCount / totalFiles) * 100)) } : prev);
                         }
 
-                        await addDoc(collection(db, 'posts'), {
+                        await addDoc(collection(db, scopedPath('posts')), {
                           authorUid: user.uid,
                           authorName: displayName || 'Guest',
                           authorPhoto: finalAvatarUrl || null,
@@ -3111,12 +3963,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         });
                         setUploadingPost(null);
 
-                        showToast(pendingFlag ? 'Shared. Waiting for the couple to approve' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'));
+                        showToast(pendingFlag ? 'Shared! Your post will be approved soon' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'), 'success');
 
-                      } catch (err) {
+                      } catch (err: any) {
                         console.error("Post error:", err);
                         setUploadingPost(null);
-                        showToast('Failed to share memory. Check your connection and try again.', 'error');
+                        const pcode = String(err?.code || '');
+                        const pmsg = String(err?.message || '');
+                        showToast(pmsg.includes('storage is full')
+                          ? STORAGE_FULL_MESSAGE
+                          : pcode.includes('permission-denied')
+                          ? 'The couple\u2019s post settings are not accepting this right now. Try again later.'
+                          : 'Failed to share memory. Check your connection and try again.', 'error');
                       } finally {
                         setIsPosting(false);
                       }
@@ -3209,13 +4067,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           confirmPassword={confirmNewPassword}
           setConfirmPassword={setConfirmNewPassword}
           onSubmit={handleSetPermanentPassword}
-          onSignOut={() => { signOut(auth); setMustSetPassword(false); setAuthError(''); }}
+          onSignOut={() => { doSignOut(); setMustSetPassword(false); setAuthError(''); }}
         />
       )}
 
       {/* Bottom Nav - DYNAMIC FEED/SEND BUTTON (hidden while viewing full-portrait Reels or comments) */}
       {!(activeTab === 'feed' && feedSubTab === 'reels') && !commentsPost && (
-      <nav className={`fixed left-1/2 bottom-0 -translate-x-1/2 w-full max-w-[520px] z-[90] grid grid-cols-3 items-end p-[8px_12px_calc(8px+env(safe-area-inset-bottom,0px))] border-t transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+      <nav className={`fixed left-1/2 bottom-0 -translate-x-1/2 w-full max-w-[520px] z-[90] grid grid-cols-3 items-end p-[8px_12px_calc(8px+env(safe-area-inset-bottom,0px))] border-t transition-colors ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}${noChrome ? ' hidden' : ''}`}>
         <button 
           onClick={() => setActiveTab('home')}
           className={`border-0 bg-transparent flex flex-col items-center gap-[3px] p-[6px_0] min-h-[52px] text-[0.74rem] ${activeTab === 'home' ? 'text-[var(--ann-accent)] font-bold' : 'text-[#5A6970]'}`}
@@ -3227,14 +4085,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onClick={() => {
             if (activeTab !== 'feed') {
               setActiveTab('feed');
+            } else if (archiveMode) {
+              // Archive mode: the Send button does not respond at all.
             } else if (DEMO) {
               setIsComposeOpen(true); // Preview skips the profile check
             } else {
-              // Robust check for profile completion
-              const isProfileComplete = displayName.trim() !== '' && avatar && !avatar.startsWith('blob:');
-              const hasUnsavedAvatar = avatar && avatar.startsWith('blob:');
-              
-              if (!displayName.trim() || (!avatar && !hasUnsavedAvatar)) {
+              // A saved profile is a residents doc with a display name; the
+              // profile photo is optional. The sync above restores the name
+              // on return visits, so a guest who already saved can post again.
+              if (!displayName.trim()) {
                 setShowProfileModal(true);
               } else {
                 setIsComposeOpen(true);
@@ -3301,6 +4160,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           displayName={displayName}
           avatar={avatar}
           isAdmin={isAdmin}
+          archiveMode={archiveMode}
           showToast={showToast}
           onClose={() => setCommentsPost(null)}
         />
@@ -3344,7 +4204,7 @@ function WhatsAppIcon({ className = "w-7 h-7" }: { className?: string }) {
 
 function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
   const shareUrl = `${window.location.origin}${window.location.pathname}?post=${post.id || post.uid}`;
-  const title = post.text || (DEMO ? "Check out this memory from Amara & Daniel's wedding!" : "Check out this memory from Dara & Femi's wedding!");
+  const title = post.text || demoText("Check out this memory from Amara & Daniel's wedding!");
 
   const shareOptions = [
     { 
@@ -3423,6 +4283,212 @@ function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
   );
 }
 
+// Browsers refuse to autoplay a video with sound unless a real user gesture
+// started it. Try sound first; when the browser refuses, start muted so the
+// video still plays, and surface a "Tap for sound" pill (a tap is a real
+// gesture, so unmuting then brings the audio straight back).
+const startVideoBestEffort = (vid: HTMLVideoElement | null, onSoundBlocked?: (blocked: boolean) => void): void => {
+  if (!vid) return;
+  vid.muted = false;
+  const p = vid.play();
+  if (p && typeof p.catch === 'function') {
+    p.then(() => { if (onSoundBlocked) onSoundBlocked(false); }).catch(() => {
+      vid.muted = true;
+      const p2 = vid.play();
+      if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
+      if (onSoundBlocked) onSoundBlocked(true);
+    });
+  }
+};
+
+// The fullscreen viewers' video: autoplays as soon as it is shown, with
+// sound when the browser allows it and a one-tap unmute when it does not.
+function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string; className?: string; onMediaClick?: (e: any) => void; onEnded?: () => void }) {
+  const vidRef = useRef<HTMLVideoElement | null>(null);
+  const [soundBlocked, setSoundBlocked] = useState(false);
+  const [mutedNow, setMutedNow] = useState(true);
+  useEffect(() => {
+    setSoundBlocked(false);
+    const vid = vidRef.current;
+    if (!vid) return;
+    const attempt = () => startVideoBestEffort(vid, setSoundBlocked);
+    const t = window.setTimeout(attempt, 80);
+    // If the first try lands before the browser holds any data, play() can
+    // reject for reasons that have nothing to do with sound, so retry once
+    // the first frame can actually play before going quiet.
+    const onCanPlay = () => attempt();
+    vid.addEventListener('canplay', onCanPlay, { once: true });
+    return () => { window.clearTimeout(t); vid.removeEventListener('canplay', onCanPlay); };
+  }, [src]);
+  const toggleMute = () => {
+    const vid = vidRef.current;
+    if (!vid) return;
+    vid.muted = !vid.muted;
+    vid.play().catch(() => {});
+    setSoundBlocked(false);
+  };
+  return (
+    <div className="relative flex items-center justify-center max-w-full max-h-full">
+      <video
+        ref={vidRef}
+        src={src}
+        className={className}
+        controls
+        playsInline
+        controlsList="nodownload noplaybackrate"
+        disablePictureInPicture
+        onContextMenu={(e) => e.preventDefault()}
+        onClick={onMediaClick}
+        onEnded={onEnded}
+        onVolumeChange={(e: any) => setMutedNow(!!e.currentTarget?.muted)}
+      />
+      <button
+        onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+        className="absolute top-3 right-3 p-2.5 rounded-full bg-black/55 text-white backdrop-blur-md hover:bg-black/75 transition-colors z-10"
+        style={{ touchAction: 'manipulation' }}
+        aria-label={mutedNow ? 'Turn sound on' : 'Turn sound off'}
+      >
+        {mutedNow ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+      </button>
+      {soundBlocked && (
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/70 text-white text-[0.65rem] font-black uppercase tracking-widest z-10 shadow-lg"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <VolumeX className="w-4 h-4" />
+          Tap for sound
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Branded dropdown (user direction Nov 21 2026): replaces every native
+// <select> in the app. A button styled like the app's own fields opens a
+// panel of options; the panel never fights the screen edge: not enough room
+// below the button and it opens upward, not enough room above and it opens
+// downward. Nothing here is a browser picker.
+function BrandedSelect({ value, onChange, options, ariaLabel, className, isDarkMode, compact }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel?: string; className?: string; isDarkMode: boolean; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState<{ left: number; top: number; bottom: number; width: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const est = Math.min(options.length * 40 + 14, 236);
+  const openUp = rect ? rect.bottom + est + 10 > window.innerHeight && rect.top - est - 10 > 0 : false;
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const el = btnRef.current;
+    if (el) { const r = el.getBoundingClientRect(); setRect({ left: r.left, top: r.top, bottom: r.bottom, width: Math.max(r.width, 150) }); }
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onDoc = (e: any) => { const t = e.target as Node; if (btnRef.current && panelRef.current && !btnRef.current.contains(t) && !panelRef.current.contains(t)) close(); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    // Scrolling the option list itself must not close the panel (user report
+    // Nov 21 2026): only a scroll outside it does.
+    const onScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      if (panelRef.current && t && panelRef.current.contains(t)) return;
+      close();
+    };
+    document.addEventListener('click', onDoc);
+    document.addEventListener('keydown', onEsc);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('click', onDoc);
+      document.removeEventListener('keydown', onEsc);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+  const current = options.find((o) => o.value === value);
+  const btnCls = className || `p-3 rounded-xl border font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`;
+  return (
+    <div className="relative w-full">
+      <button type="button" ref={btnRef} onClick={toggle} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} className={`flex items-center justify-between gap-2 w-full text-left ${btnCls}`}>
+        <span className="truncate">{current ? current.label : 'Select'}</span>
+        <ChevronDown className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0 opacity-60 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && rect && (
+        <div
+          ref={panelRef}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{ position: 'fixed', left: rect.left, top: openUp ? undefined : rect.bottom + 6, bottom: openUp ? window.innerHeight - rect.top + 6 : undefined, width: rect.width, maxHeight: Math.min(est, window.innerHeight - 24), zIndex: 1200 }}
+          className={`rounded-2xl border shadow-2xl py-1 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="option"
+              aria-selected={o.value === value}
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`flex items-center justify-between gap-3 w-full text-left px-4 py-2 text-sm font-bold ${o.value === value ? 'text-[var(--ann-accent)]' : isDarkMode ? 'text-white/80' : 'text-[#14262D]'} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-[#EEEDF3]'}`}
+            >
+              <span className="truncate">{o.label}</span>
+              {o.value === value && <Check className="w-4 h-4 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A partner card on the app's home page (user direction Nov 21 2026): the
+// basics always show, and a branded dropdown reveals the contact details the
+// couple saved (WhatsApp, Instagram, website, TikTok, Facebook, YouTube),
+// whichever of those are filled. Nothing here leads out of the app: the
+// website address is plain text, never a link.
+function PartnerHomeCard({ p, isDarkMode }: { p: any; isDarkMode: boolean }) {
+  const [open, setOpen] = useState(false);
+  const rows = [
+    { label: 'WhatsApp', value: String(p.whatsapp || '').trim() },
+    { label: 'Instagram', value: String(p.instagram || '').trim() },
+    { label: 'Website', value: String(p.website || '').trim() },
+    { label: 'TikTok', value: String(p.tiktok || '').trim() },
+    { label: 'Facebook', value: String(p.facebook || '').trim() },
+    { label: 'YouTube', value: String(p.youtube || '').trim() },
+  ].filter((r) => r.value);
+  const cardCls = `flex flex-col p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+  return (
+    <div className={cardCls}>
+      <button
+        type="button"
+        onClick={() => { if (rows.length) setOpen(!open); }}
+        className={`flex items-center gap-3 w-full text-left ${rows.length ? 'cursor-pointer' : 'cursor-default'}`}
+        style={rows.length ? { touchAction: 'manipulation' } : { pointerEvents: 'none' }}
+        aria-expanded={rows.length ? open : undefined}
+      >
+        {p.photo
+          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
+          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+        <div className="min-w-0 flex-1">
+          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
+          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
+        </div>
+        {rows.length > 0 && <ChevronDown className={`w-4 h-4 opacity-50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />}
+      </button>
+      {open && rows.length > 0 && (
+        <div className={`mt-3 pt-3 border-t space-y-1.5 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between gap-3">
+              <span className={`shrink-0 text-[0.6rem] font-black uppercase tracking-widest ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'} opacity-70`}>{r.label}</span>
+              <span className={`truncate text-[0.78rem] ${isDarkMode ? 'text-white/85' : 'text-[#14262D]'}`}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
   const [index, setIndex] = useState(initialIndex);
   const media = post.mediaUrls || (post.mediaUrl ? [post.mediaUrl] : []);
@@ -3449,12 +4515,6 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
     <div className="fixed inset-0 z-[250] bg-black flex flex-col items-center justify-center">
       <div className="absolute top-0 w-full p-4 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="p-2 text-white/60 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-          <span className="text-white text-sm font-bold">{index + 1} / {media.length}</span>
-        </div>
-        <div className="flex items-center gap-2">
           {!isVideo && (
             <button
               onClick={handleDownload}
@@ -3465,6 +4525,12 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
               <Download className="w-5 h-5" />
             </button>
           )}
+          <span className="text-white text-sm font-bold">{index + 1} / {media.length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="p-2 text-white/60 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
         </div>
       </div>
 
@@ -3478,15 +4544,7 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
             className="w-full h-full flex items-center justify-center p-4"
           >
             {isVideo ? (
-              <video
-                src={current}
-                controls
-                autoPlay
-                controlsList="nodownload noplaybackrate"
-                disablePictureInPicture
-                onContextMenu={(e) => e.preventDefault()}
-                className="max-w-full max-h-full rounded-lg"
-              />
+              <AutoSoundVideo src={current} className="max-w-full max-h-full rounded-lg" />
             ) : (
               <img src={current} className="max-w-full max-h-full object-contain rounded-lg" alt="" />
             )}
@@ -3628,7 +4686,7 @@ function Post({
 
   useEffect(() => {
     if (!user || !id) return;
-    const reactionRef = doc(db, 'posts', id, 'reactions', user.uid);
+    const reactionRef = doc(db, scopedPath('posts'), id, 'reactions', user.uid);
     const unsub = onSnapshot(reactionRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -3670,11 +4728,11 @@ function Post({
           )}
           <div className="contents">
           </div>
-          {(isAdmin || (user && user.uid === authorUid)) && (
+          {isAdmin && (
             <button 
               onClick={onDelete}
               className="p-1.5 text-red-500/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-              title={isAdmin ? 'Delete post' : 'Remove your post'}
+              title='Delete post'
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -4019,7 +5077,7 @@ function ReelCard({
   const [localLiked, setLocalLiked] = useState(false);
   const [localLoved, setLocalLoved] = useState(false);
 
-  const isSample = String(reel.id || '').startsWith('sample-');
+  const isSample = ['sample-', 'demo-seed-'].some((p) => String(reel.id || '').startsWith(p));
   const reelRole = postRole(reel);
   const media: string[] = reel.mediaUrls || (reel.mediaUrl ? [reel.mediaUrl] : []);
   const videoUrl = media.find((u: string, idx: number) =>
@@ -4032,7 +5090,7 @@ function ReelCard({
 
   useEffect(() => {
     if (isSample || !user || !reel.id) return;
-    const reactionRef = doc(db, 'posts', reel.id, 'reactions', user.uid);
+    const reactionRef = doc(db, scopedPath('posts'), reel.id, 'reactions', user.uid);
     const unsub = onSnapshot(reactionRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -4098,13 +5156,9 @@ function ReelCard({
     <div
       className="snap-start snap-always w-full h-full rounded-[20px] relative bg-black flex items-center justify-center overflow-hidden select-none shadow-2xl border border-[#DAD8E3] dark:border-[#22363E]"
     >
-      {isSample ? (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: sampleArt(reel.eventName) }}>
-          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
-            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
-          </div>
-        </div>
-      ) : (
+      {/* Demo and real reels alike carry a real video URL, so play it. The
+          gradient placeholder only fills in for a reel with no media. */}
+      {videoUrl ? (
       <video
         ref={videoRef}
         src={videoUrl}
@@ -4114,6 +5168,12 @@ function ReelCard({
         muted={muted}
         onClick={togglePlay}
       />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: sampleArt(reel.eventName) }}>
+          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
+            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
+          </div>
+        </div>
       )}
 
       {/* Play/Pause Center Indicator */}
@@ -4139,7 +5199,16 @@ function ReelCard({
         </div>
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={() => setMuted(!muted)}
+            onClick={() => {
+              // React does not apply muted prop updates to a mounted video
+              // element, so the toggle must reach the element directly or the
+              // icon flips while the audio stays silent.
+              const vid = videoRef.current;
+              if (!vid) return;
+              vid.muted = !vid.muted;
+              setMuted(vid.muted);
+              if (vid.paused) vid.play().catch(() => {});
+            }}
             className="p-2.5 rounded-full bg-black/50 text-white backdrop-blur-md hover:bg-black/70 transition-colors"
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -4272,6 +5341,10 @@ const SAMPLE_POSTS = [
   { id: 'sample-7', authorName: 'Dara', role: 'couple', eventName: 'Introduction', mediaType: 'reel', text: 'Dancing in before the families. Look at my mum!', likeCount: 58, commentCount: 0, timeAgo: '20 Jun 2026, 17:10' },
 ];
 
+// Sample captions keep the placeholder couple (Dara/Femi) at rest; render
+// them with the bound couple's names so real apps never show placeholders.
+const sampleCoupleText = (t: string) => String(t || '').replace(/\bDara\b/g, demoBride()).replace(/\bFemi\b/g, demoGroom());
+
 const SAMPLE_COMMENTS: Record<string, Array<{ authorName: string; timeAgo: string; text: string }>> = {
   'sample-3': [
     { authorName: 'Aunty Ronke', timeAgo: '18 Jul 2026, 13:02', text: 'I screamed so loud, my neck is still sore!' },
@@ -4297,7 +5370,7 @@ function UploadingPostCard({ up, isDarkMode }: { up: any; isDarkMode: boolean })
         )}
         <div className="min-w-0">
           <b className="block text-sm">{up.authorName}</b>
-          <p className="text-[0.7rem] opacity-50">Uploading… {pct}%</p>
+          <p className="text-[0.7rem] opacity-50">{pct >= 99 ? 'Finishing up…' : `Uploading… ${pct}%`}</p>
         </div>
       </div>
       {up.text && <p className="text-[0.95rem] mb-3 whitespace-pre-wrap">{up.text}</p>}
@@ -4310,7 +5383,7 @@ function UploadingPostCard({ up, isDarkMode }: { up: any; isDarkMode: boolean })
           )}
           <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2.5">
             <span className="w-9 h-9 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
-            <p className="text-white font-black text-sm">{pct}%</p>
+            <p className="text-white font-black text-sm">{pct >= 99 ? 'Finishing up…' : `${pct}%`}</p>
             <div className="w-2/3 h-1.5 rounded-full bg-white/25 overflow-hidden">
               <div className="h-full bg-white transition-all duration-200" style={{ width: `${pct}%` }} />
             </div>
@@ -4385,15 +5458,15 @@ function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }:
     </article>
   );
 }
-function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose }: any) {
-  const isSample = String(post?.id || '').startsWith('sample-');
+function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose, archiveMode }: any) {
+  const isSample = ['sample-', 'demo-seed-'].some((p) => String(post?.id || '').startsWith(p));
   const [comments, setComments] = useState<any[]>(isSample ? (SAMPLE_COMMENTS[post.id] || []) : []);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (isSample || DEMO || !post?.id) return;
-    const q = query(collection(db, 'posts', post.id, 'comments'), orderBy('createdAt', 'asc'));
+    const q = query(collection(db, scopedPath('posts'), post.id, 'comments'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     }, (err) => console.error('comments load failed', err));
@@ -4401,6 +5474,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
   }, [isSample, post?.id]);
 
   const send = async () => {
+    if (archiveMode) return; // Archive mode: commenting is off everywhere.
     const body = text.trim();
     if (!body || sending) return;
     setSending(true);
@@ -4408,14 +5482,25 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
       if (isSample || DEMO) {
         setComments((prev) => [...prev, { authorName: displayName || 'Guest', text: body, timeAgo: 'Just now' }]);
       } else {
-        await addDoc(collection(db, 'posts', post.id, 'comments'), {
+        if (!auth.currentUser) {
+          try { await signInAnonymously(auth); } catch {}
+        }
+        // Guests must save a profile first; admins can always comment.
+        if (!isAdmin && auth.currentUser?.uid) {
+          const resSnap = await getDoc(doc(db, scopedPath('residents'), auth.currentUser.uid));
+          if (!resSnap.exists() || !resSnap.data()?.displayName) {
+            showToast?.('Save your profile first: add your name in Settings, then you can comment.', 'error');
+            return;
+          }
+        }
+        await addDoc(collection(db, scopedPath('posts'), post.id, 'comments'), {
           authorUid: user?.uid || null,
           authorName: displayName || 'Guest',
           authorPhoto: avatar || null,
           text: body,
           createdAt: serverTimestamp(),
         });
-        await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(1) });
+        await updateDoc(doc(db, scopedPath('posts'), post.id), { commentCount: increment(1) });
       }
       setText('');
       if (showToast) showToast('Comment added');
@@ -4433,8 +5518,8 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
       return;
     }
     try {
-      await deleteDoc(doc(db, 'posts', post.id, 'comments', c.id));
-      await updateDoc(doc(db, 'posts', post.id), { commentCount: increment(-1) });
+      await deleteDoc(doc(db, scopedPath('posts'), post.id, 'comments', c.id));
+      await updateDoc(doc(db, scopedPath('posts'), post.id), { commentCount: increment(-1) });
     } catch (err) {
       console.error('comment delete failed', err);
     }
@@ -4469,13 +5554,14 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
                   <span className={`text-[0.75rem] ${mutedCls}`}> · {fmt(c)}</span>
                 </p>
                 <p className="text-[0.95rem] mt-0.5 whitespace-pre-wrap">{c.text}</p>
-                {(isAdmin || (user && c.authorUid === user.uid)) && (
+                {isAdmin && (
                   <button onClick={() => removeComment(c)} className="text-[13px] text-[#d23b3b] mt-1">Remove</button>
                 )}
               </div>
             </div>
           ))
         )}
+        {!archiveMode && (
         <div className={`sticky bottom-0 flex items-center gap-2 pt-2 pb-1 ${isDarkMode ? 'bg-[#13232A]' : 'bg-[#F6F5FA]'}`}>
           <div className="w-[34px] h-[34px] rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center text-[13px] font-bold shrink-0 overflow-hidden">
             {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="" /> : <span>{(displayName || 'Y').charAt(0).toUpperCase()}</span>}
@@ -4490,6 +5576,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
           />
           <button onClick={send} disabled={!text.trim() || sending} className="bg-[var(--ann-accent)] text-white rounded-full px-4 py-2.5 font-semibold text-[0.9rem] disabled:opacity-40 shrink-0">Send</button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -4516,13 +5603,16 @@ const footerRows = (images: string[], rows: number): string[][] => {
 // Style 1 · Photo wall: a still 24-photo grid under the couple's serif names.
 // Every tile sits greyed out; a bright scan sweeps the rows top to bottom and
 // back up again, looping (the reference video's arrangement).
-function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void }) {
+function GiantFooterWall({ images = [], isDarkMode, onTap, thanks, paused }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void; thanks?: string; paused?: boolean }) {
   const ROWS = 8;
   const [activeRow, setActiveRow] = useState(0);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
   useEffect(() => {
     let r = 0;
     let dir = 1;
     const t = setInterval(() => {
+      if (pausedRef.current) return;
       let next = r + dir;
       if (next > ROWS - 1) { dir = -1; next = ROWS - 2; }
       if (next < 0) { dir = 1; next = 1; }
@@ -4548,15 +5638,16 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
       </div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
-        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{DEMO ? demoBride() : 'Dara'}</h2>
+        <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
+        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
-        <h2 className="text-[clamp(3rem,14vw,8.5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
-          <span>{DEMO ? demoGroom() : 'Femi'}</span>
+        <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
+          <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
-          <span className="text-[clamp(0.7rem,2.6vw,1rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
+          <span className="text-[clamp(0.85rem,3.1vw,1.3rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
         </div>
       </div>
@@ -4566,28 +5657,28 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
 
 // Style 2 · Marquee: dark navy wall, accent bar on top, rounded photo rows
 // drifting at different speeds, and a small photo-count chip.
-function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void }) {
+function GiantFooterMarquee({ images = [], onTap, thanks, paused }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void; thanks?: string; paused?: boolean }) {
   const rows = footerRows(images, 4);
-  const count = images.length > 0 ? images.length : (DEMO ? DEMO_PHOTOS.length : PLACEHOLDER_IMAGES.length);
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
-        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{DEMO ? demoBride() : 'Dara'}</h2>
+        <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
+        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
-        <h2 className="text-[clamp(2.4rem,10vw,5rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
-          <span>{DEMO ? demoGroom() : 'Femi'}</span>
+        <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
+          <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
           <span className="flex-1 border-t border-dashed border-white/60" />
-          <span className="text-[clamp(0.65rem,2.4vw,0.9rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
+          <span className="text-[clamp(0.8rem,2.9vw,1.15rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
           <span className="flex-1 border-t border-dashed border-white/60" />
         </div>
       </div>
-      <div className="flex flex-col gap-[10px] py-[16px]">
+      <div className="flex flex-col gap-[6px] py-[14px]">
         {rows.map((row, r) => (
-          <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s` }}>
+          <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s`, animationPlayState: paused ? 'paused' : 'running' }}>
             {[...row, ...row].map((src, i) => (
               <button key={i} type="button" onClick={() => onTap && onTap(src)} className="ev-fw-cell-lg">
                 <img src={src} alt="" loading="lazy" />
@@ -4596,10 +5687,290 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
           </div>
         ))}
       </div>
-      <div className="flex justify-start px-4 pb-4">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 text-white text-[0.72rem] font-bold">{count} · Photo Wall</span>
-      </div>
     </section>
+  );
+}
+
+// Giant footer styles 3 & 4 (Nov 21 2026, replicated from the admin's
+// footer-styles file): the couple's photos moving in 3D. Both drift on their
+// own, respect reduced motion, and open a photo on tap; dragging does nothing
+// and the drift pauses while the photo popup is open.
+// compact=true is the dashboard preview mockup's small version.
+const EVFW_CROP = [['cover', 'center'], ['210% auto', '50% 22%'], ['190% auto', '20% 40%'], ['190% auto', '80% 45%']];
+const EVFW_THANKS = 'Thank you for celebrating with us';
+
+function GiantFooterNames({ bride, groom, wed, thanks, compact = false }: { bride: string; groom: string; wed: string; thanks?: string; compact?: boolean }) {
+  return (
+    <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
+      <small>{(thanks || '').trim() || EVFW_THANKS}</small>
+      <h2>{bride} <i>&amp;</i> {groom}</h2>
+      <p>{wed}</p>
+    </div>
+  );
+}
+
+function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background, onTap, bride, groom, wed, thanks }: { compact?: boolean; worldRef: React.RefObject<HTMLDivElement>; stageRef: React.RefObject<HTMLDivElement>; vignette: string; background: string; onTap?: (src: string) => void; bride?: string; groom?: string; wed?: string; thanks?: string }) {
+  return (
+    <section
+      ref={stageRef}
+      className={`ev-fw-stage relative overflow-hidden ${compact ? 'w-full h-[460px]' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] mt-12'}`}
+      style={{ background, touchAction: 'pan-y', cursor: 'pointer' }}
+    >
+      <div ref={worldRef} className="ev-fw-world" />
+      <div className="ev-fw-vig" style={{ background: vignette }} />
+      <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} thanks={thanks} compact={compact} />
+      {onTap ? <div className="ev-fw-hint">TAP A PHOTO</div> : null}
+    </section>
+  );
+}
+
+function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, onTap, paused }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void; paused?: boolean }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const [tick, setTick] = useState(0);
+  const imgRef = useRef<string[]>(images);
+  imgRef.current = images;
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
+
+  useEffect(() => {
+    const stage = stageRef.current, world = worldRef.current;
+    if (!stage || !world) return;
+    const rm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    world.innerHTML = '';
+    const W = stage.clientWidth || (compact ? 340 : 390);
+    const H = stage.clientHeight || (compact ? 460 : 720);
+    const m = Math.min(W, H);
+    const R = m * 0.6, n = 10, tw = 2 * Math.PI * R / n * 0.94, dz = tw * 1.16, M = 9;
+    stage.style.perspective = (m * 0.95) + 'px';
+    const tiles: any[] = [];
+    for (let j = 0; j < M; j++) for (let k = 0; k < n; k++) {
+      const e = document.createElement('div');
+      e.className = 'ev-fw-3d-t';
+      e.style.width = tw + 'px';
+      e.style.height = dz * 0.94 + 'px';
+      e.style.marginLeft = (-tw / 2) + 'px';
+      e.style.marginTop = (-dz * 0.47) + 'px';
+      e._j = j; e._k = k; e._g = -1;
+      world.appendChild(e);
+      tiles.push(e);
+    }
+    const st = { off: 0, rot: 0 };
+    let last = performance.now(), raf = 0;
+    const paint = (e: any, idx: number) => {
+      if (e._g === idx) return;
+      e._g = idx;
+      const P = pool();
+      const i = ((idx % P.length) + P.length) % P.length;
+      e.style.backgroundImage = `url("${P[i]}")`;
+      const v = Math.floor(idx / 6) % 4;
+      e.style.backgroundSize = EVFW_CROP[v][0];
+      e.style.backgroundPosition = EVFW_CROP[v][1];
+    };
+    const frame = (t: number) => {
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (pausedRef.current) { raf = requestAnimationFrame(frame); return; }
+      if (!rm) {
+        st.off += (80 * (m / 390)) * dt;
+        st.rot += 2.4 * dt;
+      }
+      const o = ((st.off % dz) + dz) % dz, gb = Math.floor(st.off / dz);
+      tiles.forEach(e => {
+        const d = e._j * dz - o + R * 0.3, g = gb + e._j;
+        const N = Math.max(1, pool().length);
+        paint(e, ((g * n + e._k) % N + N) % N);
+        const th = e._k * 360 / n + st.rot + ((g % 2) * (180 / n));
+        e.style.transform = `translate3d(0,0,${-d}px) rotateZ(${th}deg) translateX(${R}px) rotateY(90deg) rotateZ(90deg) scaleX(-1)`;
+        e.style.opacity = String(Math.max(0, Math.min(1, Math.min((d - R * 0.05) / (R * 0.2), (R * 5.4 - d) / (R * 1.8)))));
+        e.style.filter = `brightness(${Math.max(0.3, Math.min(1.1, 1.2 - d / (R * 6)))})`;
+      });
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    let pdown: any = null;
+    let lastTapAt = 0;
+    const onDown = (ev: PointerEvent) => {
+      pdown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+    };
+    const tapAt = (x: number, y: number) => {
+      if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
+      const el = (document.elementsFromPoint(x, y) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+      if (el) {
+        const P = pool();
+        onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+      }
+    };
+    const onEnd = (ev: PointerEvent) => {
+      const p = pdown; pdown = null;
+      lastTapAt = performance.now();
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12) tapAt(ev.clientX, ev.clientY);
+    };
+    const onCancel = (ev: PointerEvent) => {
+      const p = pdown; pdown = null;
+      lastTapAt = performance.now();
+      // Mobile: a tap the browser mistook for the start of a scroll arrives here.
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12 && performance.now() - p.t < 450) tapAt(ev.clientX, ev.clientY);
+    };
+    const onClick = (ev: MouseEvent) => {
+      if (performance.now() - lastTapAt < 700) return;
+      lastTapAt = performance.now();
+      tapAt(ev.clientX, ev.clientY);
+    };
+    const onResize = () => setTick(x => x + 1);
+    stage.addEventListener('pointerdown', onDown);
+    stage.addEventListener('pointerup', onEnd);
+    stage.addEventListener('pointercancel', onCancel);
+    stage.addEventListener('click', onClick);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointerup', onEnd);
+      stage.removeEventListener('pointercancel', onCancel);
+      stage.removeEventListener('click', onClick);
+    };
+  }, [tick, compact]);
+
+  return (
+    <GiantFooter3dShell
+      compact={compact}
+      stageRef={stageRef}
+      worldRef={worldRef}
+      background="#030306"
+      vignette="radial-gradient(circle at 50% 50%, #000 0%, rgba(0,0,0,0.66) 14%, rgba(0,0,0,0) 42%, rgba(0,0,0,0) 70%, rgba(0,0,0,0.53) 100%)"
+      onTap={onTap}
+      bride={bride} groom={groom} wed={wed}
+    />
+  );
+}
+
+function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onTap, paused }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void; paused?: boolean }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const [tick, setTick] = useState(0);
+  const imgRef = useRef<string[]>(images);
+  imgRef.current = images;
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
+  const imgKey = (images[0] || '') + '|' + images.length;
+
+  useEffect(() => {
+    const stage = stageRef.current, world = worldRef.current;
+    if (!stage || !world) return;
+    const rm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    world.innerHTML = '';
+    const W = stage.clientWidth || (compact ? 340 : 390);
+    const H = stage.clientHeight || (compact ? 460 : 720);
+    const m = Math.min(W, H);
+    const R = m * 0.62, cols = 14, rows = 5, sg = 28;
+    stage.style.perspective = (m * 1.6) + 'px';
+    const tiles: any[] = [];
+    const P0 = pool();
+    for (let r = 0; r < rows; r++) {
+      const phi = (r - (rows - 1) / 2) * sg;
+      const cw = Math.cos(phi * Math.PI / 180) * 2 * Math.PI * R / cols * 0.9;
+      const ch = R * sg * Math.PI / 180 * 0.9;
+      for (let c = 0; c < cols; c++) {
+        const th = c * 360 / cols + (r % 2) * (180 / cols);
+        const e = document.createElement('div');
+        e.className = 'ev-fw-3d-t';
+        e.style.backfaceVisibility = 'hidden';
+        e.style.width = cw + 'px';
+        e.style.height = ch + 'px';
+        e.style.marginLeft = (-cw / 2) + 'px';
+        e.style.marginTop = (-ch / 2) + 'px';
+        e.style.transform = `rotateY(${th}deg) rotateX(${-phi}deg) translateZ(${R}px)`;
+        const N = Math.max(1, P0.length);
+        const idx = ((r * cols + c) % N + N) % N;
+        e._g = idx;
+        e.style.backgroundImage = `url("${P0[idx]}")`;
+        const v = Math.floor(idx / 6) % 4;
+        e.style.backgroundSize = EVFW_CROP[v][0];
+        e.style.backgroundPosition = EVFW_CROP[v][1];
+        world.appendChild(e);
+        tiles.push(e);
+      }
+    }
+    const st = { ry: 0 };
+    let T = 0, last = performance.now(), raf = 0;
+    const applyTransform = () => {
+      const tl = -8 + Math.sin(T * 0.22) * 4;
+      world.style.transform = `translateZ(${-R * 0.55}px) rotateX(${tl}deg) rotateY(${st.ry}deg)`;
+    };
+    applyTransform();
+    const frame = (t: number) => {
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (pausedRef.current) { raf = requestAnimationFrame(frame); return; }
+      if (!rm) {
+        T += dt;
+        st.ry += 5 * dt;
+      }
+      applyTransform();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    let pdown: any = null;
+    let lastTapAt = 0;
+    const onDown = (ev: PointerEvent) => {
+      pdown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+    };
+    const tapAt = (x: number, y: number) => {
+      if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
+      const el = (document.elementsFromPoint(x, y) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+      if (el) {
+        const P = pool();
+        onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+      }
+    };
+    const onEnd = (ev: PointerEvent) => {
+      const p = pdown; pdown = null;
+      lastTapAt = performance.now();
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12) tapAt(ev.clientX, ev.clientY);
+    };
+    const onCancel = (ev: PointerEvent) => {
+      const p = pdown; pdown = null;
+      lastTapAt = performance.now();
+      // Mobile: a tap the browser mistook for the start of a scroll arrives here.
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12 && performance.now() - p.t < 450) tapAt(ev.clientX, ev.clientY);
+    };
+    const onClick = (ev: MouseEvent) => {
+      if (performance.now() - lastTapAt < 700) return;
+      lastTapAt = performance.now();
+      tapAt(ev.clientX, ev.clientY);
+    };
+    const onResize = () => setTick(x => x + 1);
+    stage.addEventListener('pointerdown', onDown);
+    stage.addEventListener('pointerup', onEnd);
+    stage.addEventListener('pointercancel', onCancel);
+    stage.addEventListener('click', onClick);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointerup', onEnd);
+      stage.removeEventListener('pointercancel', onCancel);
+      stage.removeEventListener('click', onClick);
+    };
+  }, [tick, compact, imgKey]);
+
+  return (
+    <GiantFooter3dShell
+      compact={compact}
+      stageRef={stageRef}
+      worldRef={worldRef}
+      background="#000"
+      vignette="radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.87) 78%, #000 96%)"
+      onTap={onTap}
+      bride={bride} groom={groom} wed={wed}
+    />
   );
 }
 
@@ -4725,7 +6096,292 @@ function AvatarZoomModal({ src, onClose }: { src: string; onClose: () => void })
   );
 }
 
-function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any) {
+// ---- Branded time + date pickers (dashboard) -------------------------------
+// The dashboard never shows the browser's native pickers: a time opens the
+// app's own hour / minute / AM-PM sheet, a date opens the app's own calendar
+// with month navigation. Both write back the same text formats the app
+// already stores ("3:00 pm", "2027-03-06").
+
+function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
+  const [open, setOpen] = useState(false);
+  const parse = (raw: string) => {
+    const m = String(raw || '').trim().match(/^(\d{1,2})(?:\s*[:. ]\s*(\d{1,2}))?\s*([ap]\.?m\.?)?$/i);
+    if (!m) return { h: 10, m: 0, ap: 'am' as 'am' | 'pm' };
+    let h = parseInt(m[1], 10);
+    if (h === 0) h = 12; else if (h > 12) h = h - 12;
+    return { h, m: Math.min(55, Math.max(0, parseInt(m[2] || '0', 10))), ap: (/p/i.test(m[3] || '') ? 'pm' : 'am') as 'am' | 'pm' };
+  };
+  const fmt = (d: { h: number; m: number; ap: string }) => `${d.h}:${String(d.m).padStart(2, '0')} ${d.ap}`;
+  const [draft, setDraft] = useState(() => parse(value));
+  useEffect(() => { if (open) setDraft(parse(value)); }, [open, value]);
+  const chipCls = (active: boolean) => `py-1.5 rounded-lg text-[0.72rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{String(value || '').trim() || fmt(parse(value))}</button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className={`absolute z-[100] left-0 right-0 mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            <div className="flex gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Hour</p>
+                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                    <button key={h} type="button" onClick={() => setDraft((d: any) => ({ ...d, h }))} className={chipCls(draft.h === h)}>{h}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Minute</p>
+                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                  {Array.from({ length: 12 }, (_, i) => i * 5).map((mm) => (
+                    <button key={mm} type="button" onClick={() => setDraft((d: any) => ({ ...d, m: mm }))} className={chipCls(draft.m === mm)}>{String(mm).padStart(2, '0')}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <div className="flex flex-1 rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
+                {(['am', 'pm'] as const).map((ap) => (
+                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2 text-[0.65rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { onChange(fmt(draft)); setOpen(false); }} className="px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
+  const [open, setOpen] = useState(false);
+  const parse = (raw: string) => {
+    if (raw && /^\d{4}-\d{2}-\d{2}$/.test(String(raw))) {
+      const d = new Date(`${raw}T12:00:00`);
+      return { y: d.getFullYear(), m: d.getMonth(), day: d.getDate() };
+    }
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth(), day: 0 };
+  };
+  const [view, setView] = useState(() => parse(value));
+  useEffect(() => { if (open) setView(parse(value)); }, [open, value]);
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const shift = (delta: number) => setView((v: any) => { const d = new Date(v.y, v.m + delta, 1); return { y: d.getFullYear(), m: d.getMonth(), day: 0 }; });
+  const startDow = new Date(view.y, view.m, 1).getDay();
+  const daysIn = new Date(view.y, view.m + 1, 0).getDate();
+  const iso = (day: number) => `${view.y}-${String(view.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const nice = (raw: string) => {
+    if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) return String(raw || 'Pick a date');
+    return new Date(`${raw}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{nice(String(value || ''))}</button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
+          <div className={`absolute z-[100] left-0 right-0 mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={() => shift(-1)} className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 text-base" aria-label="Previous month">‹</button>
+              <p className="font-black font-display text-sm">{MONTHS[view.m]} {view.y}</p>
+              <button type="button" onClick={() => shift(1)} className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 text-base" aria-label="Next month">›</button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, wi) => (<span key={wi} className="text-[0.55rem] font-black uppercase opacity-40">{w}</span>))}
+              {Array.from({ length: startDow }).map((_, i) => (<span key={`b${i}`} />))}
+              {Array.from({ length: daysIn }, (_, i) => i + 1).map((day) => (
+                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <button type="button" onClick={() => { onChange(''); setOpen(false); }} className="text-[0.65rem] font-black uppercase tracking-widest opacity-50">Clear</button>
+              <button type="button" disabled={!view.day} onClick={() => { if (view.day) onChange(iso(view.day)); setOpen(false); }} className={`px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest ${!view.day ? 'opacity-50' : ''}`}>Done</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Fullscreen viewer for one album's media: photos flip one by one (tap the
+// arrows or swipe), and a video plays through and rolls into the next item
+// when it ends, so an album of videos plays one after the other.
+function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload, onPostToFeed }: { items: any[]; startIndex: number; onClose: () => void; onDelete?: (item: any) => void; onDownload?: (item: any) => void; onPostToFeed?: (item: any) => void }) {
+  const [idx, setIdx] = useState(startIndex);
+  const touchXRef = useRef<number | null>(null);
+  const item = items[idx];
+  const go = (d: number) => setIdx((i) => Math.min(items.length - 1, Math.max(0, i + d)));
+  if (!item) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[700] bg-black/95 flex flex-col"
+      onClick={onClose}
+      onTouchStart={(e) => { touchXRef.current = e.touches[0]?.clientX ?? null; }}
+      onTouchEnd={(e) => {
+        const x0 = touchXRef.current;
+        touchXRef.current = null;
+        if (x0 == null) return;
+        const dx = (e.changedTouches[0]?.clientX ?? x0) - x0;
+        if (dx < -40) go(1);
+        else if (dx > 40) go(-1);
+      }}
+    >
+      <div className="flex items-center justify-between p-4 shrink-0">
+        <span className="text-white/80 text-xs font-black tracking-widest">{idx + 1} / {items.length}</span>
+        <div className="flex items-center gap-2">
+          {onDownload && (
+            <button onClick={(e) => { e.stopPropagation(); onDownload(item); }} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }} title="Download this one"><Download className="w-5 h-5" /></button>
+          )}
+          {onDelete && (
+            <button onClick={(e) => { e.stopPropagation(); onDelete(item); }} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }} title="Remove from album"><Trash2 className="w-5 h-5" /></button>
+          )}
+          <button onClick={onClose} className="w-9 h-9 rounded-full bg-white/10 text-white grid place-items-center" style={{ touchAction: 'manipulation' }}><X className="w-5 h-5" /></button>
+        </div>
+      </div>
+      <div className="flex-1 flex items-center justify-center min-h-0 px-2">
+        {item.type === 'video' ? (
+          <AutoSoundVideo
+            key={idx}
+            src={item.url}
+            className="max-w-full max-h-full"
+            onMediaClick={(e: any) => e.stopPropagation()}
+            onEnded={() => { if (idx < items.length - 1) setIdx(idx + 1); else onClose(); }}
+          />
+        ) : (
+          <img key={idx} src={item.url} className="max-w-full max-h-full object-contain" alt="" onClick={(e) => e.stopPropagation()} />
+        )}
+      </div>
+      {items.length > 1 && (
+        <div className="flex items-center justify-center gap-4 p-4 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => go(-1)} disabled={idx === 0} className="w-11 h-11 rounded-full bg-white/10 text-white grid place-items-center disabled:opacity-30" style={{ touchAction: 'manipulation' }}><ChevronLeft className="w-5 h-5" /></button>
+          <button onClick={() => go(1)} disabled={idx === items.length - 1} className="w-11 h-11 rounded-full bg-white/10 text-white grid place-items-center disabled:opacity-30" style={{ touchAction: 'manipulation' }}><ChevronRight className="w-5 h-5" /></button>
+        </div>
+      )}
+      {onPostToFeed && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onPostToFeed(item); }}
+          className="absolute left-4 bottom-[92px] z-30 flex items-center gap-2 px-5 py-3 rounded-full bg-white text-[#21122B] font-black text-[0.7rem] uppercase tracking-widest shadow-xl"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Send className="w-4 h-4" />
+          Post to feed
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A couple posts a photo or video straight from their albums to the feed.
+// The event tag is required, the caption is optional, and no access code is
+// asked for: this is the couple posting from their own dashboard.
+function QuickPostToFeedModal({ media, coupleName, events, isDarkMode, onClose, onPosted }: any) {
+  const [quickCaption, setQuickCaption] = useState('');
+  const [quickEvent, setQuickEvent] = useState('');
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickOrientation, setQuickOrientation] = useState<'portrait' | 'landscape'>('landscape');
+
+  // Album media carries no stored orientation; a portrait video belongs on
+  // the Reels tab, so measure it while the popup is open (fallback landscape).
+  useEffect(() => {
+    if (!media || media.type !== 'video' || !media.url) return;
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    let settled = false;
+    const finish = (o: 'portrait' | 'landscape') => { if (!settled) { settled = true; setQuickOrientation(o); } };
+    v.onloadedmetadata = () => finish((v.videoHeight || 0) > (v.videoWidth || 0) ? 'portrait' : 'landscape');
+    v.onerror = () => finish('landscape');
+    v.src = media.url;
+    const t = window.setTimeout(() => finish('landscape'), 4000);
+    return () => { window.clearTimeout(t); };
+  }, [media?.url]);
+
+  const sendQuickPost = async () => {
+    if (!quickEvent || quickBusy) return;
+    setQuickBusy(true);
+    try {
+      const shared: any = {
+        authorName: coupleName || 'The couple',
+        text: quickCaption.trim(),
+        mediaUrls: [media.url],
+        mediaTypes: [media.type || 'image'],
+        ...(media.type === 'video' && quickOrientation === 'portrait' ? { videoOrientation: 'portrait' } : {}),
+        eventId: quickEvent,
+        pending: false,
+        likeCount: 0,
+        loveCount: 0
+      };
+      if (DEMO) {
+        onPosted({
+          ...shared,
+          id: `demo_${Date.now()}`,
+          localDemo: true,
+          authorUid: 'demo-self',
+          authorPhoto: null,
+          commentCount: 0,
+          timestamp: new Date()
+        });
+        return;
+      }
+      await addDoc(collection(db, scopedPath('posts')), { ...shared, authorUid: 'admin', authorPhoto: null, timestamp: serverTimestamp() });
+      onPosted(null);
+    } catch (err) {
+      console.error('Quick post error:', err);
+      onPosted('error');
+    }
+  };
+
+  return (
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="fixed inset-0 bg-black/60 z-[820] backdrop-blur-sm" />
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+        onClick={(e: any) => e.stopPropagation()}
+        className={`fixed inset-x-4 top-1/2 -translate-y-1/2 z-[821] mx-auto max-w-md rounded-[24px] p-5 border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#1A2B32]'}`}
+      >
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <h3 className="font-black font-display text-lg">Post to your feed</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10" aria-label="Close"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="rounded-[16px] overflow-hidden bg-black mb-4 max-h-[240px] flex items-center justify-center">
+          {media.type === 'video' ? (
+            <video src={media.url} className="max-h-[240px] w-full object-contain" muted playsInline autoPlay loop />
+          ) : (
+            <img src={media.url} className="max-h-[240px] w-full object-contain" alt="" />
+          )}
+        </div>
+        <p className="text-[0.65rem] uppercase tracking-widest font-black opacity-50 mb-2">Tag the part of the celebration</p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {(events || []).map((e: any) => (
+            <button key={e.id} type="button" onClick={() => setQuickEvent(quickEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${quickEvent === e.id ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
+          ))}
+        </div>
+        <textarea
+          value={quickCaption}
+          onChange={(e) => setQuickCaption(e.target.value)}
+          rows={2}
+          placeholder="Add a caption (optional)"
+          className={`w-full rounded-[14px] p-3 text-sm outline-none border mb-4 resize-none ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}
+        />
+        <button
+          onClick={sendQuickPost}
+          disabled={!quickEvent || quickBusy}
+          className={`w-full py-3.5 rounded-full font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${quickEvent && !quickBusy ? 'bg-[var(--ann-accent)] text-white shadow-lg active:scale-[0.98]' : 'bg-[#DAD8E3] dark:bg-[#22363E] text-[#5A6970] opacity-50'}`}
+          style={{ touchAction: 'manipulation' }}
+        >
+          {quickBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Posting…</> : <><Send className="w-4 h-4" /> Send to feed</>}
+        </button>
+      </motion.div>
+    </>
+  );
+}
+
+function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title, message, confirmLabel }: any) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -4735,19 +6391,19 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 z-[120] backdrop-blur-sm"
+            className="fixed inset-0 bg-black/60 z-[800] backdrop-blur-sm"
           />
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[121] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
+            className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[801] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}
           >
             <div className="w-16 h-16 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
               <Trash2 className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-black font-display tracking-tight mb-2">Delete Post?</h3>
-            <p className="text-sm opacity-60 mb-6">This action cannot be undone. This memory will be removed from the community wall.</p>
+            <h3 className="text-lg font-black font-display tracking-tight mb-2">{title || 'Delete Post?'}</h3>
+            <p className="text-sm opacity-60 mb-6">{message || 'This action cannot be undone. This memory will be removed from the guest wall.'}</p>
             
             <div className="flex gap-3">
               <button 
@@ -4760,7 +6416,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode }: any
                 onClick={onConfirm}
                 className="flex-1 py-3 rounded-full bg-red-500 text-white font-bold text-xs uppercase tracking-widest shadow-lg shadow-red-500/20"
               >
-                Delete
+                {confirmLabel || 'Delete'}
               </button>
             </div>
           </motion.div>
@@ -5003,6 +6659,717 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
   }
 }
 
+// The dashboard's Preview popup shows a lightweight look at the home page,
+// drawn right here from the dashboard's current state: no iframe, no routing,
+// nothing loads, exactly like the template preview on the landing page.
+// Branded auto sign-out dropdown (Security): the app's own list, not the browser select.
+function BrandedSessionSelect({ value, onChange, isDarkMode, inputCls }: { value: number; onChange: (m: number) => void; isDarkMode: boolean; inputCls: string }) {
+  const [open, setOpen] = useState(false);
+  const opts: [number, string][] = [[30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [720, '12 hours'], [1440, '1 day'], [10080, '1 week']];
+  const cur = opts.find((o) => o[0] === value) || opts[1];
+  return (
+    <div className="relative max-w-[220px] w-full">
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} w-full flex items-center justify-between gap-2 text-left`}>
+        <span className="truncate">{cur[1]}</span>
+        <ChevronDown className={`w-4 h-4 opacity-50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Close menu" onClick={() => setOpen(false)} className="fixed inset-0 z-20 cursor-default bg-transparent border-0 p-0" />
+          <div className={`absolute left-0 right-0 mt-2 z-30 rounded-2xl border shadow-xl overflow-hidden ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+            {opts.map(([m, label]) => (
+              <button key={m} type="button" onClick={() => { setOpen(false); if (m !== value) onChange(m); }} className={`w-full px-4 py-3 flex items-center justify-between gap-2 text-left text-sm font-bold transition-colors ${m === value ? 'text-[var(--ann-accent)]' : (isDarkMode ? 'text-white' : 'text-[#14262D]')} hover:bg-[var(--ann-accent)]/10`}>
+                <span>{label}</span>
+                {m === value && <Check className="w-4 h-4" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Eye toggle (Events & photos): hides or shows a section on the couple's app.
+// Hidden sections also disappear from the preview mockup straight away.
+function SectionEyeBtn({ hidden, onClick, isDarkMode }: { hidden: boolean; onClick: () => void; isDarkMode: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hidden ? 'Show this section in the app' : 'Hide this section in the app'}
+      className={`px-3 py-2 rounded-full border flex items-center gap-1.5 text-[0.65rem] font-black uppercase tracking-widest shrink-0 transition-colors ${hidden ? 'border-[var(--ann-accent)]/50 text-[var(--ann-accent)] bg-[var(--ann-accent)]/10' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}
+    >
+      {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+      {hidden ? 'Hidden' : 'Hide'}
+    </button>
+  );
+}
+
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, thanks, partners = DEMO_PARTNERS }: any) {
+  // A faithful miniature of the real home page: the actual template hero
+  // components (compact), the same banner, journey timeline and giant footer
+  // wall the couple sees, all drawn from the admin's current drafts.
+  const heroes: string[] = (heroImages && heroImages.length ? heroImages : PLACEHOLDER_IMAGES);
+  const evs: any[] = (events || []).filter((e: any) => (e.name || '').trim() && !e.hidden);
+  const mockHidden: string[] = (details && details.hiddenSections) || [];
+  const eventNames = evs.map((e: any) => e.name);
+  const heroTpl: string = tpl || 'classic';
+  const wallMode: string = wallStyle || 'wall';
+  const pool: string[] = Array.from({ length: 40 }, (_, i) => heroes[i % heroes.length]);
+  const ROWS = 8;
+  const [activeRow, setActiveRow] = useState(0);
+  useEffect(() => {
+    let r = 0; let dir = 1;
+    const t = setInterval(() => {
+      let next = r + dir;
+      if (next > ROWS - 1) { dir = -1; next = ROWS - 2; }
+      if (next < 0) { dir = 1; next = 1; }
+      r = next;
+      setActiveRow(r);
+    }, 750);
+    return () => clearInterval(t);
+  }, []);
+  const wedDot = (() => { try { if (!wedDate) return '20 \u00b7 03 \u00b7 2027'; const d = new Date(wedDate + 'T12:00:00'); return String(d.getDate()).padStart(2, '0') + ' \u00b7 ' + String(d.getMonth() + 1).padStart(2, '0') + ' \u00b7 ' + d.getFullYear(); } catch { return '20 \u00b7 03 \u00b7 2027'; } })();
+  const wedShort = (() => { try { if (!wedDate) return { d: '20', y: '2027' }; const d = new Date(wedDate + 'T12:00:00'); return { d: String(d.getDate()), y: String(d.getFullYear()) }; } catch { return { d: '20', y: '2027' }; } })();
+  const wedFull = (() => { try { return wedDate ? new Date(wedDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''; } catch { return ''; } })();
+  const fmtEvDate = (e: any) => { try { return e.date ? new Date(e.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Date to be announced'; } catch { return 'Date to be announced'; } };
+  const tagCls = (st: string) => st === 'done'
+    ? 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/30'
+    : st === 'next'
+      ? 'bg-[#C8932A]/15 text-[#C8932A] border-[#C8932A]/40'
+      : 'bg-[#EEEDF3] text-[#5A6970] border-[#DAD8E3]';
+  const dotCls = (st: string) => st === 'done'
+    ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)]'
+    : st === 'next'
+      ? 'bg-[#C8932A] border-[#C8932A]'
+      : 'bg-[#EEEDF3] border-[#5A6970]';
+  const wallNames = (
+    <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none py-8">
+      <div className="mb-1.5 text-[0.55rem] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
+      <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{bride}</h2>
+      <div className="text-[1rem] font-serif-display italic leading-none my-0.5 text-[var(--ann-accent)]">&amp;</div>
+      <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
+        <span>{groom}</span>
+        <span className="w-[4px] h-[4px] rounded-full bg-[#C8932A] ml-[3px] inline-block" />
+      </h2>
+      <div className="mt-3 flex items-center gap-2 justify-center w-full">
+        <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
+        <span className="text-[0.6rem] font-display font-black tracking-[0.4em] uppercase text-[var(--ann-accent)] opacity-90">{wedDot}</span>
+        <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
+      </div>
+    </div>
+  );
+  return (
+    <div className="ev-preview-mockup w-full h-full overflow-y-auto bg-[#F1EFF6] text-[#1a1a2e]">
+      <style>{'.ev-preview-mockup::-webkit-scrollbar { display: none } .ev-preview-mockup { scrollbar-width: none; -ms-overflow-style: none } .ev-preview-mockup .ev-fw-cell-lg img { width: 30px; border-radius: 6px; }'}</style>
+      {/* Hero: the real template hero, compact */}
+      <div className="relative w-full h-[238px] overflow-hidden">
+        {heroTpl === 'classic' && <FloatingHeroSection compact isDarkMode={false} images={heroes} eventNames={eventNames} />}
+        {heroTpl === 'halo' && <HaloHero compact images={heroes} names={bride + ' & ' + groom} eventNames={eventNames} />}
+        {heroTpl === 'hero' && <DeckHero compact images={heroes} names={bride + ' & ' + groom} eventNames={eventNames} />}
+        {heroTpl === 'book' && <BookHero compact images={heroes} bride={bride} groom={groom} dotDate={wedDot} city={city || 'Lagos'} hashtag={(details && details.hashtag) || '#AmaraAndDaniel'} eventNames={eventNames} />}
+      </div>
+      {/* Banner */}
+      <div className="mx-3 mt-4 rounded-[22px] p-[22px_16px] text-[#F2F7F8] relative overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)' }}>
+        <p className="m-0 text-center text-[0.62rem] font-medium text-[#C8932A]">Together with their families</p>
+        <h2 className="text-center font-serif-display text-white text-[2rem] leading-[1] mt-2 mb-0">
+          {bride}
+          <span className="block italic text-[0.95rem] text-[#C8932A] my-1">and</span>
+          {groom}
+        </h2>
+        <p className="text-center text-[0.7rem] opacity-[0.85] mt-3 mb-0 leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
+        <div className="mt-4 mx-auto bg-white/10 border border-white/25 rounded-[14px] py-2.5 backdrop-blur-md">
+          <div className="flex items-stretch justify-center divide-x divide-white/25">
+            <div className="px-4 text-center">
+              <b className="block text-[1rem] font-serif-display leading-none">{wedShort.d}</b>
+              <span className="block text-[0.55rem] uppercase tracking-wider opacity-75 mt-1">{wedShort.y}</span>
+            </div>
+            <div className="px-4 text-center">
+              <b className="block text-[1rem] font-serif-display leading-none">{city || 'Lagos'}</b>
+              <span className="block text-[0.55rem] uppercase tracking-wider opacity-75 mt-1">Nigeria</span>
+            </div>
+          </div>
+          {wedDate && <CountdownRow date={wedDate} time="12:00" />}
+        </div>
+      </div>
+      {/* Our story */}
+      {!mockHidden.includes('story') && (
+      <section className="px-5 pt-6">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_8px] leading-[1.25]">Our story</h2>
+        <p className="text-[0.85rem] leading-relaxed m-0 text-[#5A6970]">{story}</p>
+      </section>
+      )}
+      {/* The journey: the same timeline cards the app shows */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_2px] leading-[1.25]">The journey</h2>
+        <p className="text-[0.8rem] m-[0_4px_12px] text-[#5A6970]">Tap an event to open it.</p>
+        <div className="ml-[10px] pl-[16px] border-l-[3px] border-[#DAD8E3] space-y-2.5">
+          {evs.slice(0, 8).map((e: any, ji: number) => {
+            const st = e.status || 'up';
+            return (
+              <div key={ji} className="relative">
+                <span className={`absolute -left-[25px] top-[16px] w-[11px] h-[11px] rounded-full border-[3px] ${dotCls(st)}`} />
+                <div className={`rounded-[14px] border overflow-hidden bg-white ${st === 'next' ? 'border-[#C8932A]/60' : 'border-[#DAD8E3]'}`}>
+                  <div className="p-[12px_14px] flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <b className="text-[0.92rem] font-serif-display leading-tight">{e.name}</b>
+                        <span className={`flex-shrink-0 px-2 py-0.5 rounded-full border text-[8.5px] font-black uppercase tracking-wider ${tagCls(st)}`}>
+                          {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
+                        </span>
+                      </div>
+                      <small className="block text-[0.68rem] mt-0.5 text-[#5A6970]">{e.type ? e.type + ' \u00b7 ' : ''}{fmtEvDate(e)}</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      {/* Wedding day */}
+      {!mockHidden.includes('details') && (
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Wedding day</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">{wedFull}</p>
+        <div className="p-[14px_16px] rounded-[16px] border bg-white border-[#DAD8E3] space-y-3">
+          {details && details.churchTime && (
+            <div>
+              <strong className="block text-[0.85rem]">Church wedding · {details.churchTime}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.churchVenue}</p>
+            </div>
+          )}
+          {details && details.receptionTime && (
+            <div>
+              <strong className="block text-[0.85rem]">Reception · {details.receptionTime}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.receptionVenue}</p>
+            </div>
+          )}
+          {details && details.asoEbi && (
+            <div>
+              <strong className="block text-[0.85rem]">Aso-ebi: {details.asoEbi}</strong>
+              <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
+            </div>
+          )}
+        </div>
+      </section>
+      )}
+      
+      {/* Feed CTA */}
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
+        <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
+      </section>
+      {/* Gifts & support: mirrors the real home section */}
+      {details && details.giftInfo && (details.giftInfo.accountNumber || details.giftInfo.accountName) && !((details.hiddenSections || []).includes('gifts')) && (
+        <section className="px-5 pt-7">
+          <div className="relative overflow-hidden rounded-[18px] border border-[#DAD8E3] bg-white p-4">
+            <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-[var(--ann-accent)]/15 blur-xl pointer-events-none" />
+            <span className="block text-[0.55rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1">Gift the couple</span>
+            <h2 className="text-[1.05rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
+            <p className="text-[0.75rem] text-[#5A6970] mt-1 mb-3">{details.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
+            <div className="space-y-2">
+              {details.giftInfo.bank && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Bank</span>
+                    <b className="block text-[0.8rem] font-serif-display truncate">{details.giftInfo.bank}</b>
+                  </div>
+                  <Banknote className="w-4 h-4 opacity-40 shrink-0" />
+                </div>
+              )}
+              {details.giftInfo.accountNumber && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Account number</span>
+                    <b className="block text-[0.9rem] font-display tracking-[0.08em]">{details.giftInfo.accountNumber}</b>
+                  </div>
+                  <Copy className="w-4 h-4 opacity-50 shrink-0" />
+                </div>
+              )}
+              {details.giftInfo.accountName && (
+                <div className="p-[10px_12px] rounded-[14px] bg-[#EEEDF3]">
+                  <span className="block text-[0.5rem] font-black uppercase tracking-widest text-[#5A6970]">Account name</span>
+                  <b className="block text-[0.8rem] font-serif-display">{details.giftInfo.accountName}</b>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+      {/* Our partners — Events & photos, under Gifts & support */}
+      {(partners || []).length > 0 && !mockHidden.includes('partners') && (
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our partners</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">The people and brands behind this celebration.</p>
+        <div className="flex flex-col gap-2">
+          {(partners || []).map((p: any) => (
+            <div key={p.id || p.name} className="flex items-center gap-3 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
+              {p.photo
+                ? <img src={p.photo} alt={p.name || 'Partner'} className="w-9 h-9 rounded-full object-cover shrink-0" />
+                : <span className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-black text-[0.8rem]" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+              <div className="min-w-0 flex-1">
+                <b className="block text-[0.8rem] font-serif-display">{p.name}</b>
+                {p.category ? <span className="block text-[0.65rem] text-[#5A6970]">{p.category}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+      )}
+      {/* Giant footer: the real wall, in the style the admin picked */}
+      {wallMode === 'wall' ? (
+        <section className="relative overflow-hidden w-full flex items-center justify-center bg-[#EEEDF3] mt-8">
+          <div className="absolute inset-0 z-0 flex flex-col justify-center gap-[4px] py-2">
+            {Array.from({ length: ROWS }, (_, r) => (
+              <div key={r} className="grid grid-cols-5 gap-[4px]">
+                {pool.slice(r * 5, r * 5 + 5).map((src: string, i: number) => (
+                  <div key={i} className={'ev-fw-tile' + (r === activeRow ? ' ev-fw-lit' : Math.abs(r - activeRow) === 1 ? ' ev-fw-warm' : '')}>
+                    <img src={src} alt="" />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="absolute inset-0 z-[1] pointer-events-none bg-white/20" />
+          {wallNames}
+        </section>
+      ) : wallMode === 'tunnel' || wallMode === 'globe' ? (
+        <div className="relative w-full overflow-hidden bg-[#030306] mt-8" style={{ height: 460 }}>
+          {wallMode === 'tunnel'
+            ? <GiantFooterTunnel images={pool} compact thanks={thanks} bride={bride} groom={groom} wed={wedDot} />
+            : <GiantFooterGlobe images={pool} compact thanks={thanks} bride={bride} groom={groom} wed={wedDot} />}
+        </div>
+      ) : (
+        <section className="relative overflow-hidden w-full bg-[#070716] mt-8">
+          <div className="h-[8px] bg-[var(--ann-accent)]" />
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
+            <div className="mb-1.5 text-[0.55rem] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 12px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
+            <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>{bride}</h2>
+            <div className="text-[0.9rem] font-serif-display italic leading-none my-0.5 text-white" style={{ textShadow: '0 2px 14px rgba(7,7,22,0.75)' }}>&amp;</div>
+            <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>
+              <span>{groom}</span>
+              <span className="w-[4px] h-[4px] rounded-full bg-[#C8932A] ml-[3px] inline-block" />
+            </h2>
+            <div className="mt-3 flex items-center gap-2 justify-center w-full">
+              <span className="flex-1 border-t border-dashed border-white/60" />
+              <span className="text-[0.6rem] font-display font-black tracking-[0.4em] uppercase text-white" style={{ textShadow: '0 2px 12px rgba(7,7,22,0.8)' }}>{wedDot}</span>
+              <span className="flex-1 border-t border-dashed border-white/60" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-[4px] py-[10px]">
+            {[0, 1, 2, 3].map((r) => (
+              <div key={r} className={'ev-fw-row ev-fw-row-lg ' + (r % 2 ? 'ev-fw-row-rev' : '')} style={{ animationDuration: (46 + r * 13) + 's' }}>
+                {pool.slice(r * 10, r * 10 + 10).concat(pool.slice(r * 10, r * 10 + 10)).map((src: string, i: number) => (
+                  <div key={i} className="ev-fw-cell-lg"><img src={src} alt="" /></div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="py-6 text-center">
+        <p className="font-display text-[0.95rem] font-bold m-0">{bride} &amp; {groom}</p>
+        <p className="text-[0.6rem] font-bold uppercase tracking-[0.25em] text-[#8a879b] mt-1 m-0">Wedding memories, kept for life</p>
+      </div>
+    </div>
+  );
+}
+
+
+// The Inbox invite section: the couple's invitation cards, designed like the
+// Events & details cards. Six styles, one form filled from the couple's own
+// details, and every open of the sent card counted live.
+const IV_STYLES = [
+  { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
+  { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
+  { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
+];
+
+function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast }: any) {
+  const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm font-medium ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-white/30' : 'bg-white border-[#DAD8E3] text-slate-900'}`;
+  const cardCls = `rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+  const labCls = 'block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5';
+  const chipCls = (on: boolean) => `px-3 py-2 rounded-full border text-[11px] font-black uppercase tracking-widest transition-colors ${on ? 'bg-[var(--ann-accent)] text-white border-transparent' : isDarkMode ? 'border-[#22363E] text-white/70' : 'border-[#DAD8E3] text-slate-600'}`;
+  const [tpl, setTpl] = useState('envelope');
+  const [musicLib, setMusicLib] = useState<{ id: string; name: string; url: string }[]>([]);
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      for (const ep of ['/api/music-library', '/.netlify/functions/music-library']) {
+        try {
+          const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
+          if (!res.ok) continue
+          const j = await res.json()
+          if (alive && Array.isArray(j.docs)) { setMusicLib(j.docs); return }
+        } catch { /* try the next endpoint */ }
+      }
+    })()
+    return () => { alive = false }
+  }, []);
+  const [f, setF] = useState<any>(() => ({
+    bride: demoBride() || 'Amara',
+    groom: demoGroom() || 'Daniel',
+    date: wedDate || '',
+    venue: weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
+    city: demoCity() || '',
+    hashtag: weddingDetails?.hashtag || '',
+    story: story || '',
+    dress: weddingDetails?.asoEbi || '',
+    rsvpBy: '',
+    whatsapp: '',
+    photos: [] as string[],
+    schedule: [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
+    music: '',
+  }));
+  const [docId, setDocId] = useState<string | null>(null);
+  const [opens, setOpens] = useState(0);
+  const [savedLink, setSavedLink] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [previewTpl, setPreviewTpl] = useState<string | null>(null);
+
+  // Load the couple's saved card, if one exists, so the form reopens with it.
+  useEffect(() => {
+    if (DEMO) {
+      try {
+        const s = JSON.parse(localStorage.getItem(lsKey('iv-form')) || 'null');
+        if (s) { setF(s.f); setTpl(s.tpl || 'envelope'); setDocId('demo'); setOpens(s.opens || 0); setSavedLink(s.link || null); }
+      } catch { /* ignore */ }
+      return;
+    }
+    let alive = true;
+    getDocs(collection(db, scopedPath('invites'))).then((snap: any) => {
+      if (!alive) return;
+      let best: any = null; let bestId = '';
+      snap.forEach((x: any) => {
+        const d = x.data() || {};
+        if (!best || ((d.createdAt || {}).seconds || 0) > ((best.createdAt || {}).seconds || 0)) { best = d; bestId = x.id; }
+      });
+      if (!best) return;
+      setDocId(bestId);
+      setOpens(best.opens || 0);
+      if (IV_STYLES.some((s) => s.id === best.tpl)) setTpl(best.tpl);
+      setF({
+        bride: best.bride || demoBride() || 'Amara',
+        groom: best.groom || demoGroom() || 'Daniel',
+        date: best.wedDate || wedDate || '',
+        venue: best.venue || weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
+        city: best.city || demoCity() || '',
+        hashtag: best.hashtag || weddingDetails?.hashtag || '',
+        story: best.message || story || '',
+        dress: best.dress || weddingDetails?.asoEbi || '',
+        rsvpBy: best.rsvpBy || '',
+        whatsapp: best.whatsapp || '',
+        schedule: Array.isArray(best.schedule) && best.schedule.length ? best.schedule : [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
+        music: best.music || '',
+        photos: Array.isArray(best.photos) ? best.photos : [],
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Live open count while the section is open.
+  useEffect(() => {
+    if (DEMO || !docId) return;
+    const unsub = onSnapshot(doc(db, scopedPath('invites'), docId), (s: any) => { if (s.exists()) setOpens((s.data() || {}).opens || 0); });
+    return () => { try { unsub(); } catch { /* ignore */ } };
+  }, [docId]);
+
+  const setRow = (i: number, k: number, v: string) => {
+    const rows = f.schedule.map((r: any[], ri: number) => ri === i ? r.map((c, ci) => ci === k ? v : c) : r.slice());
+    setF({ ...f, schedule: rows });
+  };
+
+  const cardParams = () => {
+    const p = new URLSearchParams();
+    p.set('name1', f.bride || 'Amara');
+    p.set('name2', f.groom || 'Daniel');
+    if (f.date) p.set('date', f.date + ' 10:00');
+    if (f.venue) p.set('venue', f.venue);
+    if (f.city) p.set('address', f.city);
+    if (f.hashtag) p.set('hashtag', f.hashtag);
+    if (f.story) p.set('story', f.story);
+    if (f.dress) p.set('dress', f.dress);
+    if (f.whatsapp) p.set('whatsapp', f.whatsapp);
+    if (f.music) p.set('music', f.music);
+    if (f.photos && f.photos.length) p.set('photo', f.photos[0]);
+    if (f.schedule && f.schedule.length) p.set('schedule', JSON.stringify(f.schedule));
+    return p.toString();
+  };
+
+  const previewUrl = (t: string) => {
+    const st = IV_STYLES.find((s) => s.id === t);
+    if (st && st.iv) return `/iv/iv-${t}.html?${cardParams()}`;
+    const p = new URLSearchParams();
+    p.set('tpl', t);
+    p.set('bride', f.bride || 'Amara');
+    p.set('groom', f.groom || 'Daniel');
+    if (f.date) p.set('date', f.date + ' 10:00');
+    if (f.venue) p.set('venue', f.venue);
+    if (f.city) p.set('city', f.city);
+    if (f.story) p.set('message', f.story);
+    return `/invite.html?${p.toString()}`;
+  };
+
+  const buildLink = (t: string, id: string) => {
+    const st = IV_STYLES.find((s) => s.id === t);
+    return st && st.iv ? `${window.location.origin}/iv/iv-${t}.html?i=${id}&app=${APP_ID}` : `${window.location.origin}/invite.html?i=${id}&app=${APP_ID}`;
+  };
+
+  const fmtDate = (v: string) => { try { return new Date(v + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return v; } };
+
+  const saveInvite = async () => {
+    if (!f.bride.trim() || !f.groom.trim()) { showToast('Bride and groom names are required', 'error'); return; }
+    setSaving(true);
+    const dt = f.date ? new Date(f.date + 'T12:00:00') : null;
+    const payload: any = {
+      bride: f.bride.trim(), groom: f.groom.trim(), tpl,
+      wedDate: f.date || '',
+      month: dt ? dt.toLocaleString('en-GB', { month: 'long' }) : '',
+      day: dt ? String(dt.getDate()) : '',
+      year: dt ? String(dt.getFullYear()) : '',
+      venue: (f.venue || '').trim(), city: (f.city || '').trim(),
+      message: (f.story || '').trim(), hashtag: (f.hashtag || '').trim(), dress: (f.dress || '').trim(),
+      rsvpBy: (f.rsvpBy || '').trim(), whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
+      photos: (f.photos || []).slice(0, 5),
+      schedule: (f.schedule || []).filter((r: any[]) => (r[0] || r[1])),
+      music: f.music || '', updatedAt: serverTimestamp(),
+    };
+    try {
+      if (DEMO) {
+        const link = `${window.location.origin}${previewUrl(tpl)}`;
+        localStorage.setItem(lsKey('iv-form'), JSON.stringify({ f, tpl, opens }));
+        setDocId('demo'); setSavedLink(link);
+        showToast('Demo app: the card is saved on this device only', 'success');
+      } else if (docId) {
+        await updateDoc(doc(db, scopedPath('invites'), docId), payload);
+        setSavedLink(buildLink(tpl, docId));
+        showToast('Invitation card updated. The link still works', 'success');
+      } else {
+        const res: any = await addDoc(collection(db, scopedPath('invites')), { ...payload, opens: 0, createdAt: serverTimestamp() });
+        setDocId(res.id);
+        setSavedLink(buildLink(tpl, res.id));
+        showToast('Invitation card created. Send the link to your guests', 'success');
+      }
+    } catch { showToast('Could not save the invitation. Try again', 'error'); }
+    setSaving(false);
+  };
+
+  const copyText = async (t: string, what: string) => {
+    try { await navigator.clipboard.writeText(t); showToast(what + ' copied', 'success'); } catch { showToast('Could not copy', 'error'); }
+  };
+
+  const [guests, setGuests] = useState<any[] | null>(null);
+  const [guestName, setGuestName] = useState('');
+  const [addingGuest, setAddingGuest] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!docId) { setGuests(null); return; }
+    if (docId === 'demo') {
+      try { setGuests(JSON.parse(localStorage.getItem(lsKey('iv-guests')) || '[]')); } catch { setGuests([]); }
+      return;
+    }
+    const unsub = onSnapshot(collection(db, scopedPath('invites'), docId, 'guests'), (snap: any) => {
+      const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      rows.sort((a: any, b: any) => ((a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)));
+      setGuests(rows);
+    }, () => setGuests([]));
+    return () => { try { unsub(); } catch { /* gone */ } };
+  }, [docId]);
+
+  const guestLink = (gid: string) => {
+    const st = IV_STYLES.find((s) => s.id === tpl);
+    return st && st.iv
+      ? `${window.location.origin}/iv/iv-${tpl}.html?i=${docId}&g=${gid}&app=${APP_ID}`
+      : `${window.location.origin}/invite.html?i=${docId}&g=${gid}&app=${APP_ID}`;
+  };
+
+  const addGuest = async () => {
+    if (!docId) { showToast('Save the invitation first, then add your invitees', 'error'); return; }
+    setAddingGuest(true);
+    try {
+      if (docId === 'demo') {
+        const next = [...(guests || []), { id: 'g' + Date.now(), name: guestName.trim(), createdAt: { seconds: Math.floor(Date.now() / 1000) } }];
+        setGuests(next);
+        localStorage.setItem(lsKey('iv-guests'), JSON.stringify(next));
+      } else {
+        await addDoc(collection(db, scopedPath('invites'), docId, 'guests'), { name: guestName.trim(), createdAt: serverTimestamp() });
+      }
+      setGuestName('');
+      showToast('Invitee added. Copy their link and send it', 'success');
+    } catch { showToast('Could not add the invitee. Try again', 'error'); }
+    setAddingGuest(false);
+  };
+
+  const guestMsg = (gl: string) => `You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${gl}`;
+
+  const onInvitePhotos = async (e: any) => {
+    const files = Array.from(e.target.files || []) as File[];
+    e.target.value = '';
+    if (!files.length) return;
+    const room = 5 - (f.photos || []).length;
+    if (room <= 0) { showToast('Up to 5 photos on the card', 'error'); return; }
+    setPhotoBusy(true);
+    try {
+      const urls: string[] = [];
+      for (const file of files.slice(0, room)) {
+        if (DEMO) { urls.push(await demoImageDataUrl(file)); }
+        else { urls.push(await uploadToCloudinaryWithProgress(file, 'eventicor-invite', () => {})); }
+      }
+      setF((prev: any) => ({ ...prev, photos: [...(prev.photos || []), ...urls] }));
+      showToast(urls.length === 1 ? 'Photo added' : urls.length + ' photos added', 'success');
+    } catch { showToast('Could not upload that photo. Try again', 'error'); }
+    setPhotoBusy(false);
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-black font-display tracking-tight">Inbox invite</h2>
+        <p className="text-sm opacity-60 mt-0.5">Invitation cards you send your guests. Pick a style, check the details, save, then add your invitees. Each one gets their own link, and you see when they open it and what they reply.</p>
+      </div>
+
+      <section>
+        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-3">Card style</label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {IV_STYLES.map((s) => (
+            <div key={s.id} className={`relative rounded-2xl border p-4 cursor-pointer transition-all ${tpl === s.id ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/30' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} onClick={() => setTpl(s.id)}>
+              {tpl === s.id && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center"><Check className="w-3 h-3" /></span>}
+              <b className="text-sm font-black block pr-6">{s.n}</b>
+              <span className="text-xs opacity-50 block mt-1">{s.d}</span>
+              <button type="button" onClick={(e) => { e.stopPropagation(); setPreviewTpl(s.id); }} className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--ann-accent)]"><Eye className="w-3.5 h-3.5" />Preview</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className={cardCls}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div><label className={labCls}>Bride</label><input className={inputCls} value={f.bride} onChange={(e) => setF({ ...f, bride: e.target.value })} placeholder="Bride's name" /></div>
+          <div><label className={labCls}>Groom</label><input className={inputCls} value={f.groom} onChange={(e) => setF({ ...f, groom: e.target.value })} placeholder="Groom's name" /></div>
+          <div><label className={labCls}>Wedding date</label><BrandedDateField value={f.date} onChange={(v: string) => setF({ ...f, date: v })} isDarkMode={isDarkMode} inputCls={inputCls} /></div>
+          <div><label className={labCls}>Hashtag</label><input className={inputCls} value={f.hashtag} onChange={(e) => setF({ ...f, hashtag: e.target.value })} placeholder="#YourNames" /></div>
+          <div><label className={labCls}>Venue</label><input className={inputCls} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} placeholder="Venue name" /></div>
+          <div><label className={labCls}>Address / city</label><input className={inputCls} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} placeholder="12 Palm Avenue, Lekki, Lagos" /></div>
+          <div><label className={labCls}>RSVP by</label><input className={inputCls} value={f.rsvpBy} onChange={(e) => setF({ ...f, rsvpBy: e.target.value })} placeholder="1 May 2027" /></div>
+          <div><label className={labCls}>Dress code</label><input className={inputCls} value={f.dress} onChange={(e) => setF({ ...f, dress: e.target.value })} placeholder="Aso ebi: wine and gold" /></div>
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>A note to your guests</label>
+          <textarea className={inputCls + ' min-h-[70px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>WhatsApp number for RSVPs</label>
+          <input className={inputCls} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="0803 000 0000" inputMode="tel" />
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>Day schedule</label>
+          <div className="space-y-2">
+            {f.schedule.map((r: any[], i: number) => (
+              <div key={i} className="grid grid-cols-3 gap-2">
+                <input className={inputCls} value={r[0] || ''} onChange={(e) => setRow(i, 0, e.target.value)} placeholder="2:00 PM" />
+                <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="Ceremony" />
+                <input className={inputCls} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>Your photos on the card</label>
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            {(f.photos || []).map((u: string, i: number) => (
+              <div key={i} className={`relative rounded-xl overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ aspectRatio: '3/4' }}>
+                <img src={u} alt="" className="w-full h-full object-cover" />
+                <button type="button" onClick={() => setF({ ...f, photos: f.photos.filter((_: string, j: number) => j !== i) })} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+              </div>
+            ))}
+            {(f.photos || []).length < 5 && (
+              <button type="button" onClick={() => photoInputRef.current?.click()} className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E] text-white/50' : 'border-[#DAD8E3] text-slate-400'}`} style={{ aspectRatio: '3/4' }}>
+                {photoBusy ? 'Uploading…' : '+ Photo'}
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
+          <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>Music</label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
+            <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
+            {musicLib.map((tr) => (
+              <button key={tr.id} type="button" className={chipCls(f.music === tr.url)} onClick={() => setF({ ...f, music: tr.url })}>{tr.name}</button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {docId && (
+        <section className={cardCls}>
+          <label className={labCls}>Your invitees</label>
+          <p className="text-xs opacity-60 mt-1 mb-3">Every invitee gets their own link. You see here when each one opens their card, and their reply the moment they send it.</p>
+          {guests === null ? (
+            <p className="text-xs opacity-60">Loading your invitees…</p>
+          ) : guests.length === 0 ? (
+            <p className="text-xs opacity-60">No invitees yet. Add one for each person you are inviting, then copy their link.</p>
+          ) : (
+            <div className="space-y-2">
+              {guests.map((g: any, i: number) => {
+                const gl = docId !== 'demo' ? guestLink(g.id) : previewUrl(tpl);
+                const openedAt = g.openedAt?.seconds ? new Date(g.openedAt.seconds * 1000) : (g.openedAt ? new Date(g.openedAt) : null);
+                const rep = g.reply || null;
+                return (
+                  <div key={g.id} className={`rounded-xl border p-3 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <b className="text-sm">{g.name || `Invitee ${i + 1}`}</b>
+                      <span className={`px-2 py-1 rounded-full text-[0.6rem] font-black uppercase tracking-widest ${rep ? 'bg-emerald-500/15 text-emerald-600' : openedAt ? 'bg-[var(--ann-accent)]/15 text-[var(--ann-accent)]' : isDarkMode ? 'bg-white/10 text-white/60' : 'bg-black/5 text-slate-500'}`}>{rep ? 'Replied' : openedAt ? 'Opened' : 'Not opened'}</span>
+                    </div>
+                    {openedAt && <p className="text-xs opacity-60 mt-1">Opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
+                    {rep && <p className="text-xs mt-1">{rep.attend === 'no' ? "Can't make it" : 'Coming'}{rep.note ? ` · ${rep.note}` : ''}</p>}
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
+                      <button type="button" onClick={() => copyText(guestMsg(gl), 'Message')} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.6rem] font-black uppercase tracking-widest">Copy message</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex gap-2 mt-3">
+            <input className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Their name (optional)" maxLength={40} />
+            <button type="button" onClick={addGuest} disabled={addingGuest} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-50 whitespace-nowrap">{addingGuest ? 'Adding…' : 'Add invitee'}</button>
+          </div>
+        </section>
+      )}
+
+      <div className="sticky bottom-4 z-20">
+        <div className={`${cardCls} flex items-center justify-between gap-3`}>
+          <span className="text-xs opacity-60">{docId ? 'Your card is live. Changes update the same link.' : 'Nothing saved yet.'}</span>
+          <button type="button" onClick={saveInvite} disabled={saving} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
+        </div>
+      </div>
+
+      {previewTpl && (
+        <div className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewTpl(null)}>
+          <div className="relative w-[340px] max-w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2 text-white">
+              <span className="text-xs font-black uppercase tracking-widest">Preview · {IV_STYLES.find((s) => s.id === previewTpl)?.n || ''}</span>
+              <button type="button" onClick={() => setPreviewTpl(null)} className="text-xs font-black uppercase tracking-widest opacity-70">Close</button>
+            </div>
+            <div className="rounded-[28px] bg-black p-1.5 shadow-2xl">
+              <iframe src={previewUrl(previewTpl)} className="w-[320px] h-[620px] rounded-[22px] bg-white" title="Invitation preview" />
+            </div>
+            <p className="text-center text-[11px] text-white/70 mt-2">Your card as guests will open it · tap inside the mockup</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminDashboardModal({ 
   isOpen, 
   asPage, 
@@ -5014,16 +7381,24 @@ function AdminDashboardModal({
   heroImageLabels,
   onUpdateHeroLabels,
   onSaveWeddingSection,
+  contactSettings,
   onUpdateHeroImages,
   footerImages,
   onUpdateFooterImages,
   onUpdateFooterStyle,
   footerStyle,
+  footerThanks,
+  onUpdateHeroTemplate,
+  heroTpl,
+  accentKey,
+  onUpdateAccent,
   allAdmins,
+  selfRole,
   deletedPosts,
   onRestorePost,
   onPermanentDelete,
   currentUserEmail,
+  onSignOut,
   adminPermissions,
   videoOrientations,
   events,
@@ -5039,7 +7414,11 @@ function AdminDashboardModal({
   pushEnabled,
   archiveMode,
   feedActionMode,
+  adminMode = 'real',
   onUpdateAppFlags,
+  feedPrivate,
+  updateFeedPrivacy,
+  revokeAccessCode,
   onDownloadEverything,
   onCreateMemoryBook,
   onDeleteAllGuestData,
@@ -5050,27 +7429,194 @@ function AdminDashboardModal({
   onUpdatePostAds,
   onUpdateReelAds,
   posts = [],
-  onDeletePost
+  onDeletePost,
+  partners = DEMO_PARTNERS,
+  onAdminDemoPost
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
+  const [revokeArmed, setRevokeArmed] = useState(false);
+  // Storage (Eventicor platform settings): live usage record for this app,
+  // the plan storage values the Eventicor admin sets, and the upgrade flow.
+  const [usageRec, setUsageRec] = useState<any>(null);
+  const [platStore, setPlatStore] = useState<Record<string, number>>(() => getCouplePlatform().storage);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const appPlan = getCouplePlan();
+  const planGB = platStore[appPlan] || 5;
+  const usedBytes = usageRec ? (Number(usageRec.imagesBytes) || 0) + (Number(usageRec.videosBytes) || 0) : 0;
+  const limitBytes = planGB * 1073741824;
+  const usedGB = usedBytes / 1073741824;
+  const imagesGB = usageRec ? (Number(usageRec.imagesBytes) || 0) / 1073741824 : 0;
+  const videosGB = usageRec ? (Number(usageRec.videosBytes) || 0) / 1073741824 : 0;
+  const freeBytes = Math.max(0, limitBytes - usedBytes);
+  const storageFull = usedBytes >= limitBytes;
   const [isDirty, setIsDirty] = useState(false);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null');
-      const storedTab = storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'hero', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
+      // Nov 20 2026: the Hero photos tab merged into Events & photos.
+      const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'invite', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
   });
   const [mobileAdminNavOpen, setMobileAdminNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Latest activity popup: the recorded activity, newest first, capped at the
+  // last 30 records.
+  const [activityOpen, setActivityOpen] = useState(false);
+  // Partners: the couple's partner directory (name, category, description,
+  // logo, contacts) shown on the app's home page under Our partners. Demo
+  // runs keep the list locally so the preview always has something to show.
+  const [demoPartnersLocal, setDemoPartnersLocal] = useState<any[]>(DEMO_PARTNERS);
+  const partnersList: any[] = DEMO ? demoPartnersLocal : (partners || []);
+  const [partnerForm, setPartnerForm] = useState<any>({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' });
+  const [partnerEditing, setPartnerEditing] = useState<any>(null);
+  const [partnerDelete, setPartnerDelete] = useState<any>(null);
+  const [partnerLogoBusy, setPartnerLogoBusy] = useState(false);
+  // Storage reader: reconciled against Cloudinary so it always shows the real
+  // bytes this app's media occupies, not only the uploads made since tracking
+  // started. The dashboard syncs when it opens and shortly after any upload.
+  const syncUsage = async () => {
+    if (DEMO) return;
+    try {
+      const token = await auth?.currentUser?.getIdToken?.();
+      if (!token) return;
+      const eps = [
+        `/api/usage-sync?app=${encodeURIComponent(APP_ID)}`,
+        `/.netlify/functions/usage-sync?app=${encodeURIComponent(APP_ID)}`
+      ];
+      for (const ep of eps) {
+        try {
+          const r = await fetch(ep, { headers: { Authorization: `Bearer ${token}` } });
+          if (r.ok) {
+            const d = await r.json();
+            setUsageRec((prev: any) => ({ ...(prev || {}), imagesBytes: Number(d.imagesBytes) || 0, videosBytes: Number(d.videosBytes) || 0, syncedAt: new Date() }));
+            return;
+          }
+        } catch { /* try the next endpoint */ }
+      }
+    } catch { /* the reader keeps the last known numbers */ }
+  };
+  useEffect(() => { syncUsage(); }, []);
+  useEffect(() => {
+    let t: any;
+    const on = () => { try { clearTimeout(t); } catch {} t = setTimeout(() => { syncUsage(); }, 10000); };
+    window.addEventListener('ann-usage-dirty', on);
+    return () => { window.removeEventListener('ann-usage-dirty', on); try { clearTimeout(t); } catch {} };
+  }, []);
+
+  const savePartner = async () => {
+    const name = String(partnerForm.name || '').trim();
+    if (!name) { showToast('Give the partner a name first.', 'error'); return; }
+    const payload: any = {
+      name,
+      category: String(partnerForm.category || '').trim(),
+      description: String(partnerForm.description || '').trim(),
+      photo: partnerForm.photo || '',
+      whatsapp: String(partnerForm.whatsapp || '').trim(),
+      instagram: String(partnerForm.instagram || '').trim(),
+      website: String(partnerForm.website || '').trim(),
+      tiktok: String(partnerForm.tiktok || '').trim(),
+      facebook: String(partnerForm.facebook || '').trim(),
+      youtube: String(partnerForm.youtube || '').trim(),
+    };
+    try {
+      if (DEMO) {
+        if (partnerEditing) setDemoPartnersLocal((l: any[]) => l.map((x: any) => x.id === partnerEditing.id ? { ...x, ...payload } : x));
+        else setDemoPartnersLocal((l: any[]) => [...l, { id: `demo-${Date.now()}`, ...payload }]);
+      } else if (partnerEditing) {
+        await updateDoc(doc(db, scopedPath('partners'), partnerEditing.id), { ...payload, updatedAt: serverTimestamp() });
+      } else {
+        await addDoc(collection(db, scopedPath('partners')), { ...payload, createdAt: serverTimestamp() });
+      }
+      showToast(partnerEditing ? 'Partner updated.' : 'Partner added. It is live on the app now.', 'success');
+      setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' });
+      setPartnerEditing(null);
+    } catch {
+      showToast('Could not save the partner. Check your connection and try again.', 'error');
+    }
+  };
+  const removePartner = async () => {
+    if (!partnerDelete) return;
+    try {
+      if (DEMO) setDemoPartnersLocal((l: any[]) => l.filter((x: any) => x.id !== partnerDelete.id));
+      else await deleteDoc(doc(db, scopedPath('partners'), partnerDelete.id));
+      showToast('Partner removed from the app.', 'success');
+    } catch { showToast('Could not remove the partner.', 'error'); }
+    setPartnerDelete(null);
+  };
+  const uploadPartnerLogo = async (file: any) => {
+    if (!file) return;
+    setPartnerLogoBusy(true);
+    try {
+      const url = await uploadToCloudinary(file, 'partners');
+      setPartnerForm((f: any) => ({ ...f, photo: url }));
+    } catch (err: any) {
+      showToast(String(err?.message || '').includes('storage is full') ? STORAGE_FULL_MESSAGE : 'Logo upload failed. Try again.', 'error');
+    }
+    setPartnerLogoBusy(false);
+  };
+
+  // Plan chooser (Storage > Upgrade): the same three-plan flow as the trial
+  // screen. In demo or preview runs nothing is sent anywhere.
+  const paymentPanel = (() => {
+    if (!upgradeOpen) return null;
+    const header = demoHeader();
+    return (
+      <div className="fixed inset-0 z-[400] flex items-center justify-center p-4" style={{ background: 'rgba(10,10,22,.62)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) setUpgradeOpen(false) }}>
+        <div className="relative w-full max-h-[92vh] overflow-y-auto rounded-[24px] p-6" style={{ background: '#faf7f0', maxWidth: 470 }} onClick={(e) => e.stopPropagation()}>
+          <button type="button" aria-label="Close" onClick={() => setUpgradeOpen(false)} className="absolute right-4 top-4 w-9 h-9 rounded-full border border-[#DAD8E3] bg-white text-[#5A6970] flex items-center justify-center font-black">×</button>
+          <PaymentFlow
+            accent={typeof window !== 'undefined' ? (getComputedStyle(document.documentElement).getPropertyValue('--ann-accent').trim() || '#7a4b9e') : '#7a4b9e'}
+            appName={`${demoBride() || 'Bride'} & ${demoGroom() || 'Groom'}`}
+            email={''}
+            appId={APP_ID}
+            titles={['Choose a new plan', 'Make your transfer', 'Almost there']}
+            intro={'Pick the plan that fits your app. Storage, photographers, vendors and features follow the plan you choose.'}
+            demoMode={DEMO || adminMode !== 'real'}
+            onDone={() => setUpgradeOpen(false)}
+          />
+        </div>
+      </div>
+    );
+  })();
+
+  useEffect(() => {
+    // Live usage: what this app's media has eaten, images and videos apart.
+    // Demo and preview apps have no usage record; they show 0 used.
+    if (DEMO) return;
+    const ref = doc(db, scopedPath('usage'), 'main');
+    const unsub = onSnapshot(ref, (snap: any) => {
+      const u = snap.exists() ? (snap.data() as any) : null;
+      setUsageRec(u);
+      setUsageClient(u, getCouplePlan());
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(platformDb as any, 'platform', 'settings'), (snap: any) => {
+      try {
+        const d = snap.exists() ? (snap.data() as any) : {};
+        const st: Record<string, number> = { ...getCouplePlatform().storage };
+        for (const k of ['essential', 'complete', 'legacy'] as const) {
+          const v = Number(d?.storage?.[k]);
+          if (Number.isFinite(v) && v > 0) st[k] = v;
+        }
+        setPlatStore(st);
+        setPlatformSettingsClient({ feedPageSize: getCouplePlatform().feedPageSize, storage: st });
+        setUsageClient(usageRec, getCouplePlan());
+      } catch {}
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
 
   useEffect(() => {
     try {
-      const storedAdminUi = JSON.parse(localStorage.getItem('ann-admin-ui') || 'null') || {};
-      localStorage.setItem('ann-admin-ui', JSON.stringify({ ...storedAdminUi, tab: activeAdminTab }));
+      const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null') || {};
+      localStorage.setItem(lsKey('admin-ui'), JSON.stringify({ ...storedAdminUi, tab: activeAdminTab }));
     } catch {}
   }, [activeAdminTab]);
 
@@ -5078,56 +7624,251 @@ function AdminDashboardModal({
   // uploader's name and the upload date.
   useEffect(() => {
     if (!isOpen) return;
-    const q = query(collection(db, 'albums'), orderBy('uploadedAt', 'desc'));
+    const q = query(collection(db, scopedPath('albums')), orderBy('uploadedAt', 'desc'));
     const unsub = onSnapshot(q, (snap) => setAlbums(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), (err) => console.error('Albums load error:', err));
     return () => unsub();
   }, [isOpen]);
 
   // Photographers and vendors see and do exactly one thing here: Photo albums.
-  const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail);
-  const restrictedRole = myAdminDoc?.role === 'photographer' || myAdminDoc?.role === 'vendor';
+  // The signed-in admin's own doc. Prefer the live collection copy, but fall
+  // back to the role synced from their own admins doc so a restricted role
+  // (a photographer) is locked to Vendor albums from the very first render,
+  // not only once the whole collection snapshot lands.
+  const myAdminDoc = allAdmins.find((a: any) => a.email === currentUserEmail)
+    || (selfRole ? { id: '__self__', email: currentUserEmail, name: null, role: selfRole, permissions: adminPermissions, mustSetPassword: false } : null);
+  const restrictedRole = ['photographer', 'videographer', 'vendor'].includes(myAdminDoc?.role);
   useEffect(() => {
     if (restrictedRole && activeAdminTab !== 'albums') setActiveAdminTab('albums');
   }, [restrictedRole, activeAdminTab]);
 
-  const uploadAlbumMedia = async (files: FileList | null, kind: 'photo' | 'video') => {
+  // Team "View details" popup: one place that shows a member's name, email
+  // and exactly what their role lets them do.
+  const [teamDetail, setTeamDetail] = useState<any | null>(null);
+
+  // Vendor albums: every upload session is ONE album. The album carries the
+  // name of the admin who uploaded it and the date; the tab shows compact
+  // album tiles, and tapping one opens every photo or video inside it.
+  const [albumPopupKind, setAlbumPopupKind] = useState<'photo' | 'video' | null>(null);
+  const [albumPicked, setAlbumPicked] = useState<{ file: File; preview: string }[]>([]);
+  const [albumTitle, setAlbumTitle] = useState('');
+  const [albumUploading, setAlbumUploading] = useState(false);
+  const [albumProgressPct, setAlbumProgressPct] = useState(0);
+  const [albumViewer, setAlbumViewer] = useState<any | null>(null);
+  const [albumMediaView, setAlbumMediaView] = useState<{ items: any[]; index: number } | null>(null);
+  // Posting an album photo or video straight to the feed from its viewer.
+  const [quickPostToFeed, setQuickPostToFeed] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const canPostToFeed = !selfRole || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(selfRole);
+  const [albumZipBusy, setAlbumZipBusy] = useState<string | null>(null);
+  // Adding more to an album that already exists: the viewer's Add more button
+  // opens the same upload popup aimed at that album.
+  const [albumAddTarget, setAlbumAddTarget] = useState<any | null>(null);
+
+  const uploaderDisplayName = (() => {
+    const n = (myAdminDoc as any)?.name;
+    if (n && String(n).trim()) return String(n).trim();
+    return (currentUserEmail || 'Admin').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+  })();
+
+  const openAlbumPopup = (kind: 'photo' | 'video', target: any = null) => {
+    setAlbumPopupKind(kind);
+    setAlbumPicked([]);
+    setAlbumTitle('');
+    setAlbumProgressPct(0);
+    setAlbumAddTarget(target);
+  };
+  const pickAlbumFiles = (files: FileList | null) => {
     const list = Array.from(files || []);
     if (!list.length) return;
-    setAlbumBusy(true);
-    let ok = 0;
-    const uploaderName = (currentUserEmail || 'Admin').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-    for (const file of list) {
-      try {
-        const url = await uploadToCloudinary(file, 'albums');
-        await addDoc(collection(db, 'albums'), {
-          mediaUrl: url,
-          mediaType: kind === 'video' ? 'video' : 'image',
-          uploaderName,
-          uploaderEmail: currentUserEmail,
-          uploadedAt: serverTimestamp()
-        });
-        ok++;
-      } catch (err) {
-        console.error('Album upload error:', err);
-      }
-    }
-    setAlbumBusy(false);
-    if (showToast) showToast(ok === list.length ? `Added ${ok} ${kind === 'video' ? 'video' : 'photo'}${ok === 1 ? '' : 's'} to the album.` : `Uploaded ${ok} of ${list.length}. The rest failed, try again.`, ok ? 'success' : 'error');
+    setAlbumPicked((prev) => [...prev, ...list.map((f) => ({ file: f, preview: URL.createObjectURL(f) }))]);
   };
-
-  const deleteAlbumMedia = async (id: string) => {
+  const dropAlbumFile = (i: number) => {
+    setAlbumPicked((prev) => { const p = prev[i]; if (p) { try { URL.revokeObjectURL(p.preview); } catch { /* already gone */ } } return prev.filter((_, x) => x !== i); });
+  };
+  const uploadAlbumBatch = async () => {
+    const kind = albumPopupKind;
+    if (!kind || !albumPicked.length || albumUploading) return;
+    if (!DEMO && storageBlocked()) {
+      if (showToast) showToast(STORAGE_FULL_MESSAGE, 'error');
+      return;
+    }
+    setAlbumUploading(true);
+    setAlbumProgressPct(0);
+    const totalFiles = albumPicked.length;
+    const results: ({ url: string; type: 'image' | 'video' } | null)[] = new Array(totalFiles).fill(null);
+    let failed = 0;
+    let completed = 0;
+    // Several files upload side by side (three at a time) instead of one
+    // after another, so a batch of videos finishes in roughly a third of
+    // the wait.
+    const queue = albumPicked.map((picked, i) => ({ file: picked.file, i }));
+    const worker = async () => {
+      while (queue.length) {
+        const job = queue.shift()!;
+        try {
+          let url: string;
+          if (DEMO) {
+            // The demo console keeps everything in the browser: photos shrink to
+            // data URLs, videos play from a session blob URL (a full video can
+            // never fit in a demo data URL or the demo store).
+            url = isVideoFile(job.file) ? URL.createObjectURL(job.file) : await demoImageDataUrl(job.file);
+          } else {
+            url = await uploadToCloudinaryWithProgress(job.file, 'albums', (pct) => {
+              setAlbumProgressPct(Math.min(99, Math.round(((completed + pct / 100) / totalFiles) * 100)));
+            });
+          }
+          results[job.i] = { url, type: isVideoFile(job.file) ? 'video' : 'image' };
+        } catch (err) {
+          failed += 1;
+          console.error('Album upload error:', err);
+        }
+        completed += 1;
+        setAlbumProgressPct(Math.min(99, Math.round((completed / totalFiles) * 100)));
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    const media: { url: string; type: 'image' | 'video' }[] = results.filter(Boolean) as any;
+    setAlbumProgressPct(100);
+    const title = albumAddTarget ? (albumAddTarget.title || (kind === 'video' ? 'Video album' : 'Photo album')) : (albumTitle.trim() || (kind === 'video' ? 'Video album' : 'Photo album'));
+    if (media.length) {
+      try {
+        if (albumAddTarget) {
+          // Add to an album that already exists. Old day-grouped albums are
+          // merged into one album document as they are touched.
+          if (albumAddTarget.legacy) {
+            const merged = [...(albumAddTarget.media || []), ...media];
+            await addDoc(collection(db, scopedPath('albums')), {
+              title,
+              mediaType: kind === 'video' ? 'video' : 'image',
+              media: merged,
+              mediaCount: merged.length,
+              uploaderName: albumAddTarget.uploaderName,
+              uploaderEmail: albumAddTarget.uploaderEmail,
+              uploadedAt: serverTimestamp()
+            });
+            for (const id of (albumAddTarget.docIds || [])) { try { await deleteDoc(doc(db, scopedPath('albums'), id)); } catch { /* already gone */ } }
+            setAlbumViewer(null);
+          } else {
+            const ref = doc(db, scopedPath('albums'), albumAddTarget.docId);
+            const snap = await getDoc(ref);
+            const old = snap.exists() ? (snap.data()?.media || []) : [];
+            const merged = [...old, ...media];
+            await setDoc(ref, { media: merged, mediaCount: merged.length, uploadedAt: serverTimestamp() }, { merge: true });
+            setAlbumViewer((gv: any) => (gv && gv.docId === albumAddTarget.docId ? { ...gv, media: merged, count: merged.length } : gv));
+          }
+          if (showToast) showToast(failed ? `${media.length} added to "${title}", ${failed} failed. Try the rest again.` : `${media.length} ${kind === 'video' ? 'video' : 'photo'}${media.length === 1 ? '' : 's'} added to "${title}".`, failed ? 'info' : 'success');
+        } else {
+          await addDoc(collection(db, scopedPath('albums')), {
+            title,
+            mediaType: kind === 'video' ? 'video' : 'image',
+            media,
+            mediaCount: media.length,
+            uploaderName: uploaderDisplayName,
+            uploaderEmail: currentUserEmail,
+            uploadedAt: serverTimestamp()
+          });
+          if (showToast) showToast(failed ? `${media.length} uploaded to "${title}", ${failed} failed. Try the rest again.` : `${media.length} ${kind === 'video' ? 'video' : 'photo'}${media.length === 1 ? '' : 's'} uploaded to "${title}".`, failed ? 'info' : 'success');
+        }
+      } catch (err) {
+        console.error('Album save error:', err);
+        if (showToast) showToast('The files uploaded but saving the album failed. Try again.', 'error');
+      }
+    } else if (showToast) showToast('Nothing uploaded. Check your connection and try again.', 'error');
+    setAlbumPicked((prev) => { prev.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); return []; });
+    setAlbumUploading(false);
+    setAlbumPopupKind(null);
+    setAlbumAddTarget(null);
+    setAlbumTitle('');
+  };
+  const deleteAlbumGroup = async (g: any) => {
     try {
-      await deleteDoc(doc(db, 'albums', id));
-      if (showToast) showToast('Removed from the album.', 'success');
+      if (g.legacy && g.docIds) { for (const id of g.docIds) await deleteDoc(doc(db, scopedPath('albums'), id)); }
+      else if (g.docId) await deleteDoc(doc(db, scopedPath('albums'), g.docId));
+      if (showToast) showToast('Album removed.', 'success');
     } catch (err) {
       console.error('Album delete error:', err);
       if (showToast) showToast('Could not remove it. Try again.', 'error');
     }
   };
 
+  // Download one photo or video out of an album.
+  const downloadMediaFile = async (url: string, name: string) => {
+    try {
+      const res = await fetch(url, { mode: 'cors' });
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 6000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+  const albumFileBase = (g: any) => (String(g?.title || 'album').replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'album');
+  // MASS DOWNLOAD: the whole album, photos and videos, in one zip.
+  const downloadAlbumZip = async (g: any) => {
+    if (albumZipBusy) return;
+    setAlbumZipBusy(g.id);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      let i = 0;
+      for (const m of (g.media || [])) {
+        try {
+          const res = await fetch(m.url, { mode: 'cors' });
+          const blob = await res.blob();
+          i += 1;
+          const ext = m.type === 'video' ? 'mp4' : 'jpg';
+          zip.file(`${albumFileBase(g)}-${String(i).padStart(3, '0')}.${ext}`, blob);
+        } catch { /* one bad file does not sink the album */ }
+      }
+      if (!i) { if (showToast) showToast('Could not read the files to pack them. Try again.', 'error'); return; }
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${albumFileBase(g)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      if (showToast) showToast('Album download started.', 'success');
+    } catch (err) {
+      console.error('Album zip error:', err);
+      if (showToast) showToast('Could not package the album. Try again.', 'error');
+    } finally {
+      setAlbumZipBusy(null);
+    }
+  };
+  // Remove one photo or video from an album.
+  const deleteAlbumMedia = async (g: any, item: any) => {
+    try {
+      if (g?.legacy && item.docId) {
+        await deleteDoc(doc(db, scopedPath('albums'), item.docId));
+      } else if (g?.docId) {
+        const ref = doc(db, scopedPath('albums'), g.docId);
+        const snap = await getDoc(ref);
+        const old = snap.exists() ? (snap.data()?.media || []) : [];
+        const next = old.filter((x: any) => x.url !== item.url);
+        await setDoc(ref, { media: next, mediaCount: next.length }, { merge: true });
+      }
+      setAlbumViewer((gv: any) => (gv ? { ...gv, media: (gv.media || []).filter((x: any) => x.url !== item.url), count: Math.max(0, (gv.count || 0) - 1) } : gv));
+      setAlbumMediaView((mv: any) => {
+        if (!mv) return null;
+        const next = mv.items.filter((x: any) => x.url !== item.url);
+        return next.length ? { items: next, index: Math.min(mv.index, next.length - 1) } : null;
+      });
+      if (showToast) showToast('Removed from the album.', 'success');
+    } catch (err) {
+      console.error('Album media delete error:', err);
+      if (showToast) showToast('Could not remove it. Try again.', 'error');
+    }
+  };
+
   const handleAdminSignOut = () => {
-    try { localStorage.removeItem('ann-admin-ui'); } catch {}
-    signOut(auth);
+    try { localStorage.removeItem(lsKey('admin-ui')); } catch {}
+    onSignOut();
     onClose();
   };
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -5136,6 +7877,8 @@ function AdminDashboardModal({
   // Label to attach to newly uploaded hero photos.
   const [newHeroLabel, setNewHeroLabel] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  // Branded confirmation for every delete action in the dashboard.
+  const [confirmAsk, setConfirmAsk] = useState<{ title: string; message: string; confirmLabel?: string; action: () => void } | null>(null);
   const [inviteRole, setInviteRole] = useState('vendor');
   const [inviteBusy, setInviteBusy] = useState(false);
   const [rulesBusy, setRulesBusy] = useState(false);
@@ -5161,13 +7904,16 @@ function AdminDashboardModal({
       setRulesBusy(false);
     }
   };
-  const [inviteResult, setInviteResult] = useState<{ email: string; tempPassword: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ email: string; emailed: boolean; mailError: string } | null>(null);
+  const [inviteName, setInviteName] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteStep, setInviteStep] = useState<'form' | 'done'>('form');
   const [invitePerms, setInvitePerms] = useState<Record<string, boolean>>({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
+  const [inviteResendBusy, setInviteResendBusy] = useState<string | null>(null);
 
   const openInviteModal = () => {
     setInviteEmail('');
+    setInviteName('');
     setInviteRole('vendor');
     setInvitePerms({ canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
     setInviteResult(null);
@@ -5177,7 +7923,7 @@ function AdminDashboardModal({
 
   const applyInviteRole = (r: string) => {
     setInviteRole(r);
-    setInvitePerms(r === 'couple'
+    setInvitePerms(['couple', 'bride', 'groom'].includes(r)
       ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
       : { canDeletePosts: false, canUploadImages: true, canSetAccessCode: false });
   };
@@ -5189,7 +7935,7 @@ function AdminDashboardModal({
       list.push({
         id: '__self__',
         email: currentUserEmail,
-        role: (myAdminDoc as any)?.role || 'couple',
+        role: (myAdminDoc as any)?.role || 'owner',
         mustSetPassword: false,
         permissions: (myAdminDoc as any)?.permissions || { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
         isSelf: true
@@ -5233,31 +7979,34 @@ function AdminDashboardModal({
     try {
       const currentUser = auth.currentUser;
       const token = currentUser ? await currentUser.getIdToken() : '';
-      const tempPassword = 'DF' + Math.random().toString(36).slice(2, 10);
       const res = await fetch('/api/auth-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'invite', email, password: tempPassword, role: inviteRole })
+        body: JSON.stringify({ action: 'invite', email, name: inviteName.trim(), role: inviteRole, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         const rolePerms: any = { ...perms };
         try {
-          await setDoc(doc(db, 'admins', email.toLowerCase().trim()), {
+          await setDoc(doc(db, scopedPath('admins'), email.toLowerCase().trim()), {
             email: email.toLowerCase().trim(),
+            name: inviteName.trim() || null,
             role: inviteRole,
             mustSetPassword: true,
             permissions: rolePerms,
+            status: 'invited',
+            sessionMinutes: 30,
             addedAt: serverTimestamp(),
             addedBy: currentUserEmail
           }, { merge: true });
         } catch (permErr) {
           console.error('Admin doc write error:', permErr);
         }
-        setInviteResult({ email, tempPassword });
+        setInviteResult({ email, emailed: !!data.emailed, mailError: data.mailError || '' });
         setInviteStep('done');
         setInviteEmail('');
-        showToast('Dashboard access created. Share the temporary password now.', 'success');
+        setInviteName('');
+        showToast(data.emailed ? 'Invite sent. The temporary password went to their email.' : 'Account created, but the invite email failed to send.', data.emailed ? 'success' : 'error');
       } else {
         showToast(data.error || 'Could not create the account. Try again.', 'error');
       }
@@ -5282,34 +8031,253 @@ function AdminDashboardModal({
   }, [isOpen]);
 
   const isSuper = currentUserEmail === "justfashion414@gmail.com";
+  // Bride and groom are owners with the same power, invites included; the
+  // platform owner is always an owner too. Matches auth-admin's FULL_ROLES.
+  const OWNER_ROLES = ['owner', 'couple', 'admin', 'bride', 'groom'];
+  const ownerAdmin = isSuper || OWNER_ROLES.includes(String((myAdminDoc as any)?.role || 'owner'));
 
   const [modQueue, setModQueue] = useState<'pending' | 'reports' | 'vendors'>('pending');
   const [postEventFilter, setPostEventFilter] = useState<string>('all');
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(weddingDetails);
+  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] }));
   const [weddingBusy, setWeddingBusy] = useState(false);
   useEffect(() => { setEvDraft(events); }, [events]);
   useEffect(() => { setStoryDraft(story); }, [story]);
-  useEffect(() => { setDetDraft(weddingDetails); }, [weddingDetails]);
+  useEffect(() => { setDetDraft(withDerivedHashtag(weddingDetails)); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
-  // The photos the hero actually shows right now: the admin's list when one
-  // exists, otherwise the built-in placeholder photos the site falls back to.
-  // Editing from the admin grid always writes the full list, so removing a
-  // placeholder or adding a photo takes the hero over from the placeholders.
-  const heroShown: string[] = heroImages.length ? heroImages : PLACEHOLDER_IMAGES;
+  // One page, one save (Nov 20 2026 direction): every edit on Events & photos
+  // stays a draft. The preview mockup draws the drafts live, and only the
+  // Save bar at the bottom writes anything to the app.
+  const [heroImgDraft, setHeroImgDraft] = useState<string[]>(heroImages);
+  const heroSyncKeyRef = useRef<string>('');
+  // If the hero photos card opens with an empty draft while Firestore already
+  // holds images, show them (and keep Clear All working while editing).
+  useEffect(() => {
+    const key = heroImages.join('|');
+    if (key && key !== heroSyncKeyRef.current) {
+      heroSyncKeyRef.current = key;
+      setHeroImgDraft((prev: string[]) => (prev.length ? prev : heroImages as string[]));
+    }
+  }, [heroImages.join('|')]);
+  const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
+  const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
+  const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee' | 'tunnel' | 'globe'>(footerStyle);
+  const [footerThanksDraft, setFooterThanksDraft] = useState<string>(footerThanks || '');
+  // Gifts & support draft (Events & photos): initializes straight from the
+  // saved details, so the page's single Save bar owns it from the first render.
+  const [giftDraft, setGiftDraft] = useState<any>(() => {
+    const gi = (weddingDetails || ({} as any)).giftInfo || {};
+    const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
+    return {
+      enabled: gi.enabled !== false,
+      bank: gi.bank || seed.bank || '',
+      accountNumber: gi.accountNumber || seed.accountNumber || '',
+      accountName: gi.accountName || seed.accountName || '',
+      note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
+    };
+  });
+  // Footer (Events & photos): the words at the very bottom of the home page,
+  // after the photo wall. Empty fields keep the app's default wording.
+  const [footerDraft, setFooterDraft] = useState<any>(() => {
+    const fi = (weddingDetails || ({} as any)).footer || {};
+    return { message: fi.message || '', caption: fi.caption || '' };
+  });
+  const draftBaseRef = useRef<any>(null);
+  if (!draftBaseRef.current) {
+    draftBaseRef.current = {
+      story,
+      det: JSON.stringify(withDerivedHashtag(weddingDetails)),
+      ev: JSON.stringify(events),
+      hero: JSON.stringify(heroImages),
+      heroLabels: JSON.stringify(heroImageLabels || {}),
+      gift: JSON.stringify(giftDraft || {}),
+      footer: JSON.stringify(footerDraft || {}),
+      heroTpl,
+      footerStyle,
+      footerThanks
+    };
+  }
+  // The photos the hero shows right now: the draft list when one exists,
+  // otherwise the built-in placeholder photos the site falls back to.
+  // Editing from the admin grid always writes the full draft list, so removing
+  // a placeholder or adding a photo takes the hero over from the placeholders.
+  const heroShown: string[] = heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES;
+  const pageDirty = storyDraft !== draftBaseRef.current.story
+    || JSON.stringify(detDraft) !== draftBaseRef.current.det
+    || JSON.stringify(evDraft) !== draftBaseRef.current.ev
+    || JSON.stringify(heroImgDraft) !== draftBaseRef.current.hero
+    || JSON.stringify(heroLabelDraft) !== draftBaseRef.current.heroLabels
+    || heroTplDraft !== draftBaseRef.current.heroTpl
+    || footerStyleDraft !== draftBaseRef.current.footerStyle
+    || (footerThanksDraft || '') !== draftBaseRef.current.footerThanks
+    || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift
+    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer;
 
-  // Per-section saves: each card in Events & details commits on its own, so the
-  // couple never has to save unrelated sections together. The Preview button
-  // saves everything first, then opens the live website in a new tab so they
-  // can see the changes without leaving the console.
-  const saveStory = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ story: storyDraft }); } finally { setWeddingBusy(false); } };
-  const saveDetails = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ weddingDetails: detDraft }); } finally { setWeddingBusy(false); } };
-  const saveEvents = async () => { setWeddingBusy(true); try { await onSaveWeddingSection({ events: evDraft }); } finally { setWeddingBusy(false); } };
+  // One Save for the whole page: story, wedding day details, the journey, hero
+  // photos and labels, hero style and the giant footer style commit together.
+  // Until it is tapped nothing reaches the app; the preview mockup shows the
+  // drafts meanwhile. quiet=true keeps the style setters from double-toasting.
+  // Demo placeholder posts never count as content: they vanish the moment a
+  // real post lands, so every admin number treats them as nothing.
+  const realPosts = posts.filter((p: any) => !String(p.id).startsWith('demo-seed-') && !String(p.id).startsWith('sample-'));
+  const saveEverything = async () => {
+    setWeddingBusy(true);
+    try {
+      const mergedDet = {
+        ...(detDraft || {}),
+        giftInfo: {
+          enabled: true,
+          bank: (giftDraft.bank || '').trim(),
+          accountNumber: (giftDraft.accountNumber || '').trim(),
+          accountName: (giftDraft.accountName || '').trim(),
+          note: (giftDraft.note || '').trim()
+        },
+        footer: {
+          message: (footerDraft.message || '').trim(),
+          caption: (footerDraft.caption || '').trim()
+        }
+      };
+      setDetDraft(mergedDet);
+      await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      onUpdateHeroImages(heroImgDraft.slice(0, 20));
+      onUpdateHeroLabels(heroLabelDraft || {});
+      if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
+      if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true, (footerThanksDraft || '').trim());
+      draftBaseRef.current = {
+        story: storyDraft,
+        det: JSON.stringify(mergedDet),
+        ev: JSON.stringify(evDraft),
+        hero: JSON.stringify(heroImgDraft.slice(0, 20)),
+        heroLabels: JSON.stringify(heroLabelDraft || {}),
+        heroTpl: heroTplDraft,
+        footerStyle: footerStyleDraft,
+        footerThanks: (footerThanksDraft || '').trim(),
+        gift: JSON.stringify(giftDraft || {}),
+        footer: JSON.stringify(footerDraft || {})
+      };
+      showToast('Saved. Your app now shows these changes.', 'success');
+    } finally { setWeddingBusy(false); }
+  };
+  // Section eye toggles (Events & photos): 'story', 'details' and 'gifts' keys
+  // hide whole home sections; single events carry their own hidden flag.
+  const toggleSectionHidden = (key: string) => {
+    const cur: string[] = detDraft?.hiddenSections || [];
+    const next = cur.includes(key) ? cur.filter((k: string) => k !== key) : [...cur, key];
+    setDetDraft({ ...(detDraft || {}), hiddenSections: next });
+  };
+  // Gifts & support (Events & photos tab): the couple's account details for
+  // guests who want to send money. Lives on weddingDetails.giftInfo; the eye
+  // button (hiddenSections 'gifts') decides who sees it, not a toggle. There
+  // is no separate save: the fields ride the page's single Save changes bar.
+  // QR code (Settings): the couple's app link as a scannable code. Guests scan
+  // it from a printed banner and land straight in the app. Only the couple
+  // sees it here; they download it as an image or PDF for their banner designer.
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrUrl, setQrUrl] = useState<string>('');
+  // Click feedback: each QR button flips to a busy label while it works and a
+  // short Saved/Copied state when it finishes, so a tap is never silent.
+  const [qrBusy, setQrBusy] = useState<'' | 'png' | 'pdf'>('');
+  const [qrDone, setQrDone] = useState<'' | 'png' | 'pdf' | 'copied'>('');
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    p.delete('nochrome');
+    p.delete('home');
+    const url = window.location.origin + window.location.pathname + (p.toString() ? `?${p.toString()}` : '');
+    setQrUrl(url);
+    let dead = false;
+    (async () => {
+      try {
+        const mod: any = await import('qrcode-generator');
+        const make = mod.default || mod;
+        const qr = make(0, 'M');
+        qr.addData(url);
+        qr.make();
+        const n = qr.getModuleCount();
+        const scale = 8;
+        const margin = 4;
+        const dim = (n + margin * 2) * scale;
+        const cv = document.createElement('canvas');
+        cv.width = dim;
+        cv.height = dim;
+        const ctx = cv.getContext('2d');
+        if (!ctx) throw new Error('no canvas');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, dim, dim);
+        ctx.fillStyle = '#14122b';
+        for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) ctx.fillRect((c + margin) * scale, (r + margin) * scale, scale, scale);
+        const d = cv.toDataURL('image/png');
+        if (!dead) setQrDataUrl(d);
+      } catch { /* keep the placeholder if the QR chunk fails */ }
+    })();
+    return () => { dead = true; };
+  }, []);
+  const downloadQrPng = () => {
+    if (qrBusy) return;
+    if (!qrDataUrl) { showToast('Still preparing the QR code. Try again in a moment.', 'info'); return; }
+    setQrBusy('png');
+    window.setTimeout(() => {
+      try {
+        const a = document.createElement('a');
+        a.href = qrDataUrl;
+        a.download = `eventicor-qr-${(activeCode || 'app').toLowerCase()}.png`;
+        a.click();
+        showToast('QR image saved to your device.', 'success');
+        setQrDone('png');
+        window.setTimeout(() => setQrDone((cur) => (cur === 'png' ? '' : cur)), 1800);
+      } catch {}
+      setQrBusy('');
+    }, 450);
+  };
+  const downloadQrPdf = async () => {
+    if (qrBusy) return;
+    if (!qrDataUrl) { showToast('Still preparing the QR code. Try again in a moment.', 'info'); return; }
+    setQrBusy('pdf');
+    try {
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const W = 297;
+      const size = 92;
+      const x = (W - size) / 2;
+      const y = 50;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(26);
+      pdf.setTextColor(20, 18, 43);
+      pdf.text('Scan to open our wedding memories', W / 2, 26, { align: 'center' });
+      pdf.addImage(qrDataUrl, 'PNG', x, y, size, size);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(11);
+      pdf.setTextColor(90, 105, 112);
+      pdf.text(qrUrl, W / 2, y + size + 13, { align: 'center' });
+      pdf.save(`eventicor-qr-${(activeCode || 'app').toLowerCase()}.pdf`);
+      showToast('QR PDF saved to your device.', 'success');
+      setQrDone('pdf');
+      window.setTimeout(() => setQrDone((cur) => (cur === 'pdf' ? '' : cur)), 1800);
+    } catch {} finally { setQrBusy(''); }
+  };
+  // Eventicor admin contact + payment account details (super admin only).
+  const [contactDraft, setContactDraft] = useState<any>(null);
+  useEffect(() => {
+    if (contactSettings && !contactDraft) setContactDraft({
+      adminWhatsapp: contactSettings.adminWhatsapp || '',
+      payBankName: contactSettings.payBankName || '',
+      payAccountNumber: contactSettings.payAccountNumber || '',
+      payAccountName: contactSettings.payAccountName || ''
+    });
+  }, [contactSettings]);
+  const saveContactSettings = async () => {
+    if (!contactDraft) return;
+    await onSaveWeddingSection({
+      adminWhatsapp: (contactDraft.adminWhatsapp || '').trim(),
+      payBankName: (contactDraft.payBankName || '').trim(),
+      payAccountNumber: (contactDraft.payAccountNumber || '').trim(),
+      payAccountName: (contactDraft.payAccountName || '').trim()
+    });
+  };
   // Journey step photos (dashboard): up to 2 images per event step, uploaded
-  // two at a time, saved with the rest of the journey.
+  // two at a time, kept as a draft until Save changes.
   const [evUpBusy, setEvUpBusy] = useState<string | null>(null);
   const uploadEventStepPhotos = async (eid: string, files: File[]) => {
     const ev = evDraft.find((x) => x.id === eid) as any;
@@ -5324,9 +8292,8 @@ function AdminDashboardModal({
       const urls: string[] = [];
       for (const f of use) urls.push(DEMO ? await demoImageDataUrl(f) : await uploadToCloudinary(f as any, 'programme'));
       const next = evDraft.map((x) => (x.id === eid ? { ...x, images: [...existing, ...urls].slice(0, 2) } : x)) as WeddingEvent[];
+      // Draft only: step photos reach the app when Save changes is tapped.
       setEvDraft(next);
-      setWeddingBusy(true);
-      try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
     } catch (err: any) {
       console.error('Event step photo upload error:', err);
       showToast(err?.message || 'Photo upload failed.', 'error');
@@ -5334,16 +8301,25 @@ function AdminDashboardModal({
       setEvUpBusy(null);
     }
   };
-  const removeEventStepPhoto = async (eid: string, idx: number) => {
+  const removeEventStepPhoto = (eid: string, idx: number) => {
     const next = evDraft.map((x) => (x.id === eid ? { ...x, images: (((x as any).images || []) as string[]).filter((_: string, i: number) => i !== idx) } : x)) as WeddingEvent[];
     setEvDraft(next);
-    setWeddingBusy(true);
-    try { await onSaveWeddingSection({ events: next }); } finally { setWeddingBusy(false); }
   };
-  const previewSite = async () => {
-    setWeddingBusy(true);
-    try { await onSaveWedding(evDraft, storyDraft, detDraft); } finally { setWeddingBusy(false); }
-    window.open('/', '_blank');
+  const previewSite = () => {
+    // Preview is only a look, never a save: it opens the in-dashboard popup
+    // right away without writing anything.
+    setSitePreviewOpen(true);
+  };
+
+  // The mockup is drawn right here from the dashboard's current state: no
+  // iframe, no routing, nothing loads, the same idea as the landing page's
+  // template preview. The countdown day follows the app's own rule: the
+  // couple's chosen date, then the church, the reception, the latest event.
+  const previewWedDate = () => {
+    const church = evDraft.find((e: any) => e.id === 'church');
+    const reception = evDraft.find((e: any) => e.id === 'reception');
+    const latest = evDraft.map((e: any) => e.date).filter(Boolean).sort().pop() as string | undefined;
+    return ((leadOverride()?.weddingDate) || church?.date || reception?.date || latest || WEDDING_DATE) as string;
   };
 
   const saveWedding = async () => {
@@ -5360,9 +8336,37 @@ function AdminDashboardModal({
   const [postTypeFilter, setPostTypeFilter] = useState<string>('all');
   // Recycle bin: confirm before restoring or permanently removing a post.
   const [binConfirm, setBinConfirm] = useState<{ id: string; action: 'restore' | 'remove' } | null>(null);
+  const [sitePreviewOpen, setSitePreviewOpen] = useState(false);
   // Photo albums: media uploaded by photographers and vendors.
   const [albums, setAlbums] = useState<any[]>([]);
   const [albumBusy, setAlbumBusy] = useState(false);
+  // Album view: new uploads save one document per album (a media array);
+  // older flat uploads (one document per photo) group into pseudo-albums by
+  // uploader and day so nothing the vendors already sent disappears.
+  const albumGroups = useMemo(() => {
+    const tsOf = (a: any) => (a.uploadedAt?.toMillis?.() ?? 0);
+    const groups: any[] = [];
+    const legacy = new Map<string, any>();
+    (albums as any[]).slice().sort((a, b) => tsOf(b) - tsOf(a)).forEach((a: any) => {
+      if (Array.isArray(a.media) && a.media.length) {
+        groups.push({ id: a.id, docId: a.id, title: a.title || '', kind: a.mediaType === 'video' ? 'video' : 'photo', media: a.media, uploaderName: a.uploaderName, uploaderEmail: a.uploaderEmail, uploadedAt: a.uploadedAt, count: a.media.length });
+      } else if (a.mediaUrl) {
+        const day = a.uploadedAt?.toDate ? new Intl.DateTimeFormat('en-CA').format(a.uploadedAt.toDate()) : 'unknown';
+        const kind = a.mediaType === 'video' ? 'video' : 'photo';
+        const key = `${a.uploaderEmail || 'admin'}|${day}|${kind}`;
+        let g = legacy.get(key);
+        if (!g) {
+          g = { id: 'legacy-' + key, docIds: [] as string[], title: '', kind, media: [] as any[], uploaderName: a.uploaderName, uploaderEmail: a.uploaderEmail, uploadedAt: a.uploadedAt, legacy: true, count: 0 };
+          legacy.set(key, g);
+          groups.push(g);
+        }
+        g.media.push({ url: a.mediaUrl, type: kind === 'video' ? 'video' : 'image' });
+        g.docIds.push(a.id);
+        g.count = g.media.length;
+      }
+    });
+    return groups;
+  }, [albums]);
   const nowHour = new Date().getHours();
   const greeting = nowHour < 12 ? 'Good morning' : nowHour < 17 ? 'Good afternoon' : 'Good evening';
   const pendCount = posts.filter((p: any) => p.pending).length;
@@ -5387,7 +8391,7 @@ function AdminDashboardModal({
   };
   const handleDismissReport = async (id: string) => {
     try {
-      await updateDoc(doc(db, 'posts', id), { reports: 0 });
+      await updateDoc(doc(db, scopedPath('posts'), id), { reports: 0 });
       showToast('Report dismissed', 'success');
     } catch (err) {
       console.error('Dismiss error:', err);
@@ -5430,7 +8434,7 @@ function AdminDashboardModal({
   const handleAddAdmin = async () => {
     if (!newAdminEmail.trim() || !newAdminEmail.includes('@')) return;
     try {
-      await setDoc(doc(db, 'admins', newAdminEmail.toLowerCase().trim()), {
+      await setDoc(doc(db, scopedPath('admins'), newAdminEmail.toLowerCase().trim()), {
         email: newAdminEmail.toLowerCase().trim(),
         permissions: {
           canDeletePosts: true,
@@ -5441,27 +8445,80 @@ function AdminDashboardModal({
         addedBy: currentUserEmail
       });
       setNewAdminEmail('');
-      alert("Admin added successfully!");
+      showToast(`${newAdminEmail.toLowerCase().trim()} added to administrators.`, 'success');
     } catch (err) {
       console.error("Add admin error:", err);
+      showToast('Could not add that administrator.', 'error');
     }
   };
 
-  const handleRemoveAdmin = async (email: string) => {
-    if (confirm(`Remove ${email} from administrators?`)) {
-      try {
-        await deleteDoc(doc(db, 'admins', email));
-        showToast(`${email} removed from administrators.`);
-      } catch (err) {
-        console.error("Remove admin error:", err);
-        showToast('Could not remove that administrator.', 'error');
+  // Team actions run through the auth-admin function so the invited person's
+  // login account is created, suspended or deleted alongside their record here.
+  const authAdminCall = async (action: string, extra: Record<string, any> = {}) => {
+    const cu = auth.currentUser;
+    const token = cu ? await cu.getIdToken() : '';
+    const res = await fetch('/api/auth-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, app: APP_ID, ...extra })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'That did not go through. Try again.');
+    return data;
+  };
+  const handleSuspendAdmin = async (email: string, suspend: boolean) => {
+    try {
+      await authAdminCall(suspend ? 'suspend' : 'reinstate', { email });
+      showToast(suspend ? `${email} can no longer sign in.` : `${email} can sign in again.`);
+    } catch (err: any) {
+      console.error('Suspend admin error:', err);
+      showToast(err?.message || 'Could not update that administrator.', 'error');
+    }
+  };
+  const handleRemoveAdmin = (email: string) => {
+    setConfirmAsk({
+      title: 'Remove administrator?',
+      message: `${email} loses access immediately. This cannot be undone.`,
+      confirmLabel: 'Remove',
+      action: async () => {
+        try {
+          await authAdminCall('remove', { email });
+          showToast(`${email} removed from administrators.`);
+        } catch (err) {
+          console.error("Remove admin error:", err);
+          showToast('Could not remove that administrator.', 'error');
+        }
       }
+    });
+  };
+
+  const handleResendInvite = async (email: string) => {
+    setInviteResendBusy(email);
+    try {
+      const cu = auth.currentUser;
+      const token = cu ? await cu.getIdToken() : '';
+      const res = await fetch('/api/auth-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'resend', email, app: APP_ID, appUrl: window.location.origin + window.location.pathname + window.location.search.replace(/#.*$/, '') })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        showToast(data.emailed ? `Invite resent to ${email}. The new temporary password went to their email.` : `The invite email failed to send${data.mailError ? ` (${data.mailError})` : ''}. Try again or share the password another way.`, data.emailed ? 'success' : 'error');
+      } else {
+        showToast(data.error || 'Could not resend the invite. Try again.', 'error');
+      }
+    } catch (err: any) {
+      console.error('Resend invite error:', err);
+      showToast('Could not resend the invite.', 'error');
+    } finally {
+      setInviteResendBusy(null);
     }
   };
 
   const togglePermission = async (email: string, perm: string, currentVal: boolean) => {
     try {
-      const adminRef = doc(db, 'admins', email);
+      const adminRef = doc(db, scopedPath('admins'), email);
       await setDoc(adminRef, {
         permissions: {
           [perm]: !currentVal
@@ -5473,6 +8530,59 @@ function AdminDashboardModal({
       showToast('Could not update the permission.', 'error');
     }
   };
+
+  // --- Security: change password and session length ---
+  const [pwForm, setPwForm] = useState({ cur: '', next: '', confirm: '' });
+  const [pwShow, setPwShow] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [sessionChoice, setSessionChoice] = useState<number>(30);
+  const [sessionDraft, setSessionDraft] = useState<number>(30);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  useEffect(() => {
+    const mins = Number(myAdminDoc?.sessionMinutes);
+    if (mins >= 5) {
+      const v = Math.min(mins, 10080);
+      setSessionChoice(v);
+      setSessionDraft(v);
+    }
+  }, [myAdminDoc?.sessionMinutes]);
+  const sessionLabel = (m: number) => m < 60 ? `${m} minutes` : m < 1440 ? (m === 60 ? '1 hour' : `${m / 60} hours`) : m < 10080 ? (m === 1440 ? '1 day' : `${m / 1440} days`) : '1 week';
+  const handleChangePassword = async () => {
+    if (!pwForm.cur || !pwForm.next || !pwForm.confirm) { showToast('Fill in all three password fields.', 'error'); return; }
+    if (pwForm.next !== pwForm.confirm) { showToast('The new passwords do not match.', 'error'); return; }
+    if (pwForm.next.length < 8) { showToast('Use at least 8 characters for the new password.', 'error'); return; }
+    setPwBusy(true);
+    try {
+      const cu = auth.currentUser as any;
+      if (!cu?.email) throw new Error('Sign in again to change your password.');
+      await reauthenticateWithCredential(cu, EmailAuthProvider.credential(cu.email, pwForm.cur));
+      await updatePassword(cu, pwForm.next);
+      setPwForm({ cur: '', next: '', confirm: '' });
+      showToast('Password updated.');
+    } catch (err: any) {
+      const code = err?.code || '';
+      const msg = code === 'auth/wrong-password' || code === 'auth/invalid-credential' ? 'The current password is not correct.'
+        : code === 'auth/weak-password' ? 'That password is too weak.'
+        : code === 'auth/too-many-requests' ? 'Too many attempts. Try again shortly.'
+        : (err?.message || 'Could not update the password.');
+      showToast(msg, 'error');
+    } finally { setPwBusy(false); }
+  };
+  const handleUpdateSession = async (mins: number) => {
+    setSessionBusy(true);
+    try {
+      await setDoc(doc(db, scopedPath('admins'), currentUserEmail || ''), { sessionMinutes: mins }, { merge: true });
+      setSessionChoice(mins);
+      setSessionDraft(mins);
+      showToast(`Auto sign-out set: ${sessionLabel(mins)}. The server enforces it too.`);
+    } catch (err) {
+      console.error('Session update error:', err);
+      showToast('Could not save the session length.', 'error');
+    } finally {
+      setSessionBusy(false);
+    }
+  };
+  const roleLabel = (r?: string) => r === 'owner' ? 'Super Admin' : (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
   
   return (
     <AnimatePresence>
@@ -5500,7 +8610,7 @@ function AdminDashboardModal({
                 <button onClick={() => setMobileAdminNavOpen(true)} className="p-2 rounded-xl bg-white/10 text-white active:bg-white/20" aria-label="Open menu">
                   <Menu className="w-5 h-5" />
                 </button>
-                <p className="font-display text-white text-base font-medium">{DEMO ? demoHeader() : 'Dara & Femi'}</p>
+                <p className="font-display text-white text-base font-medium">{demoHeader()}</p>
                 <div className="relative ml-auto">
                   <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
                   {profileMenuOpen && (
@@ -5526,7 +8636,7 @@ function AdminDashboardModal({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="mb-6">
-                        <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
+                        <p className="font-display text-[1.25rem] font-medium">{demoHeader()}</p>
                         <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                       </div>
                       <nav className="flex flex-col gap-1">
@@ -5534,10 +8644,11 @@ function AdminDashboardModal({
                           { id: 'overview', label: 'Overview', icon: Home },
                           { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                           { id: 'posts', label: 'All posts', icon: Film },
-                          { id: 'events', label: 'Events & details', icon: Calendar },
-                          { id: 'hero', label: 'Hero photos', icon: ImageIcon },
-                          { id: 'albums', label: 'Photo albums', icon: Images },
+                          { id: 'events', label: 'Events & photos', icon: Calendar },
+                          { id: 'invite', label: 'Inbox invite', icon: Mail },
+                          { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
+                                                                        { id: 'security', label: 'Security', icon: Lock },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
                             key={tab.id}
@@ -5547,7 +8658,6 @@ function AdminDashboardModal({
                             <tab.icon className="w-[18px] h-[18px] shrink-0" />
                             <span>{tab.label}</span>
                       {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
-                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
                           </button>
                         ))}
                       </nav>
@@ -5566,7 +8676,6 @@ function AdminDashboardModal({
                             <tab.icon className="w-[18px] h-[18px] shrink-0" />
                             <span>{tab.label}</span>
                       {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
-                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
                           </button>
                         ))}
                       </nav>
@@ -5582,7 +8691,7 @@ function AdminDashboardModal({
               <aside className="hidden md:flex flex-col w-[250px] shrink-0 bg-[#0B171C] text-white p-5 overflow-y-auto">
                 <div className="mb-6 flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-display text-[1.25rem] font-medium">{DEMO ? demoHeader() : 'Dara &amp; Femi'}</p>
+                    <p className="font-display text-[1.25rem] font-medium">{demoHeader()}</p>
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
@@ -5603,10 +8712,11 @@ function AdminDashboardModal({
                     { id: 'overview', label: 'Overview', icon: Home },
                     { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                     { id: 'posts', label: 'All posts', icon: Film },
-                    { id: 'events', label: 'Events & details', icon: Calendar },
-                    { id: 'hero', label: 'Hero photos', icon: ImageIcon },
-                    { id: 'albums', label: 'Photo albums', icon: Images },
+                    { id: 'events', label: 'Events & photos', icon: Calendar },
+                          { id: 'invite', label: 'Inbox invite', icon: Mail },
+                    { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
+                    { id: 'security', label: 'Security', icon: Lock },
                   ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                     <button
                       key={tab.id}
@@ -5644,21 +8754,21 @@ function AdminDashboardModal({
               </aside>
 
               {/* Modal Body */}
-              <div className="flex-1 overflow-y-auto overscroll-contain p-6 md:p-8 pt-6">
+              <div id="admin-dash-scroll" className="flex-1 overflow-y-auto overscroll-contain p-6 md:p-8 pt-6">
               <TabErrorBoundary label={activeAdminTab} isDarkMode={isDarkMode}>
               {activeAdminTab === 'overview' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, {DEMO ? demoHeader() : 'Dara & Femi'}</h2>
+                    <h2 className="text-2xl font-black font-display tracking-tight">{greeting}, {demoHeader()}</h2>
                     <p className="text-sm opacity-60 mt-0.5">{daysToWedding} days to the wedding. Here is what needs you.</p>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {(() => {
-                      const reelCount = posts.filter((p: any) => postTypeOf(p) === 'Reel').length;
-                      const commentTotal = posts.reduce((s: number, p: any) => s + (p.commentCount || 0), 0);
-                      const authors = new Set(posts.map((p: any) => (p.authorName || '').trim()).filter(Boolean));
+                      const reelCount = realPosts.filter((p: any) => postTypeOf(p) === 'Reel').length;
+                      const commentTotal = realPosts.reduce((s: number, p: any) => s + (p.commentCount || 0), 0);
+                      const authors = new Set(realPosts.map((p: any) => (p.authorName || '').trim()).filter(Boolean));
                       const stats: [string, number][] = [
-                        ['Posts', posts.length],
+                        ['Posts', realPosts.length],
                         ['Reels', reelCount],
                         ['Comments', commentTotal],
                         ['Guests joined', authors.size],
@@ -5674,7 +8784,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Needs your attention</h3>
                     <div className="space-y-3">
-                      {([['pending', pendCount, 'post waiting for approval', 'posts waiting for approval'], ['reports', reportCount, 'reported item', 'reported items'], ['vendors', vendorRequests.length, 'vendor request', 'vendor requests']] as [string, number, string, string][]).map(([q, n, one, many]) => (
+                      {([['pending', pendCount, 'post waiting for approval', 'posts waiting for approval'], ['reports', reportCount, 'reported item', 'reported items']] as [string, number, string, string][]).map(([q, n, one, many]) => (
                         <div key={q} className="flex items-center justify-between gap-3">
                           <div><b>{n}</b> {n === 1 ? one : many}</div>
                           <button onClick={() => { setActiveAdminTab('moderation'); setModQueue(q as 'pending' | 'reports' | 'vendors'); }} className={`px-4 py-2 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${n ? 'bg-[var(--ann-accent)] text-white' : 'border border-[#DAD8E3] opacity-60'}`}>{n ? 'Review' : 'All clear'}</button>
@@ -5688,7 +8798,7 @@ function AdminDashboardModal({
                       {(() => {
                         const buckets = new Array(14).fill(0);
                         const today = new Date(); today.setHours(0, 0, 0, 0);
-                        posts.forEach((p: any) => {
+                        realPosts.forEach((p: any) => {
                           const t = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
                           if (!t) return;
                           const d = new Date(t); d.setHours(0, 0, 0, 0);
@@ -5706,7 +8816,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Latest activity</h3>
                     <div className="space-y-3">
-                      {posts.slice(0, 4).map((p: any) => (
+                      {realPosts.slice(0, 5).map((p: any) => (
                         <div key={p.id} className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
                           <div className="min-w-0">
@@ -5715,8 +8825,11 @@ function AdminDashboardModal({
                           </div>
                         </div>
                       ))}
-                      {posts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
+                      {realPosts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
                     </div>
+                    {realPosts.length > 5 && (
+                      <button type="button" onClick={() => setActivityOpen(true)} className="mt-3 px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">View more</button>
+                    )}
                   </div>
                 </div>
               )}
@@ -5747,7 +8860,7 @@ function AdminDashboardModal({
                               <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              <button onClick={async () => { try { await updateDoc(doc(db, 'posts', p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : 'Approved. Dara and Femi\u2019s guests can now see it', 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
+                              <button onClick={async () => { try { await updateDoc(doc(db, scopedPath('posts'), p.id), { pending: false }); showToast(DEMO ? 'Approved. The couple\u2019s guests can now see it' : `Approved. ${demoHeader()}\u2019s guests can now see it`, 'success'); } catch (err) { console.error(err); showToast('Could not approve the post.', 'error'); } }} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Approve</button>
                               <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Reject</button>
                             </div>
                           </div>
@@ -5807,25 +8920,20 @@ function AdminDashboardModal({
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-2xl font-black font-display tracking-tight">All posts</h2>
-                    <p className="text-sm opacity-60 mt-0.5">{posts.length} {posts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
+                    <p className="text-sm opacity-60 mt-0.5">{realPosts.length} {realPosts.length === 1 ? 'memory' : 'memories'} shared by your people.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <select value={postEventFilter} onChange={(e) => setPostEventFilter(e.target.value)} aria-label="Filter by event" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
-                      <option value="all">All events</option>
-                      {(events || []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
-                    <select value={postTypeFilter} onChange={(e) => setPostTypeFilter(e.target.value)} aria-label="Filter by type" className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#14262D]'} font-bold text-sm`}>
-                      {['all', 'Photo', 'Video', 'Reel', 'Wish'].map((t) => <option key={t} value={t}>{t === 'all' ? 'All types' : t}</option>)}
-                    </select>
+                    <BrandedSelect value={postEventFilter} onChange={(v: string) => setPostEventFilter(v)} ariaLabel="Filter by event" isDarkMode={isDarkMode} options={[{ value: 'all', label: 'All events' }, ...(events || []).map((e: any) => ({ value: e.id, label: e.name }))]} />
+                    <BrandedSelect value={postTypeFilter} onChange={(v: string) => setPostTypeFilter(v)} ariaLabel="Filter by type" isDarkMode={isDarkMode} options={['all', 'Photo', 'Video', 'Reel', 'Wish'].map((t: string) => ({ value: t, label: t === 'all' ? 'All types' : t }))} />
                   </div>
                   <div className={`rounded-[20px] border divide-y ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] divide-[#22363E]' : 'bg-white border-[#DAD8E3] divide-[#DAD8E3]/70'}`}>
                     {(() => {
-                      const filtered = posts.filter((p: any) => (postEventFilter === 'all' || p.eventId === postEventFilter) && (postTypeFilter === 'all' || postTypeOf(p) === postTypeFilter));
+                      const filtered = realPosts.filter((p: any) => (postEventFilter === 'all' || p.eventId === postEventFilter) && (postTypeFilter === 'all' || postTypeOf(p) === postTypeFilter));
                       if (filtered.length === 0) return <p className="p-5 opacity-50 text-sm">No posts match. Memories your guests share will show up here.</p>;
                       // How many posts each person has made, shown next to their
                       // name on every row so the couple sees a guest's history.
                       const postCountByKey: Record<string, number> = {};
-                      posts.forEach((q: any) => {
+                      realPosts.forEach((q: any) => {
                         const k = q.authorUid || `name:${(q.authorName || '').trim().toLowerCase()}`;
                         postCountByKey[k] = (postCountByKey[k] || 0) + 1;
                       });
@@ -5834,7 +8942,6 @@ function AdminDashboardModal({
                         const authorKey = p.authorUid || `name:${(p.authorName || '').trim().toLowerCase()}`;
                         const evName = (events || []).find((e) => e.id === p.eventId)?.name;
                         const when = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
-                        const media = (p.mediaUrls || [])[0];
                         return (
                           <div key={p.id} className="flex items-center gap-3 p-4">
                             {/* Small preview: tap to watch a video or view the photo full-screen. */}
@@ -5867,9 +8974,6 @@ function AdminDashboardModal({
                               <small className="block opacity-40">{(p.likeCount || 0) + (p.loveCount || 0)} likes · {p.commentCount || 0} comments · {relTime(when)}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              {media && (
-                                <button onClick={() => adminDownloadMedia(p)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest">Download</button>
-                              )}
                               {(adminPermissions ? adminPermissions.canDeletePosts : true) && (
                                 <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove</button>
                               )}
@@ -5883,38 +8987,178 @@ function AdminDashboardModal({
               )}
 
               {activeAdminTab === 'events' && (
-                <div className="space-y-6">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div>
-                      <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; details</h2>
-                      <p className="text-sm opacity-60 mt-0.5">Set each event to Done, Next up or Upcoming. Guests see this on the Home timeline.</p>
-                    </div>
-                    {/* Saves everything, then opens the live website in a new tab. */}
-                    <button onClick={previewSite} disabled={weddingBusy} title="Saves your changes, then opens the app in a new tab" className={`px-5 py-3 rounded-full text-[0.7rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white ${weddingBusy ? 'opacity-60' : ''}`}>
-                      {weddingBusy ? 'Saving…' : 'Preview site'}
-                    </button>
+                <div className="space-y-8">
+                  <div>
+                    <h2 className="text-2xl font-black font-display tracking-tight">Events &amp; photos</h2>
+                    <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app. The eye button on a section hides it from your app until you bring it back.</p>
                   </div>
+
+                  {adminPermissions?.canUploadImages && (
+                    <section>
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
+                          Hero photos ({heroShown.length} / 20)
+                        </label>
+                        {heroShown.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmAsk({ title: 'Remove all hero photos?', message: 'Every hero photo comes out. This cannot be undone.', confirmLabel: 'Remove all', action: () => setHeroImgDraft([]) })}
+                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      {/* Label attached to every photo added from the tile below. */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
+                        <BrandedSelect value={newHeroLabel} onChange={(v: string) => setNewHeroLabel(v)} isDarkMode={isDarkMode} options={[{ value: '', label: 'No label' }, ...evDraft.map((ev: any) => ({ value: ev.name, label: ev.name }))]} />
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-4">
+                        {heroShown.slice(0, 20).map((img: string, idx: number) => (
+                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
+                            <img src={img} loading="eager" decoding="async" onLoad={(e) => e.currentTarget.classList.add('hero-loaded')} className="hero-tile-img w-full h-full object-cover" alt="" />
+                            <div className="absolute top-1 right-1 flex gap-1">
+                              {idx > 0 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; setHeroImgDraft(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
+                                  <ChevronLeft className="w-3 h-3" />
+                                </button>
+                              )}
+                              {idx < heroShown.length - 1 && (
+                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx + 1]; u[idx + 1] = u[idx]; u[idx] = t; setHeroImgDraft(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move later">
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              )}
+                              <button type="button" onClick={() => setConfirmAsk({ title: 'Remove photo?', message: 'This photo comes out of your hero photos. This cannot be undone.', confirmLabel: 'Remove', action: () => setHeroImgDraft(heroShown.filter((_: string, i: number) => i !== idx)) })} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {/* Event label attached to this photo, editable any time. */}
+                            <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
+                              <BrandedSelect value={heroLabelDraft?.[img] || ''} onChange={(v: string) => setHeroLabelDraft({ ...(heroLabelDraft || {}), [img]: v })} isDarkMode={isDarkMode} compact className="p-1.5 rounded-lg border-none bg-transparent text-white text-[9px] font-bold w-full" options={[{ value: '', label: 'No label' }, ...evDraft.map((ev: any) => ({ value: ev.name, label: ev.name }))]} />
+                            </div>
+                          </div>
+                        ))}
+                        {heroShown.length < 20 && (
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*"
+                              className="hidden"
+                              disabled={isBulkUploading}
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+
+                                const remainingSlots = 20 - heroShown.length;
+                                const filesToUpload = files.slice(0, remainingSlots);
+                                if (files.length > remainingSlots) {
+                                  showToast(`Maximum 20 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
+                                }
+
+                                setIsBulkUploading(true);
+                                const uploadedUrls: string[] = [];
+
+                                try {
+                                  for (const file of filesToUpload) {
+                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'hero');
+                                    uploadedUrls.push(url);
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                  }
+
+                                  if (uploadedUrls.length > 0) {
+                                    // Draft only: the new photos reach the app when Save changes is tapped.
+                                    setHeroImgDraft([...heroShown, ...uploadedUrls].slice(0, 20));
+                                    // Attach the chosen label to every newly added photo.
+                                    if (newHeroLabel) {
+                                      const labelMap = { ...(heroLabelDraft || {}) };
+                                      uploadedUrls.forEach((u) => { labelMap[u] = newHeroLabel; });
+                                      setHeroLabelDraft(labelMap);
+                                    }
+                                  }
+                                } catch (err: any) {
+                                  console.error("Bulk upload error:", err);
+                                  showToast(err?.message || "Failed to upload hero images.", "error");
+                                } finally {
+                                  setIsBulkUploading(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                            {isBulkUploading ? (
+                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                            ) : (
+                              <>
+                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({20 - heroShown.length})</span>
+                              </>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 20 images for the hero banner (scrolls 2 images at a time).{!heroImgDraft.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
+                    </section>
+                  )}
+
+                  <section>
+                    <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
+                    <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book']] as [string, string][]).map(([tk, label]) => (
+                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[0.7rem] opacity-50 mt-2">Classic · Halo Arc · Hero Deck · Open Book</p>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <h3 className="font-black font-display text-lg">Accent color</h3>
+                      <button type="button" onClick={() => setSitePreviewOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.6rem] font-black uppercase tracking-widest opacity-70 hover:opacity-100" style={{ touchAction: 'manipulation' }} title="Preview the accent color">
+                        <Eye className="w-3.5 h-3.5" /> Preview
+                      </button>
+                    </div>
+                    <p className="text-sm opacity-60 mb-3">The color your app is dressed in: buttons, highlights and headings. Tap one and the preview switches to it; it goes live when you save.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {ACCENT_CHOICES.map(([k, label, hex]) => (
+                        <button key={k} type="button" onClick={() => onUpdateAccent(k)} className={`flex items-center gap-2 px-3.5 py-2 rounded-full border transition-all ${accentKey === k ? 'shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`} style={accentKey === k ? { borderColor: hex, boxShadow: `0 0 0 2px ${hex}33` } : undefined}>
+                          <span className="w-4 h-4 rounded-full border border-black/10 shrink-0" style={{ background: hex }} />
+                          <span className="text-[0.7rem] font-black uppercase tracking-widest">{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="flex items-start justify-between gap-3 mb-3">
                       <h3 className="font-black font-display text-lg">Our story</h3>
-                      <button onClick={saveStory} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('story')} onClick={() => toggleSectionHidden('story')} isDarkMode={isDarkMode} />
                     </div>
                     <textarea value={storyDraft} onChange={(e) => setStoryDraft(e.target.value)} rows={4} placeholder="How you met, in your own words." className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
                   </div>
+
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="flex items-start justify-between gap-3 mb-3">
                       <h3 className="font-black font-display text-lg">Wedding day details</h3>
-                      <button onClick={saveDetails} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">{weddingBusy ? 'Saving…' : 'Save'}</button>
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('details')} onClick={() => toggleSectionHidden('details')} isDarkMode={isDarkMode} />
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
                       {([['churchTime', 'Church time'], ['churchVenue', 'Church venue'], ['receptionTime', 'Reception time'], ['receptionVenue', 'Reception venue'], ['asoEbi', 'Aso-ebi'], ['hashtag', 'Hashtag']] as [string, string][]).map(([k, label]) => (
-                        <label key={k} className="block">
+                        <div key={k}>
                           <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">{label}</span>
-                          <input value={detDraft?.[k] || ''} onChange={(e) => setDetDraft({ ...(detDraft || {}), [k]: e.target.value })} className={inputCls} />
-                        </label>
+                          {k === 'churchTime' || k === 'receptionTime' ? (
+                            <BrandedTimeField value={detDraft?.[k] || ''} onChange={(v: string) => setDetDraft({ ...(detDraft || {}), [k]: v })} isDarkMode={isDarkMode} inputCls={inputCls} />
+                          ) : (
+                            <input value={detDraft?.[k] || ''} onChange={(e) => setDetDraft({ ...(detDraft || {}), [k]: e.target.value })} className={inputCls} />
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
+
                   <div>
                     <h3 className="font-black font-display text-lg mb-3">The journey</h3>
                     <div className="space-y-4">
@@ -5925,10 +9169,10 @@ function AdminDashboardModal({
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Event</span>
                               <input value={e.name} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, name: ev.target.value } : x))} className={inputCls} />
                             </label>
-                            <label className="block">
+                            <div>
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Date</span>
-                              <input type="date" value={e.date} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, date: ev.target.value } : x))} className={inputCls} />
-                            </label>
+                              <BrandedDateField value={e.date} onChange={(v: string) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, date: v } : x))} isDarkMode={isDarkMode} inputCls={inputCls} />
+                            </div>
                             <label className="block">
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Venue</span>
                               <input value={e.venue || ''} onChange={(ev) => setEvDraft(evDraft.map((x, xi) => xi === i ? { ...x, venue: ev.target.value } : x))} className={inputCls} />
@@ -5944,7 +9188,7 @@ function AdminDashboardModal({
                               {(((e as any).images || []) as string[]).map((u: string, ii: number) => (
                                 <div key={ii} className="relative w-[64px] h-[64px] rounded-[10px] overflow-hidden">
                                   <img src={u} alt="" className="w-full h-full object-cover" />
-                                  <button type="button" onClick={() => removeEventStepPhoto(e.id, ii)} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove">×</button>
+                                  <button type="button" onClick={() => setConfirmAsk({ title: 'Remove photo?', message: 'This photo comes out of the event. This cannot be undone.', confirmLabel: 'Remove', action: () => removeEventStepPhoto(e.id, ii) })} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white grid place-items-center text-[0.7rem]" title="Remove">×</button>
                                 </div>
                               ))}
                               {(((e as any).images || []) as string[]).length < 2 && (
@@ -5968,7 +9212,7 @@ function AdminDashboardModal({
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={saveEvents} disabled={weddingBusy} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-60">{weddingBusy ? '…' : 'Save'}</button>
+                              <SectionEyeBtn hidden={!!(e as any).hidden} onClick={() => setEvDraft(evDraft.map((x) => (x.id === e.id ? { ...(x as any), hidden: !(x as any).hidden } : x)))} isDarkMode={isDarkMode} />
                               {i > 0 && (
                                 <button type="button" onClick={() => { const u = [...evDraft]; const t = u[i - 1]; u[i - 1] = u[i]; u[i] = t; setEvDraft(u); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Move up</button>
                               )}
@@ -5980,264 +9224,485 @@ function AdminDashboardModal({
                     </div>
                     <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
                   </div>
-                </div>
-              )}
 
-              {activeAdminTab === 'hero' && (
-                <div className="space-y-8">
-                  <div>
-                    <h2 className="text-2xl font-black font-display tracking-tight">Hero photos</h2>
-                    <p className="text-sm opacity-60 mt-0.5">Photos that float across the top of the Home screen, and the giant footer grid.</p>
-                  </div>
-                  <div className="space-y-6">
-                  {adminPermissions?.canUploadImages && (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">
-                          Hero photos ({heroShown.length} / 14)
-                        </label>
-                        {heroShown.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => onUpdateHeroImages([])}
-                            className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:underline"
-                          >
-                            Clear All
-                          </button>
-                        )}
+                                    <section className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Gifts &amp; support</h3>
+                        <p className="text-sm opacity-60">Guests who want to gift you money see this on your home page, right before the photo wall. Tap hide and nobody sees it until you bring it back.</p>
                       </div>
-                      {/* Label attached to every photo added from the tile below. */}
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Label for new photos</span>
-                        <select value={newHeroLabel} onChange={(e) => setNewHeroLabel(e.target.value)} className="p-2 rounded-lg border border-[#DAD8E3] dark:border-[#22363E] bg-transparent text-xs font-bold">
-                          <option value="">No label</option>
-                          {(events || []).map((ev: any) => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
-                        </select>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bank name</span>
+                        <input type="text" value={giftDraft?.bank ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), bank: e.target.value })} placeholder="GTBank" className={`${inputCls} w-full`} />
                       </div>
-                      <div className="grid grid-cols-4 gap-2 mb-4">
-                        {heroShown.slice(0, 14).map((img: string, idx: number) => (
-                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 border dark:border-[#22363E] group">
-                            <img src={img} className="w-full h-full object-cover" alt="" />
-                            <div className="absolute top-1 right-1 flex gap-1">
-                              {idx > 0 && (
-                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx - 1]; u[idx - 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move earlier">
-                                  <ChevronLeft className="w-3 h-3" />
-                                </button>
-                              )}
-                              {idx < heroShown.length - 1 && (
-                                <button type="button" onClick={() => { const u = [...heroShown]; const t = u[idx + 1]; u[idx + 1] = u[idx]; u[idx] = t; onUpdateHeroImages(u); }} className="p-1 bg-black/70 text-white rounded-full" title="Move later">
-                                  <ChevronRight className="w-3 h-3" />
-                                </button>
-                              )}
-                              <button type="button" onClick={() => onUpdateHeroImages(heroShown.filter((_: string, i: number) => i !== idx))} className="p-1 bg-black/70 text-white rounded-full" title="Remove image">
-                                <X className="w-3 h-3" />
-                              </button>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account number</span>
+                        <input type="text" inputMode="numeric" value={giftDraft?.accountNumber ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountNumber: e.target.value.replace(/[^0-9]/g, '') })} placeholder="0123456789" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Account name</span>
+                        <input type="text" value={giftDraft?.accountName ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), accountName: e.target.value })} placeholder="Amara &amp; Daniel" className={`${inputCls} w-full`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Message to guests</span>
+                        <textarea rows={2} value={giftDraft?.note ?? ''} onChange={(e) => setGiftDraft({ ...(giftDraft || {}), note: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`} />
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('gifts')} onClick={() => toggleSectionHidden('gifts')} isDarkMode={isDarkMode} />
+                    </div>
+                  </section>
+
+                  {/* Partners — under Gifts & support (user direction Nov 21 2026): one card in
+                      Events & photos, with its own hide/unhide eye like the other sections. */}
+                  <section>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Partners</h3>
+                        <p className="text-sm opacity-60">The people, brands and businesses you want your guests to know: photographers, planners, aso-ebi sellers, anyone behind your occasion. Whatever you save here shows on the app's home page under Our partners, right after Gifts &amp; support. Tap hide and nobody sees it until you bring it back.</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-4">
+    <div id="partner-form-card" className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                      <h3 className="font-black font-display text-lg mb-1">{partnerEditing ? `Edit ${partnerEditing.name || 'partner'}` : 'Add a partner'}</h3>
+                      <p className="text-sm opacity-60 mb-4">{partnerEditing ? 'Change anything and save. Updates show on the app straight away.' : 'Name is the only required field; everything else makes the card richer.'}</p>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Name</span>
+                            <input type="text" value={partnerForm.name} onChange={(e) => setPartnerForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Lens & Light Studio" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">What they do</span>
+                            <input type="text" value={partnerForm.category} onChange={(e) => setPartnerForm((f: any) => ({ ...f, category: e.target.value }))} placeholder="e.g. Photography, Catering, Aso-ebi" className={inputCls} />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Description</span>
+                          <textarea value={partnerForm.description} onChange={(e) => setPartnerForm((f: any) => ({ ...f, description: e.target.value }))} rows={3} placeholder="A line or two your guests will read about them." className={`${inputCls} resize-none`} />
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Logo</span>
+                          {partnerForm.photo ? (
+                            <div className="flex items-center gap-3">
+                              <img src={partnerForm.photo} alt="Partner logo" className="w-14 h-14 rounded-full object-cover border border-[#DAD8E3] dark:border-[#22363E]" />
+                              <button type="button" onClick={() => setPartnerForm((f: any) => ({ ...f, photo: '' }))} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Remove</button>
                             </div>
-                            {/* Event label attached to this photo, editable any time. */}
-                            <div className="absolute bottom-0 inset-x-0 p-1 bg-black/55">
-                              <select value={heroImageLabels?.[img] || ''} onChange={(e) => onUpdateHeroLabels({ ...(heroImageLabels || {}), [img]: e.target.value })} className="w-full bg-transparent text-white text-[9px] font-bold outline-none" title="Photo label">
-                                <option value="" className="text-black">No label</option>
-                                {(events || []).map((ev: any) => <option key={ev.id} value={ev.name} className="text-black">{ev.name}</option>)}
-                              </select>
+                          ) : (
+                            <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer ${partnerLogoBusy ? 'opacity-50 pointer-events-none' : ''} ${isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]'}`}>
+                              <Camera className="w-4 h-4" />
+                              {partnerLogoBusy ? 'Uploading…' : 'Upload a logo'}
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPartnerLogo(f); e.currentTarget.value = ''; }} />
+                            </label>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">WhatsApp / phone</span>
+                            <input type="text" value={partnerForm.whatsapp} onChange={(e) => setPartnerForm((f: any) => ({ ...f, whatsapp: e.target.value }))} placeholder="e.g. 2348012345678" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Instagram</span>
+                            <input type="text" value={partnerForm.instagram} onChange={(e) => setPartnerForm((f: any) => ({ ...f, instagram: e.target.value }))} placeholder="@handle" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Website</span>
+                            <input type="text" value={partnerForm.website} onChange={(e) => setPartnerForm((f: any) => ({ ...f, website: e.target.value }))} placeholder="https://…" className={inputCls} />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">TikTok</span>
+                            <input type="text" value={partnerForm.tiktok} onChange={(e) => setPartnerForm((f: any) => ({ ...f, tiktok: e.target.value }))} placeholder="e.g. @handle" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Facebook</span>
+                            <input type="text" value={partnerForm.facebook} onChange={(e) => setPartnerForm((f: any) => ({ ...f, facebook: e.target.value }))} placeholder="Page or profile name" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">YouTube</span>
+                            <input type="text" value={partnerForm.youtube} onChange={(e) => setPartnerForm((f: any) => ({ ...f, youtube: e.target.value }))} placeholder="Channel name" className={inputCls} />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap pt-1">
+                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
+                          {partnerEditing && (
+                            <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {partnersList.length === 0 ? (
+                        <p className="text-sm opacity-60">No partners yet. Add the first one above and it appears on the app's home page immediately.</p>
+                      ) : partnersList.map((p: any) => (
+                        <div key={p.id || p.name} className={`rounded-[20px] p-5 border flex items-start gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                          {p.photo
+                            ? <img src={p.photo} alt={p.name || 'Partner'} className="w-11 h-11 rounded-full object-cover shrink-0" />
+                            : <span className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white font-black" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+                          <div className="min-w-0 flex-1">
+                            <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+                            {p.category ? <span className="block text-[0.7rem] opacity-60">{p.category}</span> : null}
+                            {p.description ? <p className="m-0 text-[0.8rem] opacity-70 mt-1">{p.description}</p> : null}
+                            <div className="flex gap-3 flex-wrap mt-1.5 text-[0.7rem] opacity-70">
+                              {p.whatsapp ? <span>WhatsApp {p.whatsapp}</span> : null}
+                              {p.instagram ? <span>Instagram {p.instagram}</span> : null}
+                              {p.website ? <span className="truncate max-w-[200px]">{p.website}</span> : null}
                             </div>
                           </div>
-                        ))}
-                        {heroShown.length < 14 && (
-                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
-                            <input 
-                              type="file" 
-                              multiple 
-                              accept="image/*" 
-                              className="hidden" 
-                              disabled={isBulkUploading}
-                              onChange={async (e) => {
-                                const files = Array.from(e.target.files || []);
-                                if (files.length === 0) return;
-
-                                const remainingSlots = 14 - heroShown.length;
-                                const filesToUpload = files.slice(0, remainingSlots);
-                                if (files.length > remainingSlots) {
-                                  showToast(`Maximum 14 hero images allowed. Uploading first ${remainingSlots}.`, 'info');
-                                }
-                                
-                                setIsBulkUploading(true);
-                                const uploadedUrls: string[] = [];
-                                
-                                try {
-                                  for (const file of filesToUpload) {
-                                    const url = DEMO ? await demoImageDataUrl(file as any) : await uploadToCloudinary(file as any, 'hero');
-                                    uploadedUrls.push(url);
-                                    await new Promise(resolve => setTimeout(resolve, 100));
-                                  }
-                                  
-                                  if (uploadedUrls.length > 0) {
-                                    onUpdateHeroImages([...heroShown, ...uploadedUrls].slice(0, 14));
-                                    // Attach the chosen label to every newly added photo.
-                                    if (newHeroLabel) {
-                                      const labelMap = { ...(heroImageLabels || {}) };
-                                      uploadedUrls.forEach((u) => { labelMap[u] = newHeroLabel; });
-                                      onUpdateHeroLabels(labelMap);
-                                    }
-                                  }
-                                } catch (err: any) {
-                                  console.error("Bulk upload error:", err);
-                                  showToast(err?.message || "Failed to upload hero images.", "error");
-                                } finally {
-                                  setIsBulkUploading(false);
-                                  e.target.value = '';
-                                }
-                              }}
-                            />
-                            {isBulkUploading ? (
-                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
-                            ) : (
-                              <>
-                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
-                                <span className="text-[10px] font-bold mt-1 uppercase">Add ({14 - heroShown.length})</span>
-                              </>
-                            )}
-                          </label>
-                        )}
-                      </div>
-                      <p className="text-[0.75rem] opacity-60 italic">Upload up to 14 images for the hero banner (scrolls 2 images at a time).{!heroImages.length && ' These are the placeholder photos currently in the app: remove any of them or add your own, and your list takes over the hero.'}</p>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '', tiktok: p.tiktok || '', facebook: p.facebook || '', youtube: p.youtube || '' }); try { document.getElementById('partner-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
+                            <button type="button" onClick={() => setPartnerDelete(p)} className="px-4 py-2 rounded-full border border-red-400 text-red-500 text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                    <DeleteConfirmationModal
+                      isOpen={!!partnerDelete}
+                      onClose={() => setPartnerDelete(null)}
+                      onConfirm={removePartner}
+                      isDarkMode={isDarkMode}
+                      title="Remove partner?"
+                      message={`${partnerDelete?.name || 'This partner'} will stop showing on the app's home page right away.`}
+                      confirmLabel="Remove partner"
+                    />
+                    </div>
+                    <div className="mt-3">
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('partners')} onClick={() => toggleSectionHidden('partners')} isDarkMode={isDarkMode} />
+                    </div>
+                  </section>
 
-                  {adminPermissions?.canUploadImages && (
-                    <div>
-                      <div>
+{adminPermissions?.canUploadImages && (
+                    <section>
                       <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
-                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
+                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. Tap a style, then the round eye button on the right to watch it.</p>
                       <div className="flex gap-2 flex-wrap">
-                        {(['wall', 'marquee'] as const).map((st) => (
-                          <button key={st} type="button" onClick={() => onUpdateFooterStyle && onUpdateFooterStyle(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyle === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
-                            {st === 'wall' ? 'Style 1 · Photo wall' : 'Style 2 · Marquee'}
+                        {(['wall', 'marquee', 'tunnel', 'globe'] as const).map((st) => (
+                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                            {st === 'wall' ? 'Style 1 · Photo wall' : st === 'marquee' ? 'Style 2 · Marquee' : st === 'tunnel' ? 'Style 3 · Photo tunnel' : 'Style 4 · Photo globe'}
                           </button>
                         ))}
                       </div>
-                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
-                    </div>
-                    <div>
-                      <p className="text-[0.75rem] opacity-60 italic">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
-                    </div>
-                    </div>
+                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows · Style 3 · travel down a 3D tunnel of photos (drag to spin, drag up/down for speed) · Style 4 · photos wrap a ball that turns slowly (drag to spin it)</p>
+                      <div className="mt-4">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Thank-you line</span>
+                        <input type="text" value={footerThanksDraft} onChange={(e) => setFooterThanksDraft(e.target.value)} placeholder="Thank you for celebrating with us" className={`${inputCls} w-full`} />
+                        <p className="text-[0.7rem] opacity-50 mt-1.5">The small line above your names on every giant footer style. Leave it empty to keep the default.</p>
+                      </div>
+                      <p className="text-[0.75rem] opacity-60 italic mt-3">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
+                    </section>
                   )}
+
+                  {/* Footer (user direction Nov 21 2026): the wording under the photo wall is
+                      editable; empty fields keep the default text. */}
+                  <section>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Footer</h3>
+                        <p className="text-sm opacity-60">The words at the very bottom of your home page, after the photo wall. Leave a field empty and the app keeps its default wording.</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Footer message</span>
+                        <textarea rows={2} value={footerDraft?.message ?? ''} onChange={(e) => setFooterDraft({ ...(footerDraft || {}), message: e.target.value })} placeholder={`Happy Wedding · ${WED_LONG}`} className={`${inputCls} resize-none`} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Footer caption</span>
+                        <input type="text" value={footerDraft?.caption ?? ''} onChange={(e) => setFooterDraft({ ...(footerDraft || {}), caption: e.target.value })} placeholder="Wedding memories, kept for life" className={`${inputCls} w-full`} />
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* One save for the whole page. */}
+                  <div className={`mt-8 flex items-center gap-4 flex-wrap border-t pt-4 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                    <p className={`text-xs font-bold flex-1 min-w-[220px] ${pageDirty ? 'text-[var(--ann-accent)]' : 'opacity-50'}`}>
+                      {pageDirty ? 'You have unsaved changes. Tap Save changes for them to reach your app.' : 'All saved. Your app shows exactly what you see here.'}
+                    </p>
+                    <button onClick={saveEverything} disabled={weddingBusy} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-60 shrink-0">
+                      {weddingBusy ? 'Saving…' : 'Save changes'}
+                    </button>
                   </div>
+
+                  {/* Back to top (user direction Nov 21 2026, moved bottom-right same day): arrow on
+                      Events & photos; one tap takes the page back to the top. */}
+                  <button
+                    onClick={() => { try { document.getElementById('admin-dash-scroll')?.scrollTo({ top: 0, behavior: 'smooth' }); } catch { document.getElementById('admin-dash-scroll')?.scrollTo(0, 0); } }}
+                    title="Back to top"
+                    aria-label="Back to top"
+                    className="fixed right-4 bottom-6 z-[130] w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform"
+                  >
+                    <ArrowUp className="w-6 h-6" />
+                  </button>
+
+                  {/* Floating preview: opens the in-page mockup, saves nothing. */}
+                  <button onClick={previewSite} title="Preview the app" aria-label="Preview the app" className="fixed right-4 top-1/2 -translate-y-1/2 z-[130] w-14 h-14 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform">
+                    <Eye className="w-6 h-6" />
+                  </button>
                 </div>
               )}
 
-              {activeAdminTab === 'albums' && (
+              <AnimatePresence>
+                {sitePreviewOpen && (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      onClick={() => setSitePreviewOpen(false)}
+                      className="fixed inset-0 bg-black/70 z-[140] backdrop-blur-sm"
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                      className="fixed inset-0 z-[141] flex flex-col items-center justify-center px-4 pointer-events-none"
+                    >
+                      <div className="pointer-events-auto flex flex-col items-center">
+                        <div className="flex items-center justify-between gap-4 w-[340px] max-w-[92vw] mb-3">
+                          <p className="font-display text-white text-sm font-bold">Preview · your latest changes</p>
+                          <button
+                            onClick={() => setSitePreviewOpen(false)}
+                            className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white text-[0.6rem] font-black uppercase tracking-widest"
+                          >
+                            Close
+                          </button>
+                        </div>
+                        <div className="relative w-[340px] max-w-[92vw] h-[660px] max-h-[calc(100vh-120px)] rounded-[2.6rem] bg-[#0B171C] p-[10px] shadow-2xl shrink-0">
+                          <div className="w-full h-full rounded-[2rem] overflow-hidden bg-white">
+                            <PreviewHomeMockup
+                              bride={demoBride()}
+                              groom={demoGroom()}
+                              city={demoCity()}
+                              wedDate={previewWedDate()}
+                              events={evDraft}
+                              story={storyDraft}
+                              details={withGiftDefaults(detDraft)}
+                              heroImages={heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES}
+                              tpl={heroTplDraft}
+                              wallStyle={footerStyleDraft}
+                              thanks={(footerThanksDraft || '').trim()}
+                              partners={partnersList}
+                            />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-[0.6rem] font-black uppercase tracking-widest text-white/40">Just the home page · scroll inside the mockup</p>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+
+              {activeAdminTab === 'invite' && (
+                <InviteCardSection isDarkMode={isDarkMode} weddingDetails={weddingDetails} story={story} wedDate={previewWedDate()} showToast={showToast} />
+              )}
+
+              {activeAdminTab === 'albums' && ( 
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Photo albums</h3>
-                    <p className="text-sm opacity-60">Photos and videos from the photographers and vendors, each stamped with the upload date and the name of who added it.</p>
+                    <h3 className="font-black font-display text-lg mb-1">Vendor albums</h3>
+                    <p className="text-sm opacity-60">Photos and videos from the photographers and vendors, arranged as albums. Every album carries the name of who uploaded it and the date. Tap an album to see everything inside.</p>
                   </div>
-                  {([['photo', 'Photos', 'Add photos', 'image/*'], ['video', 'Videos', 'Add videos', 'video/*']] as [string, string, string, string][]).map(([kind, label, btnLabel, accept]) => {
-                    const items = albums.filter((a: any) => a.mediaType === kind);
+                  {([['photo', 'Photos', 'Add photos'], ['video', 'Videos', 'Add videos']] as [string, string, string][]).map(([kind, label, btnLabel]) => {
+                    const groups = albumGroups.filter((g: any) => g.kind === kind);
                     return (
                       <div key={kind}>
                         <div className="flex items-center justify-between gap-3 mb-3">
                           <h4 className="text-[0.7rem] uppercase tracking-widest font-black opacity-50">{label}</h4>
-                          <label htmlFor={`album-${kind}-upload`} className={`px-4 py-2.5 rounded-xl text-[0.65rem] font-black uppercase tracking-widest cursor-pointer ${albumBusy ? 'bg-slate-200 text-slate-400 dark:bg-[#22363E] dark:text-[#5A6970]' : 'bg-[var(--ann-accent)] text-white'}`}>
-                            {albumBusy ? 'Uploading…' : btnLabel}
-                          </label>
-                          <input id={`album-${kind}-upload`} type="file" accept={accept} multiple className="hidden" onChange={(e) => { const t = e.target; uploadAlbumMedia(t.files, kind as 'photo' | 'video'); t.value = ''; }} />
+                          <button onClick={() => openAlbumPopup(kind as 'photo' | 'video')} className="px-4 py-2.5 rounded-xl text-[0.65rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white active:scale-[0.97] transition-transform" style={{ touchAction: 'manipulation' }}>{btnLabel}</button>
                         </div>
-                        {items.length === 0 ? (
+                        {groups.length === 0 ? (
                           <p className="text-xs opacity-40 py-8 text-center">Nothing here yet.</p>
                         ) : (
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {items.map((a: any) => (
-                              <div key={a.id} className={`rounded-2xl overflow-hidden border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                                <div className="aspect-[4/3] bg-black relative">
-                                  {a.mediaType === 'video' ? (
-                                    <video src={a.mediaUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
-                                  ) : (
-                                    <img src={a.mediaUrl} className="w-full h-full object-cover" alt="Album media" loading="lazy" />
+                            {groups.map((g: any) => {
+                              const cover = g.media[0];
+                              return (
+                                <div key={g.id} className={`relative rounded-2xl overflow-hidden border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                                  <button onClick={() => setAlbumViewer(g)} className="block w-full text-left" style={{ touchAction: 'manipulation' }}>
+                                    <div className="aspect-square bg-black relative">
+                                      {cover?.type === 'video' ? (
+                                        <video src={cover.url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                                      ) : (
+                                        <img src={cover?.url} className="w-full h-full object-cover" alt={g.title || 'Album'} loading="lazy" />
+                                      )}
+                                      {cover?.type === 'video' && (
+                                        <span className="absolute inset-0 grid place-items-center pointer-events-none">
+                                          <span className="w-10 h-10 rounded-full bg-black/55 text-white grid place-items-center"><Play className="w-4 h-4 fill-current" /></span>
+                                        </span>
+                                      )}
+                                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-white text-[0.6rem] font-black">{g.kind === 'video' ? 'Video' : 'Photo'} album · {g.count}</span>
+                                    </div>
+                                    <div className="p-3">
+                                      <p className="text-sm font-black truncate">{g.title || (g.kind === 'video' ? 'Video album' : 'Photo album')}</p>
+                                      <p className="text-[0.6rem] uppercase tracking-widest opacity-50 mt-0.5">
+                                        {g.uploadedAt?.toDate ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(g.uploadedAt.toDate()) : 'Just added'}
+                                      </p>
+                                      <p className="text-xs font-bold opacity-70 truncate mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'}</p>
+                                    </div>
+                                  </button>
+                                  {adminPermissions?.canDeletePosts && (
+                                    <button onClick={() => setConfirmAsk({ title: 'Remove album?', message: 'The whole album and everything in it comes out. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumGroup(g) })} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white grid place-items-center" title="Remove album" style={{ touchAction: 'manipulation' }}>
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
                                   )}
-                                  {a.mediaType === 'video' && (
-                                    <span className="absolute inset-0 grid place-items-center pointer-events-none">
-                                      <span className="w-9 h-9 rounded-full bg-black/50 text-white grid place-items-center"><Play className="w-4 h-4 fill-current" /></span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="p-3">
-                                  <p className="text-[0.6rem] uppercase tracking-widest opacity-50 mb-0.5">
-                                    {a.uploadedAt?.toDate ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(a.uploadedAt.toDate()) : 'Just added'}
-                                  </p>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <p className="text-xs font-bold truncate">By {a.uploaderName || a.uploaderEmail}</p>
+                                  {/* MASS DOWNLOAD and MASS DELETE for the whole album. */}
+                                  <div className="px-3 pb-3 -mt-1 flex gap-2">
+                                    <button onClick={(e) => { e.stopPropagation(); downloadAlbumZip(g); }} disabled={albumZipBusy === g.id} className="flex-1 py-2 rounded-lg text-[0.6rem] font-black uppercase tracking-widest border border-[var(--ann-accent)]/40 text-[var(--ann-accent)] active:scale-[0.97] transition-transform disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
+                                      {albumZipBusy === g.id ? 'Packing…' : 'Download all'}
+                                    </button>
                                     {adminPermissions?.canDeletePosts && (
-                                      <button onClick={() => deleteAlbumMedia(a.id)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
-                                        <Trash2 className="w-3.5 h-3.5" />
+                                      <button onClick={(e) => { e.stopPropagation(); setConfirmAsk({ title: 'Delete everything in this album?', message: 'Every photo and video in it comes out. This cannot be undone.', confirmLabel: 'Delete all', action: () => deleteAlbumGroup(g) }) }} className="flex-1 py-2 rounded-lg text-[0.6rem] font-black uppercase tracking-widest border border-red-500/40 text-red-500 active:scale-[0.97] transition-transform" style={{ touchAction: 'manipulation' }}>
+                                        Delete all
                                       </button>
                                     )}
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
                     );
                   })}
-                </div>
-              )}
-              {activeAdminTab === 'settings' && (
-                <div className="space-y-8">
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
-                    <p className="text-sm opacity-60 mb-4">Guests enter this once before their first post. Anyone can browse without it.</p>
-                    <div className="flex items-center gap-3 flex-wrap mb-4">
-                      <b className="font-display text-2xl tracking-[0.2em]">{activeCode}</b>
-                      <button type="button" onClick={() => { navigator.clipboard?.writeText(activeCode || ''); showToast('Access code copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy</button>
-                    </div>
-                    {adminPermissions?.canSetAccessCode && (
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Set your own code</span>
-                        <div className="flex gap-2 flex-wrap">
-                          <input type="text" value={newCode} maxLength={20} onChange={(e) => { const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase(); setNewCode(val); setIsDirty(true); }} placeholder="E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
-                          <button onClick={async () => { await onUpdateCode(newCode); setIsDirty(false); }} disabled={!canSaveCode} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${canSaveCode ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save code</button>
-                                                  </div>
-                        <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
-                    <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
-                        <div key={k} className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <b className="block text-[0.95rem]">{label}</b>
-                            <small className="block opacity-50 text-sm">{sub}</small>
+
+                  {/* UPLOAD POPUP: the button opens this first; the picking and
+                      the actual upload happen inside it, as many files as they
+                      like, all going into one album. */}
+                  {albumPopupKind && (
+                    <div className="fixed inset-0 z-[570] flex items-center justify-center p-4 bg-black/60" onClick={() => { if (!albumUploading) { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); } }}>
+                      <div className={`w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`} onClick={(e) => e.stopPropagation()}>
+                        <div className="p-5 pb-3 flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-black font-display text-lg">{albumAddTarget ? `Add to "${albumAddTarget.title || (albumPopupKind === 'video' ? 'Video album' : 'Photo album')}"` : (albumPopupKind === 'video' ? 'Upload videos' : 'Upload photos')}</h3>
+                            <p className="text-xs opacity-60 mt-0.5">{albumAddTarget ? 'The new ones join the rest of this album.' : 'Pick as many as you like, there is no limit. They all go into one album with your name and today\'s date on it.'}</p>
                           </div>
-                          <button type="button" aria-label={label} onClick={() => onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
-                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
+                          {!albumUploading && (
+                            <button onClick={() => { albumPicked.forEach((pp) => { try { URL.revokeObjectURL(pp.preview); } catch { /* already gone */ } }); setAlbumPicked([]); setAlbumPopupKind(null); setAlbumAddTarget(null); }} className={`p-2 rounded-xl shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
+                          )}
+                        </div>
+                        <div className="px-5 pb-5 space-y-4 max-h-[70vh] overflow-y-auto">
+                          {!albumAddTarget && (
+                            <input value={albumTitle} onChange={(e) => setAlbumTitle(e.target.value)} disabled={albumUploading} placeholder={albumPopupKind === 'video' ? 'Name this album (e.g. Reception highlights)' : 'Name this album (e.g. Church wedding)'} className={`w-full px-4 py-3 rounded-xl border text-sm ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-[#F6F5F9] border-[#DAD8E3]'}`} />
+                          )}
+                          <label htmlFor="album-popup-files" className={`block border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer ${isDarkMode ? 'border-[#22363E] hover:border-[var(--ann-accent)]' : 'border-[#DAD8E3] hover:border-[var(--ann-accent)]'}`} style={{ touchAction: 'manipulation' }}>
+                            <Plus className="w-6 h-6 mx-auto opacity-60 mb-1" />
+                            <span className="block text-sm font-black">{albumPicked.length ? 'Add more' : (albumPopupKind === 'video' ? 'Choose videos' : 'Choose photos')}</span>
+                            <span className="block text-[0.65rem] opacity-50 mt-0.5">No limit on how many</span>
+                            <input id="album-popup-files" type="file" multiple accept={albumPopupKind === 'video' ? 'video/*' : 'image/*'} className="hidden" onChange={(e) => { pickAlbumFiles(e.target.files); e.currentTarget.value = ''; }} />
+                          </label>
+                          {albumPicked.length > 0 && (
+                            <>
+                              <div className="grid grid-cols-4 gap-2">
+                                {albumPicked.map((pp, i) => (
+                                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-black">
+                                    {isVideoFile(pp.file) ? (
+                                      <video src={pp.preview} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                                    ) : (
+                                      <img src={pp.preview} className="w-full h-full object-cover" alt="" />
+                                    )}
+                                    {!albumUploading && (
+                                      <button onClick={() => dropAlbumFile(i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white grid place-items-center"><X className="w-3 h-3" /></button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="text-[0.65rem] opacity-50 text-center">{albumPicked.length} selected</p>
+                            </>
+                          )}
+                          {albumUploading && (
+                            <div>
+                              <div className="h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden"><div className="h-full bg-[var(--ann-accent)] transition-all" style={{ width: `${albumProgressPct}%` }} /></div>
+                              <p className="text-[0.65rem] opacity-60 text-center mt-1.5">{albumProgressPct >= 100 ? 'Saving your album…' : `Uploading… ${albumProgressPct}%`}</p>
+                            </div>
+                          )}
+                          <button onClick={uploadAlbumBatch} disabled={!albumPicked.length || albumUploading} className={`w-full py-3.5 rounded-xl font-black text-sm ${!albumPicked.length || albumUploading ? 'opacity-40 cursor-not-allowed bg-black/10 dark:bg-white/10' : 'bg-[var(--ann-accent)] text-white active:scale-[0.99] transition-transform'}`} style={{ touchAction: 'manipulation' }}>
+                            {albumUploading ? 'Uploading…' : (albumAddTarget ? `Add ${albumPicked.length || ''} ${albumPopupKind === 'video' ? 'video' : 'photo'}${albumPicked.length === 1 ? '' : 's'}` : `Upload ${albumPicked.length || ''} ${albumPopupKind === 'video' ? 'video' : 'photo'}${albumPicked.length === 1 ? '' : 's'}`).trim()}
                           </button>
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                  {/* Post action button: the admin picks Share or Download for the
-                      third button on every post and reel (app_config/main.feedActionMode). */}
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Post action button</h3>
-                    <p className="text-sm opacity-60 mb-4">The third button on every post and reel. Share opens the share sheet; Download saves the photo or video straight to the guest's device.</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
-                        <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {isSuper && (
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
-                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
-                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
-                  </div>
                   )}
-                  {isSuper && (
+
+                  {/* ALBUM VIEWER: everything inside one album, in a grid.
+                      Tap a photo to flip through it full screen; tap a video
+                      to play it, and it rolls into the next one when it ends. */}
+                  {albumViewer && (() => {
+                    const g = albumViewer;
+                    const dateLabel = g.uploadedAt?.toDate ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(g.uploadedAt.toDate()) : 'Just added';
+                    return (
+                      <div className="fixed inset-0 z-[550] flex items-center justify-center p-4 bg-black/60" onClick={() => setAlbumViewer(null)}>
+                        <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl overflow-hidden flex flex-col max-h-[86vh] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-[#E8EEF0]' : 'bg-white border-[#DAD8E3] text-[#14262D]'}`} onClick={(e) => e.stopPropagation()}>
+                          <div className="p-5 pb-3 flex items-start justify-between gap-3 shrink-0">
+                            <div className="min-w-0">
+                              <h3 className="font-black font-display text-lg truncate">{g.title || (g.kind === 'video' ? 'Video album' : 'Photo album')}</h3>
+                              <p className="text-xs opacity-60 mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'} · {dateLabel} · {g.count} {g.kind === 'video' ? (g.count === 1 ? 'video' : 'videos') : (g.count === 1 ? 'photo' : 'photos')}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {adminPermissions?.canUploadImages && (
+                                <button onClick={() => openAlbumPopup(g.kind as 'photo' | 'video', g)} className="px-4 py-2.5 rounded-xl text-[0.65rem] font-black uppercase tracking-widest bg-[var(--ann-accent)] text-white active:scale-[0.97] transition-transform" style={{ touchAction: 'manipulation' }}>Add more</button>
+                              )}
+                              <button onClick={() => setAlbumViewer(null)} className={`p-2 rounded-xl ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}><X className="w-5 h-5" /></button>
+                            </div>
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-4 pt-0">
+                            <div className="grid grid-cols-3 gap-2">
+                              {g.media.map((m: any, i: number) => (
+                                <button key={i} onClick={() => setAlbumMediaView({ items: g.media, index: i })} className="relative aspect-square rounded-xl overflow-hidden bg-black" style={{ touchAction: 'manipulation' }}>
+                                  {m.type === 'video' ? (
+                                    <>
+                                      <video src={m.url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                                      <span className="absolute inset-0 grid place-items-center pointer-events-none">
+                                        <span className="w-8 h-8 rounded-full bg-black/55 text-white grid place-items-center"><Play className="w-3.5 h-3.5 fill-current" /></span>
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <img src={m.url} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {albumMediaView && (
+                    <AlbumMediaViewer
+                      items={albumMediaView.items}
+                      startIndex={albumMediaView.index}
+                      onClose={() => setAlbumMediaView(null)}
+                      onDownload={(item: any) => downloadMediaFile(item.url, `${albumFileBase(albumViewer)}-${albumMediaView.index + 1}.${item.type === 'video' ? 'mp4' : 'jpg'}`)}
+                      onDelete={(item: any) => setConfirmAsk({ title: 'Remove from album?', message: 'This one comes out of the album. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumMedia(albumViewer, item) })}
+                      onPostToFeed={canPostToFeed ? (item: any) => { setQuickPostToFeed({ url: item.url, type: item.type || 'image' }); setAlbumMediaView(null); } : undefined}
+                    />
+                  )}
+
+                  {quickPostToFeed && (
+                    <QuickPostToFeedModal
+                      media={quickPostToFeed}
+                      coupleName={(() => { const b = (weddingDetails as any)?.bride; const g = (weddingDetails as any)?.groom; return b && g ? `${b} & ${g}` : demoHeader(); })()}
+                      events={Array.isArray(events) && events.length ? events : (demoEvents() as any[])}
+                      isDarkMode={isDarkMode}
+                      onClose={() => setQuickPostToFeed(null)}
+                      onPosted={(res: any) => {
+                        if (res === 'error') { showToast('Could not post to the feed. Try again.', 'error'); setQuickPostToFeed(null); return; }
+                        if (res) onAdminDemoPost && onAdminDemoPost(res);
+                        showToast('Posted to your feed.');
+                        setQuickPostToFeed(null);
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+              {activeAdminTab === 'security' && (
+                <div className="space-y-8">
+                  {ownerAdmin && (
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
                       <h3 className="font-black font-display text-lg">Administrators</h3>
@@ -6251,39 +9716,92 @@ function AdminDashboardModal({
                       {teamList.map((adm: any) => (
                         <div key={adm.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
                           <div className="flex items-center justify-between mb-3 gap-2">
-                            <span className="font-bold text-sm break-all">{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
+                            <span className="font-bold text-sm break-all">{adm.name ? `${adm.name} · ` : ''}{adm.email}{adm.isSelf ? ' (you)' : ''}</span>
                             {!adm.isSelf && (
-                              <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {adm.status === 'suspended' ? (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, false)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)]">Reinstate</button>
+                                ) : (
+                                  <button onClick={() => handleSuspendAdmin(adm.email, true)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#C8932A] text-[#C8932A]">Suspend</button>
+                                )}
+                                {adm.mustSetPassword === true && (
+                                  <button onClick={() => handleResendInvite(adm.email)} disabled={inviteResendBusy === adm.email} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[var(--ann-accent)] text-[var(--ann-accent)] disabled:opacity-50">{inviteResendBusy === adm.email ? 'Resending…' : 'Resend invite'}</button>
+                                )}
+                                <button onClick={() => handleRemoveAdmin(adm.email)} className="text-red-500 p-1 hover:bg-red-500/10 rounded-lg shrink-0" title="Remove">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${adm.role === 'couple' || !adm.role || adm.role === 'admin' ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
-                              {adm.role === 'photographer' ? 'Photographer' : adm.role === 'vendor' ? 'Vendor' : 'Couple'}
+                            <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role) ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>
+                              {roleLabel(adm.role)}
                             </span>
-                            {adm.mustSetPassword === true ? (
-                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Invited</span>
+                            {adm.status === 'suspended' ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-red-500/10 text-red-500 border-red-500/40">Suspended</span>
+                            ) : adm.mustSetPassword === true ? (
+                              <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40">Inactive</span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40">Active</span>
                             )}
-                            {(!adm.role || adm.role === 'couple' || adm.role === 'admin') && [
-                              { id: 'canDeletePosts', label: 'Delete Posts' },
-                              { id: 'canUploadImages', label: 'Upload Images' },
-                              { id: 'canSetAccessCode', label: 'Access Code' }
-                            ].map((p: any) => (
-                              <button
-                                key={p.id}
-                                onClick={() => togglePermission(adm.email, p.id, adm.permissions?.[p.id])}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${adm.permissions?.[p.id] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white shadow-md' : 'opacity-40 border-current'}`}
-                              >
-                                {p.label}
-                              </button>
-                            ))}
+                            <button onClick={() => setTeamDetail(adm)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#DAD8E3] dark:border-[#22363E] transition-all hover:border-[var(--ann-accent)] hover:text-[var(--ann-accent)]">
+                              View details
+                            </button>
                           </div>
                         </div>
                       ))}
                     </div>
+                    <AnimatePresence>
+                      {teamDetail && (() => {
+                        const adm = teamDetail;
+                        const FULL_DASH = ['owner', 'couple', 'admin', 'bride', 'groom'];
+                        const full = !adm.role || FULL_DASH.includes(adm.role);
+                        const perms = adm.permissions || {};
+                        const canUpload = full ? perms.canUploadImages !== false : perms.canUploadImages !== false;
+                        const canDelete = full ? perms.canDeletePosts !== false : !!perms.canDeletePosts;
+                        const canCode = full ? perms.canSetAccessCode !== false : !!perms.canSetAccessCode;
+                        const status = adm.status === 'suspended' ? 'Suspended' : (adm.mustSetPassword === true || adm.status === 'invited') ? 'Inactive' : 'Active';
+                        const roleNote = full
+                          ? 'Sees and manages the whole dashboard: overview, moderation, all posts, events & photos, vendor albums, settings and security.'
+                          : adm.role === 'photographer'
+                            ? 'Vendor albums only. Uploads photos to the Photo albums section and sees nothing else.'
+                            : adm.role === 'videographer'
+                              ? 'Vendor albums only. Uploads videos to the Video albums section and sees nothing else.'
+                              : 'Vendor albums only. Uploads photos and videos to the album sections and sees nothing else.';
+                        const addedWhen = adm.addedAt?.toDate ? adm.addedAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+                        return (
+                          <>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setTeamDetail(null)} className="fixed inset-0 bg-black/60 z-[200] backdrop-blur-sm" />
+                            <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24, scale: 0.97 }} transition={{ type: 'spring', damping: 26, stiffness: 320 }} className={`fixed inset-x-4 top-1/2 -translate-y-1/2 z-[201] mx-auto max-w-md rounded-[24px] p-6 border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#1A2B32]'}`}>
+                              <div className="flex items-start justify-between gap-3 mb-4">
+                                <h3 className="font-black font-display text-lg">Team member details</h3>
+                                <button onClick={() => setTeamDetail(null)} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10" aria-label="Close details"><X className="w-4 h-4" /></button>
+                              </div>
+                              <p className="font-bold break-all">{adm.name || (adm.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
+                              <p className="text-[0.8rem] opacity-60 break-all mb-3">{adm.email}</p>
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${full ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white' : 'bg-[#C8932A] border-[#C8932A] text-white'}`}>{roleLabel(adm.role)}</span>
+                                <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${status === 'Suspended' ? 'bg-red-500/10 text-red-500 border-red-500/40' : status === 'Inactive' ? 'bg-[#C8932A]/10 text-[#C8932A] border-[#C8932A]/40' : 'bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] border-[var(--ann-accent)]/40'}`}>{status}</span>
+                              </div>
+                              <p className="text-[0.65rem] uppercase tracking-widest font-black opacity-50 mb-2">What they can do</p>
+                              <p className="text-[0.85rem] opacity-80 mb-3">{roleNote}</p>
+                              <div className="space-y-1.5 text-[0.8rem] mb-4">
+                                <p>Upload images or videos: <b>{canUpload ? 'Yes' : 'No'}</b></p>
+                                <p>Delete posts: <b>{canDelete ? 'Yes' : 'No'}</b></p>
+                                <p>Set the guest access code: <b>{canCode ? 'Yes' : 'No'}</b></p>
+                                {full && <p>Invite, suspend and remove team members: <b>Yes</b></p>}
+                              </div>
+                              <div className="space-y-1 text-[0.75rem] opacity-60">
+                                {adm.sessionMinutes ? <p>Session timeout: {adm.sessionMinutes} min</p> : null}
+                                {adm.addedBy ? <p>Added by {adm.addedBy}{addedWhen ? ` on ${addedWhen}` : ''}</p> : null}
+                                {status === 'Inactive' && <p>Inactive: the invite is in their inbox. They show as active once they sign in and set their own password.</p>}
+                                {status === 'Suspended' && <p>Suspended: they cannot sign in until reinstated.</p>}
+                              </div>
+                            </motion.div>
+                          </>
+                        );
+                      })()}
+                    </AnimatePresence>
                     <AnimatePresence>
                       {showInviteModal && (
                         <>
@@ -6305,15 +9823,15 @@ function AdminDashboardModal({
                                 <div className="flex items-start justify-between gap-3 mb-4">
                                   <div>
                                     <h4 className="font-black font-display text-lg">Invite an administrator</h4>
-                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do, then share their temporary password.</p>
+                                    <p className="text-[0.8rem] opacity-60 mt-1">Choose what they can see and do. We email them a temporary password they replace with their own at first sign-in.</p>
                                   </div>
                                   <button onClick={() => setShowInviteModal(false)} aria-label="Close" className={`p-2 rounded-full shrink-0 ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
                                     <X className="w-5 h-5" />
                                   </button>
                                 </div>
                                 <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Who are they?</label>
-                                <div className="grid grid-cols-3 gap-2 mb-4">
-                                  {([['couple', 'Couple', 'Full dashboard'], ['photographer', 'Photographer', 'Photo albums'], ['vendor', 'Vendor', 'Photo albums']] as [string, string, string][]).map(([r, label, sub]) => (
+                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                  {([['bride', 'Bride', 'Full dashboard'], ['groom', 'Groom', 'Full dashboard'], ['photographer', 'Photographer', 'Vendor albums only'], ['videographer', 'Videographer', 'Vendor albums only']] as [string, string, string][]).map(([r, label, sub]) => (
                                     <button key={r} type="button" onClick={() => applyInviteRole(r)} className={`p-3 rounded-2xl border text-left transition-all ${inviteRole === r ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)] shadow-md' : (isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]')}`}>
                                       <span className="block text-[0.65rem] font-black uppercase tracking-widest">{label}</span>
                                       <span className={`block text-[0.6rem] mt-1 ${inviteRole === r ? 'text-white/70' : 'opacity-50'}`}>{sub}</span>
@@ -6326,6 +9844,14 @@ function AdminDashboardModal({
                                   value={inviteEmail}
                                   onChange={(e) => setInviteEmail(e.target.value)}
                                   placeholder="name@email.com"
+                                  className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-3 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                                />
+                                <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">Their name</label>
+                                <input
+                                  type="text"
+                                  value={inviteName}
+                                  onChange={(e) => setInviteName(e.target.value)}
+                                  placeholder="Shown on the administrators list"
                                   className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
                                 />
                                 <label className="block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50">What they can see and do</label>
@@ -6352,12 +9878,11 @@ function AdminDashboardModal({
                                   <Check className="w-7 h-7" />
                                 </div>
                                 <h4 className="text-center font-black font-display text-lg">{inviteResult?.email} is invited</h4>
-                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">Share this temporary password now. It shows only once, and they will choose their own password the first time they sign in.</p>
-                                <div className="p-4 rounded-2xl bg-[#C8932A]/10 border border-[#C8932A]/30 text-center mb-4">
-                                  <code className="text-xl font-black tracking-[0.25em]">{inviteResult?.tempPassword}</code>
-                                </div>
+                                <p className="text-center text-[0.8rem] opacity-60 mt-1 mb-4">A temporary password was emailed to them. They sign in with it once, then choose their own. Until then they show as Invited on the list.</p>
+                                {inviteResult && !inviteResult.emailed && (
+                                  <p className="text-center text-[0.78rem] text-red-500 mb-4">We couldn't send the email{inviteResult.mailError ? ` (${inviteResult.mailError})` : ''}. The account exists, so share the temporary password with them another way.</p>
+                                )}
                                 <div className="flex gap-2">
-                                  <button onClick={() => { navigator.clipboard?.writeText(inviteResult?.tempPassword || ''); showToast('Temporary password copied'); }} className="flex-1 py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Copy password</button>
                                   <button onClick={() => setShowInviteModal(false)} className={`flex-1 py-3.5 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>Done</button>
                                 </div>
                               </>
@@ -6368,6 +9893,145 @@ function AdminDashboardModal({
                     </AnimatePresence>
                   </div>
                   )}
+<div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security</h3>
+                    <p className="text-sm opacity-60 mb-4">Change your password and choose how long your admin session stays open.</p>
+                    <div className="space-y-2 mb-4">
+                      {([['cur', 'Current password'], ['next', 'New password'], ['confirm', 'Confirm new password']] as ['cur' | 'next' | 'confirm', string][]).map(([k, label]) => (
+                        <div key={k} className="relative">
+                          <input
+                            type={pwShow ? 'text' : 'password'}
+                            value={pwForm[k]}
+                            onChange={(e) => setPwForm((prev) => ({ ...prev, [k]: e.target.value }))}
+                            placeholder={label}
+                            autoComplete="new-password"
+                            className={`${inputCls} w-full pr-12`}
+                          />
+                          <button type="button" aria-label={pwShow ? 'Hide passwords' : 'Show passwords'} onClick={() => setPwShow((v) => !v)} className={`absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}>
+                            {pwShow ? <EyeOff className="w-4 h-4 opacity-60" /> : <Eye className="w-4 h-4 opacity-60" />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={handleChangePassword} disabled={pwBusy} className={`w-full py-3.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest mb-1 ${pwBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>
+                      {pwBusy ? 'Updating…' : 'Update password'}
+                    </button>
+                    <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
+                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
+                      <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
+                      <span className="text-[0.7rem] opacity-50">Now: {sessionLabel(sessionChoice)}</span>
+                    </div>
+                  </div>
+                                    {isSuper && (
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Security rules</h3>
+                    <p className="text-sm opacity-60 mb-4">Republishes the app's database security rules. This is what keeps guest posts waiting for approval hidden from everyone except their author and admins, even outside the app.</p>
+                    <button type="button" onClick={publishSecurityRules} disabled={rulesBusy} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${rulesBusy ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[var(--ann-accent)] text-white'}`}>{rulesBusy ? 'Publishing…' : 'Publish rules'}</button>
+                  </div>
+                  )}
+                </div>
+              )}
+              
+              {activeAdminTab === 'settings' && (
+                <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
+                    <p className="text-sm opacity-60 mb-4">One code for everything: guests enter it to post, and the same code opens the private feed when the feed is private. Revoking wipes it everywhere at once, live.</p>
+                    <div className="flex items-center gap-3 flex-wrap mb-4">
+                      <b className="font-display text-2xl tracking-[0.2em]">{activeCode || 'No code set'}</b>
+                      {activeCode && (
+                        <button type="button" onClick={() => { navigator.clipboard?.writeText(activeCode || ''); showToast('Access code copied'); }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Copy</button>
+                      )}
+                      {adminPermissions?.canSetAccessCode && activeCode && (
+                        <button type="button" onClick={() => { if (revokeArmed) { setRevokeArmed(false); revokeAccessCode(); } else { setRevokeArmed(true); window.setTimeout(() => setRevokeArmed(false), 3000); } }} className={`px-5 py-2.5 rounded-xl text-[0.7rem] font-black uppercase tracking-widest transition-colors ${revokeArmed ? 'bg-red-500 text-white border border-red-500' : 'border border-red-400 text-red-500 hover:bg-red-500/10'}`}>{revokeArmed ? 'Tap again to revoke' : 'Revoke'}</button>
+                      )}
+                    </div>
+                    {!activeCode && (
+                      <p className="text-sm mb-4 text-red-500">No code is set. Guests cannot post and the private feed stays locked until you set a new code.</p>
+                    )}
+                    {adminPermissions?.canSetAccessCode && (
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Set your own code</span>
+                        <div className="flex gap-2 flex-wrap">
+                          <input type="text" value={newCode} maxLength={20} onChange={(e) => { const val = e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase(); setNewCode(val); setIsDirty(true); }} placeholder="E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
+                          <button onClick={async () => { await onUpdateCode(newCode); setIsDirty(false); }} disabled={!canSaveCode} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${canSaveCode ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save code</button>
+                                                  </div>
+                        <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">QR code</h3>
+                    <p className="text-sm opacity-60 mb-4">Print this on your banner or programme. Guests scan it at your event and land straight in the app, no link to type. Download it and send it to your printer or banner designer.</p>
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className={`rounded-2xl p-3 ${isDarkMode ? 'bg-white' : 'bg-white border border-[#DAD8E3]'}`}>
+                        {qrDataUrl ? (
+                          <img src={qrDataUrl} alt="Your app QR code" width={148} height={148} className="block" />
+                        ) : (
+                          <div className="w-[148px] h-[148px] flex items-center justify-center text-xs opacity-40">Making QR…</div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" onClick={() => { navigator.clipboard?.writeText(qrUrl || ''); showToast('App link copied'); setQrDone('copied'); window.setTimeout(() => setQrDone((cur) => (cur === 'copied' ? '' : cur)), 1800); }} className={`px-4 py-2 rounded-full border text-[0.65rem] font-black uppercase tracking-widest transition-colors ${qrDone === 'copied' ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E]'}`}>{qrDone === 'copied' ? 'Copied' : 'Copy link'}</button>
+                          <button type="button" onClick={downloadQrPng} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'png' ? 'Saving…' : qrDone === 'png' ? 'Saved' : 'Save as image'}</button>
+                          <button type="button" onClick={downloadQrPdf} disabled={!qrDataUrl || qrBusy !== ''} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-40">{qrBusy === 'pdf' ? 'Building PDF…' : qrDone === 'pdf' ? 'Saved' : 'Save as PDF'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
+                    <div className="space-y-4">
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
+                        const archiveLocked = k === 'archive' && feedPrivate;
+                        return (
+                        <div key={k} className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <b className="block text-[0.95rem]">{label}</b>
+                            <small className="block opacity-50 text-sm">{archiveLocked ? `${sub} Turn the feed public first.` : sub}</small>
+                          </div>
+                          <button type="button" aria-label={label} disabled={archiveLocked} onClick={() => k === 'private' ? updateFeedPrivacy(!on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'} ${archiveLocked ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* Storage: how far this app's photos and videos have gone
+                      against the plan's allowance (Eventicor platform settings),
+                      with the upgrade flow when the space runs out. */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Storage</h3>
+                    <p className="text-sm opacity-60 mb-4">How much of your plan's photo and video storage the app has used. When it is full, new uploads are stopped until you upgrade.</p>
+                    <div className="flex items-baseline justify-between mb-2 flex-wrap gap-1">
+                      <b className="text-[0.95rem]">{(planGB ? planGB.toFixed(planGB >= 10 ? 0 : 1) : '0')} GB plan</b>
+                      <small className="opacity-50 text-sm">{usedGB >= 0.01 ? usedGB.toFixed(usedGB >= 10 ? 1 : 2) : '0.00'} GB used · {(freeBytes / 1073741824).toFixed(freeBytes / 1073741824 >= 10 ? 0 : 2)} GB left</small>
+                    </div>
+                    <div className="flex h-4 rounded-full overflow-hidden" style={{ background: isDarkMode ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)' }}>
+                      {usedBytes > 0 && <div style={{ width: `${Math.min(100, (imagesGB / Math.max(planGB, 0.01)) * 100)}%`, background: 'var(--ann-accent)' }} title={`Photos: ${imagesGB.toFixed(2)} GB`} />}
+                      {videosGB > 0 && <div style={{ width: `${Math.min(100 - Math.min(100, (imagesGB / Math.max(planGB, 0.01)) * 100), (videosGB / Math.max(planGB, 0.01)) * 100)}%`, background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} title={`Videos: ${videosGB.toFixed(2)} GB`} />}
+                    </div>
+                    <div className="flex gap-4 mt-3 flex-wrap text-[0.8rem]">
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'var(--ann-accent)' }} /> Photos {imagesGB >= 0.01 ? imagesGB.toFixed(2) : '0.00'} GB</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} /> Videos {videosGB >= 0.01 ? videosGB.toFixed(2) : '0.00'} GB</span>
+                      <span className="opacity-50">Balance {(freeBytes / 1073741824) >= 0.01 ? (freeBytes / 1073741824).toFixed(2) : '0.00'} GB</span>
+                    </div>
+                    {usageRec?.syncedAt && (() => {
+                      const t = usageRec.syncedAt?.seconds ? usageRec.syncedAt.seconds * 1000 : (usageRec.syncedAt instanceof Date ? usageRec.syncedAt.getTime() : null);
+                      return t ? <small className="opacity-40 text-[0.7rem] block mt-1">Checked against Cloudinary · {new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</small> : null;
+                    })()}
+                    {storageFull && (
+                      <p className="mt-3 text-[0.85rem]" style={{ color: '#b3261e', fontWeight: 700 }}>Your storage is full. Guests cannot post new photos or videos, and you cannot upload any, until you upgrade.</p>
+                    )}
+                    <button type="button" onClick={() => setUpgradeOpen(true)} className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">
+                      {storageFull ? 'Upgrade to keep uploading' : 'Upgrade your plan'}
+                    </button>
+                  </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Keep the memories</h3>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -6733,12 +10397,14 @@ function AdminDashboardModal({
                     </div>
                   )}
 
-                  {deletedPosts.map((dp) => (
+                  {deletedPosts.map((dp) => {
+                    const d: any = dp.postData || dp;
+                    return (
                     <div key={dp.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold truncate mb-1">By {dp.postData.authorName}</p>
-                          <p className="text-[10px] opacity-40 line-clamp-2">{dp.postData.text}</p>
+                          <p className="text-xs font-bold truncate mb-1">By {d.authorName || 'a guest'}</p>
+                          <p className="text-[10px] opacity-40 line-clamp-2">{d.text || d.caption || ''}</p>
                         </div>
                         <div className="flex flex-col gap-2 shrink-0">
                           <button 
@@ -6760,10 +10426,11 @@ function AdminDashboardModal({
                       <div className="flex items-center gap-2 opacity-30 text-[9px] font-black uppercase tracking-widest pt-2 border-t border-black/5">
                         <span>Deleted {new Date(dp.deletedAt?.toDate?.() || Date.now()).toLocaleDateString()}</span>
                         <span>•</span>
-                        <span>By {dp.deletedBy}</span>
+                        <span>By {dp.deletedBy || 'admin'}</span>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -6783,6 +10450,46 @@ function AdminDashboardModal({
               {adminViewerPost && (
                 <MediaLightbox post={adminViewerPost} initialIndex={0} isDarkMode={isDarkMode} onClose={() => setAdminViewerPost(null)} />
               )}
+              {/* Storage > Upgrade: the plan chooser over the dashboard. */}
+              {paymentPanel}
+              {/* Latest activity popup: the recorded activity, newest first,
+                  capped at the last 30 records. */}
+              {activityOpen && (
+                <div className="fixed inset-0 z-[380] flex items-center justify-center p-4" style={{ background: 'rgba(10,10,22,.6)' }} onClick={(e) => { if (e.target === e.currentTarget) setActivityOpen(false) }}>
+                  <div className="relative w-full max-w-md max-h-[80vh] overflow-y-auto rounded-[24px] p-6" style={{ background: isDarkMode ? '#0B171C' : '#fff' }} onClick={(e) => e.stopPropagation()}>
+                    <button type="button" aria-label="Close" onClick={() => setActivityOpen(false)} className="absolute right-4 top-4 w-9 h-9 rounded-full border border-[#DAD8E3] text-[#5A6970] flex items-center justify-center font-black">×</button>
+                    <h3 className="font-black font-display text-xl mb-1 pr-10">Latest activity</h3>
+                    <p className="text-sm opacity-60 mb-4">Everything recorded in your app, newest first. Only the last 30 records are kept.</p>
+                    <div className="space-y-3">
+                      {realPosts.slice(0, 30).map((p: any) => {
+                        const t = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
+                        return (
+                          <div key={p.id} className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-[0.92rem]">{p.authorName || 'A guest'} shared a memory</p>
+                              <small className="block opacity-50 truncate">{p.text || p.caption || 'Photo or video post'}</small>
+                              {t && <small className="block opacity-40 text-[0.72rem]">{t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</small>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {realPosts.length === 0 && <p className="opacity-50 text-sm">Nothing recorded yet.</p>}
+                      {realPosts.length > 30 && <p className="opacity-40 text-xs pt-2">Older records than these 30 are not kept.</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Branded confirmation shared by every delete action in the dashboard. */}
+              <DeleteConfirmationModal
+                isOpen={!!confirmAsk}
+                onClose={() => setConfirmAsk(null)}
+                onConfirm={() => { const ask = confirmAsk; setConfirmAsk(null); if (ask) ask.action(); }}
+                isDarkMode={isDarkMode}
+                title={confirmAsk?.title}
+                message={confirmAsk?.message}
+                confirmLabel={confirmAsk?.confirmLabel}
+              />
               </TabErrorBoundary>
             </div>
 
@@ -6855,7 +10562,7 @@ const FloatingPhotoCard: React.FC<FloatingPhotoCardProps> = ({ images, imgOffset
   });
 
   const currentImage = images.length > 0 ? images[imgIdx % images.length] : PLACEHOLDER_IMAGES[imgIdx % PLACEHOLDER_IMAGES.length];
-  const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : (EVENTS_DATA.length > 0 ? EVENTS_DATA[(imgIdx + imgOffset) % EVENTS_DATA.length].name : undefined);
+  const caption = eventNames && eventNames.length > 0 ? eventNames[(imgIdx + imgOffset) % eventNames.length] : ((() => { const eds = eventsData(); return eds.length > 0 ? eds[(imgIdx + imgOffset) % eds.length].name : undefined; })());
 
   return (
     <motion.div
@@ -6950,7 +10657,7 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
 
-function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: boolean, images: string[], eventNames?: string[] }) {
+function FloatingHeroSection({ isDarkMode, images, eventNames, compact = false }: { isDarkMode: boolean, images: string[], eventNames?: string[], compact?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cardsReady, setCardsReady] = useState(false);
 
@@ -6985,13 +10692,24 @@ function FloatingHeroSection({ isDarkMode, images, eventNames }: { isDarkMode: b
   return (
     <section
       ref={containerRef}
-      className="relative w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[65vh] sm:h-[80vh] overflow-hidden bg-[var(--ann-accent)] mb-12 shadow-inner"
+      className={`relative overflow-hidden bg-[var(--ann-accent)] shadow-inner ${compact ? 'w-full h-[238px]' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] h-[65vh] sm:h-[80vh] mb-12'}`}
     >
       <div className="absolute inset-0 opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent)]" />
       </div>
 
       <div className="absolute inset-0 overflow-hidden">
+        {!cardsReady && (
+          <div className="absolute inset-0 grid grid-cols-2 gap-[6%] px-[9%] py-[7%] pointer-events-none ev-hero-skel" aria-hidden="true">
+            {[0, 1].map((c) => (
+              <div key={c} className={`flex flex-col gap-[7%] ${c === 0 ? 'items-start -rotate-6 translate-y-3' : 'items-end rotate-6'}`}>
+                {[0, 1, 2].map((r) => (
+                  <div key={r} className={`ev-hero-skel-card w-[64%] ${r === 1 ? 'self-stretch' : ''} ${r === 2 ? 'w-[52%]' : ''}`} style={{ height: r === 1 ? '34%' : '30%' }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
         {cardsReady && [0, 1].map((column) =>
           [0, 1, 2, 3].map((slot) => (
             <FloatingPhotoCard

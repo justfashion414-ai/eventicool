@@ -23,7 +23,7 @@ class QuerySnap {
   docChanges() { return []; }
 }
 
-const store: { config: any; posts: any[]; residents: any[] } = {
+const store: { config: any; posts: any[]; residents: any[]; albums: any[] } = {
   config: {
     activeAccessCode: 'AMARADANIEL',
     heroImages: PHOTOS,
@@ -44,6 +44,7 @@ const store: { config: any; posts: any[]; residents: any[] } = {
     groom: DEMO_COUPLE.groom,
   },
   posts: [],
+  albums: [],
   residents: DEMO_GUESTS.map((name, i) => ({ uid: 'g' + (i + 1), name, role: 'guest' })),
 };
 
@@ -92,6 +93,10 @@ const store: { config: any; posts: any[]; residents: any[] } = {
   store.posts.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis());
 })();
 
+// Real apps address their data under apps/<app>/...; the demo store matches
+// on the tail collection name, so strip the app prefix before comparing.
+const normPath = (p: string) => String(p || '').replace(/^apps\/[^/]+\//, '');
+
 const listeners: { ref: any; cb: (s: any) => void }[] = [];
 
 function sortedPosts() {
@@ -99,7 +104,7 @@ function sortedPosts() {
 }
 
 function emit(ref: any, cb: (s: any) => void) {
-  const path = ref.path || '';
+  const path = normPath(ref.path);
   if (ref.kind === 'doc') {
     if (path === 'app_config/main') { cb(new DocSnap('main', { ...store.config }, true)); return; }
     const parts = path.split('/');
@@ -109,6 +114,9 @@ function emit(ref: any, cb: (s: any) => void) {
     } else if (parts[0] === 'posts') {
       const p = store.posts.find((x) => x.id === parts[1]);
       cb(new DocSnap(parts[1], p ? { ...p } : null, !!p));
+    } else if (parts[0] === 'albums') {
+      const a = store.albums.find((x) => x.id === parts[1]);
+      cb(new DocSnap(parts[1], a ? { ...a } : null, !!a));
     } else {
       cb(new DocSnap(path, null, false));
     }
@@ -119,6 +127,9 @@ function emit(ref: any, cb: (s: any) => void) {
     cb(new QuerySnap(sortedPosts().map((p) => new DocSnap(p.id, { ...p }, true))));
   } else if (path === 'residents') {
     cb(new QuerySnap(store.residents.map((r) => new DocSnap(r.uid, { ...r }, true))));
+  } else if (path === 'albums') {
+    const sorted = store.albums.slice().sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
+    cb(new QuerySnap(sorted.map((a) => new DocSnap(a.id, { ...a }, true))));
   } else {
     cb(new QuerySnap([]));
   }
@@ -137,42 +148,45 @@ function applyMerge(target: any, data: any) {
   });
 }
 
-export const collection: any = DEMO
-  ? (_db: any, name: string) => ({ kind: 'col', path: name })
-  : FS.collection;
-export const doc: any = DEMO
-  ? (_db: any, ...segs: string[]) => ({ kind: 'doc', path: segs.join('/') })
-  : FS.doc;
-export const query: any = DEMO
-  ? (col: any, ..._clauses: any[]) => ({ ...col, clauses: _clauses })
-  : FS.query;
-export const orderBy: any = DEMO ? (_f: string, _d?: string) => ({ t: 'order' }) : FS.orderBy;
-export const where: any = DEMO ? (_f: string, _o: string, _v: any) => ({ t: 'where' }) : FS.where;
-export const limit: any = DEMO ? (_n: number) => ({ t: 'limit' }) : FS.limit;
-export const serverTimestamp: any = DEMO ? () => ({ __sv: 1 }) : FS.serverTimestamp;
-export const increment: any = DEMO ? (n: number) => ({ __inc: n }) : FS.increment;
+// Every export branches at CALL time on the live DEMO binding: previews keep
+// the demo store, and once goLive() flips DEMO the same calls forward to the
+// real Firebase SDK with the same signatures, so the couple app's reads and
+// writes hit the platform project for real.
+export const collection: any = (db: any, ...segs: any[]) => DEMO ? { kind: 'col', path: segs.join('/') } : (FS.collection as any)(db, ...segs);
+export const doc: any = (db: any, ...segs: string[]) => DEMO ? { kind: 'doc', path: segs.join('/') } : (FS.doc as any)(db, ...segs);
+export const query: any = (col: any, ...clauses: any[]) => DEMO ? { ...col, clauses } : FS.query(col, ...clauses);
+export const orderBy: any = (f: string, d?: string) => DEMO ? { t: 'order' } : FS.orderBy(f, d);
+export const where: any = (f: string, o: string, v: any) => DEMO ? { t: 'where' } : (FS as any).where(f, o, v);
+export const limit: any = (n: number) => DEMO ? { t: 'limit' } : FS.limit(n);
+export const serverTimestamp: any = () => DEMO ? { __sv: 1 } : FS.serverTimestamp();
+export const increment: any = (n: number) => DEMO ? { __inc: n } : FS.increment(n);
 
-export const onSnapshot: any = DEMO
-  ? (ref: any, cb: (s: any) => void, _errCb?: any) => {
-      const entry = { ref, cb };
-      listeners.push(entry);
-      emit(ref, cb);
-      return () => {
-        const i = listeners.indexOf(entry);
-        if (i >= 0) listeners.splice(i, 1);
-      };
-    }
-  : FS.onSnapshot;
+export const onSnapshot: any = (ref: any, cb: (s: any) => void, errCb?: any) => {
+  if (!DEMO) return FS.onSnapshot(ref, cb, errCb);
+  const entry = { ref, cb };
+  listeners.push(entry);
+  emit(ref, cb);
+  return () => {
+    const i = listeners.indexOf(entry);
+    if (i >= 0) listeners.splice(i, 1);
+  };
+};
 
-export const getDoc: any = DEMO
-  ? async (ref: any) => { let out: any; emit(ref, (s) => { out = s; }); return out; }
-  : FS.getDoc;
-export const getDocs: any = DEMO
-  ? async (ref: any) => { let out: any; emit(ref, (s) => { out = s; }); return out; }
-  : FS.getDocs;
+export const getDoc: any = async (ref: any) => {
+  if (!DEMO) return FS.getDoc(ref);
+  let out: any;
+  emit(ref, (s) => { out = s; });
+  return out;
+};
+export const getDocs: any = async (ref: any) => {
+  if (!DEMO) return FS.getDocs(ref);
+  let out: any;
+  emit(ref, (s) => { out = s; });
+  return out;
+};
 
 async function demoSet(docRef: any, data: any, opts?: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path === 'app_config/main') {
     if (opts && opts.merge) applyMerge(store.config, data);
     else Object.assign(store.config, data);
@@ -186,12 +200,17 @@ async function demoSet(docRef: any, data: any, opts?: any) {
     const r = store.residents.find((x) => x.uid === uid);
     if (r) applyMerge(r, data);
     else store.residents.push({ uid, ...data });
+  } else if (path.startsWith('albums/')) {
+    const id = path.split('/')[1];
+    const i = store.albums.findIndex((x) => x.id === id);
+    if (i >= 0) applyMerge(store.albums[i], data);
+    else store.albums.unshift({ id, ...data, uploadedAt: data.uploadedAt?.__sv ? ts(new Date()) : (data.uploadedAt || ts(new Date())) });
   }
   emitAll();
 }
 
 async function demoUpdate(docRef: any, data: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path === 'app_config/main') applyMerge(store.config, data);
   else if (path.startsWith('posts/')) {
     const i = store.posts.findIndex((p) => p.id === path.split('/')[1]);
@@ -204,40 +223,46 @@ async function demoUpdate(docRef: any, data: any) {
 }
 
 async function demoDelete(docRef: any) {
-  const path = docRef.path || '';
+  const path = normPath(docRef.path);
   if (path.startsWith('posts/')) {
     const i = store.posts.findIndex((p) => p.id === path.split('/')[1]);
     if (i >= 0) store.posts.splice(i, 1);
+  } else if (path.startsWith('albums/')) {
+    const i = store.albums.findIndex((a) => a.id === path.split('/')[1]);
+    if (i >= 0) store.albums.splice(i, 1);
   }
   emitAll();
 }
 
-export const setDoc: any = DEMO ? demoSet : FS.setDoc;
-export const updateDoc: any = DEMO ? demoUpdate : FS.updateDoc;
-export const deleteDoc: any = DEMO ? demoDelete : FS.deleteDoc;
-export const addDoc: any = DEMO
-  ? async (colRef: any, data: any) => {
-      const id = 'demo-' + Math.random().toString(36).slice(2, 8);
-      const item = { ...data, id, timestamp: data.timestamp || ts(new Date()) };
-      if ((colRef.path || '') === 'posts') store.posts.unshift(item);
-      emitAll();
-      return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
-    }
-  : FS.addDoc;
-export const writeBatch: any = DEMO
-  ? () => {
-      const ops: { kind: string; ref: any; data?: any; opts?: any }[] = [];
-      return {
-        set: (ref: any, data: any, opts?: any) => { ops.push({ kind: 'set', ref, data, opts }); },
-        update: (ref: any, data: any) => { ops.push({ kind: 'update', ref, data }); },
-        delete: (ref: any) => { ops.push({ kind: 'delete', ref }); },
-        commit: async () => {
-          for (const op of ops) {
-            if (op.kind === 'set') await demoSet(op.ref, op.data, op.opts);
-            else if (op.kind === 'update') await demoUpdate(op.ref, op.data);
-            else await demoDelete(op.ref);
-          }
-        },
-      };
-    }
-  : FS.writeBatch;
+export const setDoc: any = (ref: any, data: any, opts?: any) => DEMO ? demoSet(ref, data, opts) : FS.setDoc(ref, data, opts);
+export const updateDoc: any = (ref: any, data: any) => DEMO ? demoUpdate(ref, data) : FS.updateDoc(ref, data);
+export const deleteDoc: any = (ref: any) => DEMO ? demoDelete(ref) : FS.deleteDoc(ref);
+export const addDoc: any = async (colRef: any, data: any) => {
+  if (!DEMO) return FS.addDoc(colRef, data);
+  const id = 'demo-' + Math.random().toString(36).slice(2, 8);
+  // serverTimestamp() arrives as the { __sv } marker: turn it into a real
+  // timestamp object so orderBy/sorting and date formatting just work.
+  const clean: any = { ...data, id };
+  Object.keys(clean).forEach((k) => { if (clean[k] && typeof clean[k] === 'object' && '__sv' in clean[k]) clean[k] = ts(new Date()); });
+  if (!clean.timestamp) clean.timestamp = ts(new Date());
+  if (normPath(colRef.path) === 'posts') store.posts.unshift(clean);
+  else if (normPath(colRef.path) === 'albums') store.albums.unshift(clean);
+  emitAll();
+  return { kind: 'doc', path: `${colRef.path || 'posts'}/${id}` };
+};
+export const writeBatch: any = (db?: any) => {
+  if (!DEMO) return FS.writeBatch(db);
+  const ops: { kind: string; ref: any; data?: any; opts?: any }[] = [];
+  return {
+    set: (ref: any, data: any, opts?: any) => { ops.push({ kind: 'set', ref, data, opts }); },
+    update: (ref: any, data: any) => { ops.push({ kind: 'update', ref, data }); },
+    delete: (ref: any) => { ops.push({ kind: 'delete', ref }); },
+    commit: async () => {
+      for (const op of ops) {
+        if (op.kind === 'set') await demoSet(op.ref, op.data, op.opts);
+        else if (op.kind === 'update') await demoUpdate(op.ref, op.data);
+        else await demoDelete(op.ref);
+      }
+    },
+  };
+};

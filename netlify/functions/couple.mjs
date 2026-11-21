@@ -27,18 +27,65 @@ export default async (req) => {
   if (!siteId) return json(400, { error: 'site is required' })
   try {
     init()
-    const doc = await getFirestore().collection('events').doc(siteId).get()
-    if (!doc.exists) return json(404, { error: 'not found' })
-    const d = doc.data()
+    // Apps are addressed either by their events doc (onboarded couples,
+    // ?site=<events id>) or by their lead id (?lead=<lead id>, sample apps and
+    // self-serve apps). The leads collection carries the couple's email and is
+    // not readable from the client, so lead resolution happens HERE and only
+    // the fields the app shows ever leave the server.
+    let snap = await getFirestore().collection('events').doc(siteId).get()
+    let leadMode = false
+    if (!snap.exists) {
+      snap = await getFirestore().collection('leads').doc(siteId).get()
+      leadMode = true
+      if (!snap.exists) return json(404, { error: 'not found' })
+    } else if (!snap.exists) return json(404, { error: 'not found' })
+    const d = snap.data()
+    const PLAN_IDS = ['essential', 'complete', 'legacy']
+const planId = (v) => {
+  const k = String(v || '').trim().toLowerCase()
+  return PLAN_IDS.includes(k) ? k : 'essential'
+}
+const asMs = (v) => {
+      if (v == null) return undefined
+      if (typeof v === 'object' && 'seconds' in v) return Number(v.seconds) * 1000
+      const n = Number(v)
+      return Number.isFinite(n) ? n : undefined
+    }
+    let plat = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } }
+    try {
+      const ps = await getFirestore().collection('platform').doc('settings').get()
+      if (ps.exists) {
+        const pd = ps.data() || {}
+        const fps = Number(pd.feedPageSize)
+        if (Number.isFinite(fps) && fps > 0) plat.feedPageSize = Math.floor(fps)
+        const st = pd.storage || {}
+        for (const k of PLAN_IDS) {
+          const g = Number(st[k])
+          if (Number.isFinite(g) && g > 0) plat.storage[k] = g
+        }
+      }
+    } catch {}
+    let cfg = {}
+    try {
+      const cfgSnap = await getFirestore().collection('apps').doc(siteId).collection('app_config').doc('main').get()
+      if (cfgSnap.exists) cfg = cfgSnap.data() || {}
+    } catch {}
     return json(200, {
+      adminWhatsapp: typeof cfg.adminWhatsapp === 'string' ? cfg.adminWhatsapp : '',
       bride: d.bride || '',
       groom: d.groom || '',
       city: d.city || '',
+      status: d.status || '',
+      source: leadMode ? (d.source || '') : 'landing',
       weddingDate: d.weddingDate || '',
       weddingTime: d.weddingTime || '',
       heroImages: Array.isArray(d.heroImages) ? d.heroImages : [],
       footerImages: Array.isArray(d.footerImages) ? d.footerImages : [],
       feedImages: Array.isArray(d.feedImages) ? d.feedImages : [],
+      plan: leadMode ? planId(d.plan) : (planId(d.plan) === 'essential' && !d.plan ? '' : planId(d.plan)),
+      platform: plat,
+      expiresAt: leadMode ? asMs(d.expiresAt) : undefined,
+      activatedAt: leadMode ? asMs(d.activatedAt) : undefined,
     })
   } catch (e) {
     return json(500, { error: String(e?.message || e) })

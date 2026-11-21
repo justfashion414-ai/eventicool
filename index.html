@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <!-- Netlify injects a fixed deploy badge on preview deploys; hide it on every page -->
-    <style>[data-netlify-deploy-id], a[href*="app.netlify.com/sites"] { display: none !important; }</style>
+    <!-- Netlify injects a fixed "Powered by Netlify" badge (free-tier HUD, an iframe #nl-badge-frame) on every page; hide it everywhere -->
+    <style>[data-netlify-deploy-id], a[href*="app.netlify.com/sites"], #nl-badge-frame { display: none !important; }</style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Eventicor</title>
@@ -15,6 +15,41 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+    // BOOT WATCHDOG: if the app has not painted anything after 8 seconds, or
+    // the module bundle itself fails to load (a cached page pointing at a
+    // bundle a new deploy replaced), reload once with a cache-buster instead
+    // of leaving the visitor on the splash until they refresh by hand.
+    (function () {
+      var retried = false;
+      try { retried = !!sessionStorage.getItem('ev-boot-retry'); } catch (e) {}
+      if (retried) return;
+      var forceReload = function () {
+        if (retried) return;
+        retried = true;
+        try { sessionStorage.setItem('ev-boot-retry', '1'); } catch (e) {}
+        var q = location.search;
+        q += (q ? '&' : '?') + 'cb=' + Date.now();
+        location.replace(location.pathname + q + location.hash);
+      };
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'SCRIPT' && (t.getAttribute('type') === 'module' || (t.src || '').indexOf('/assets/') > -1)) forceReload();
+      }, true);
+      setTimeout(function () {
+        var r = document.getElementById('root');
+        if (!r || !r.hasChildNodes()) forceReload();
+      }, 8000);
+    })();
+    </script>
+    <!-- Branded boot splash: paints before any JavaScript loads, so the app never opens on a blank white screen -->
+    <div id="boot-splash" style="position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#0a0917;">
+      <div style="display:grid;place-items:center;gap:18px;">
+        <div style="font-family:'Playfair Display',Georgia,serif;font-size:34px;letter-spacing:.02em;color:#f4f1ea;font-weight:600;">Eventicor</div>
+        <div style="width:26px;height:26px;border-radius:50%;border:2.5px solid rgba(244,241,234,.25);border-top-color:#c9a96a;animation:bootsplashspin .9s linear infinite;"></div>
+      </div>
+    </div>
+    <style>@keyframes bootsplashspin{to{transform:rotate(360deg)}}</style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

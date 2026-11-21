@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LogOut, LoaderCircle, Menu } from 'lucide-react'
 import '../admin.css'
-import { signOutEverywhere, type User } from '../auth'
+import { consoleAuth, consoleAuthReady, signOutEverywhere, type User } from '../auth'
+// Every console call rides the console's OWN auth session, never the couple
+// apps' session, so the two can never act as each other.
+const consoleCall = (op: string, payload?: Record<string, unknown>) => proxyCall(op, payload, consoleAuth)
+// Last loaded lists, for painting the console instantly on a refresh.
+const CONSOLE_CACHE_KEY = 'ev-console-cache-v1'
 import { proxyCall } from '../firebase'
 
 /* ---- catalog constants (real product values) ---- */
@@ -24,18 +29,41 @@ const ACC6: Record<string, { bg: string; ac: string }> = {
   sunset: { bg: '#2b1a12', ac: '#e07a4f' },
   sage: { bg: '#1f2b25', ac: '#8fbfa3' },
 }
+// Firestore serverTimestamp fields arrive as Timestamp objects, not numbers.
+// Normalize before any new Date() so a landing-created customer's createdAt
+// never renders as "Invalid Date".
+const tsMs = (v: any): number => {
+  if (typeof v === 'number') return v
+  const sec = typeof v?.seconds === 'number' ? v.seconds : typeof v?._seconds === 'number' ? v._seconds : 0
+  return sec ? sec * 1000 : 0
+}
+
 const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+const EV_FOOTER_STYLES = [
+  { id: 'wall', n: 'Style 1 · Photo wall', d: 'Grey photo grid with a light scan sweeping the rows' },
+  { id: 'marquee', n: 'Style 2 · Marquee', d: 'Dark wall with rounded photo rows drifting past' },
+  { id: 'tunnel', n: 'Style 3 · Photo tunnel', d: 'Travel down a tube lined with photos; drag to spin, drag up/down for speed' },
+  { id: 'globe', n: 'Style 4 · Photo globe', d: 'Photos wrap a ball that turns slowly; drag to spin it any way' }
+]
+// Inbox invite card designs, each its own standalone invitation page style.
+const IV_IV_STYLES = [
+  { id: 'envelope', n: 'Gold envelope', d: 'A burgundy and gold-foil envelope opens in 3D onto a watercolour cover card' },
+  { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors onto the cover card' },
+  { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D onto the cover card' }
+]
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
 const NAV = [
   { id: 'over', label: 'Overview' },
   { id: 'pipe', label: 'Pipeline' },
   { id: 'leads', label: 'Leads' },
-  { id: 'cust', label: 'Customers' },
-  { id: 'onb', label: 'Onboard a couple' },
-  { id: 'sites', label: 'Apps' },
+  { id: 'cust', label: 'Free trial apps' },
+  { id: 'sites', label: 'Premium apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'inv', label: 'Inbox invite' },
+  { id: 'pay', label: 'Payment details' },
   { id: 'team', label: 'Team and audit' },
 ] as const
 type SecId = (typeof NAV)[number]['id']
@@ -71,7 +99,8 @@ interface Site {
   contact?: string
   city?: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
+interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -92,11 +121,14 @@ const ICONS: Record<SecId, string> = {
   over: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
   leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
-  onb: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  cust: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  inv: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
   team: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 4a4 4 0 0 1 0 8"/>',
+  settings: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
 }
 function Icon({ id }: { id: SecId }) {
   return <svg viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: ICONS[id] }} />
@@ -121,12 +153,9 @@ async function shrinkToDataUrl(file: File): Promise<string> {
   return c.toDataURL('image/jpeg', 0.82)
 }
 
-async function uploadOneLead(file: File, kind: string): Promise<string> {
-  const folder = `eventicor-leads-${kind}`
-  // Interim signer: this site's Cloudinary env is still pending, so the signed
-  // route falls back to the wedding-gallery signer (same Cloudinary account).
-  // Drop this entry once CLOUDINARY_* env vars are set here.
-  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`, `https://wedding-gallery1.netlify.app/api/upload-signature?folder=${encodeURIComponent(folder)}`]) {
+async function uploadOneLead(file: File, kind: string, folder?: string): Promise<string> {
+  const fld = folder || `eventicor-leads-${kind}`
+  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(fld)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(fld)}`]) {
     try {
       // The interim signer is cross-origin and sends no cookies, so omit credentials there.
       const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
@@ -138,7 +167,7 @@ async function uploadOneLead(file: File, kind: string): Promise<string> {
       form.append('api_key', sig.apiKey)
       form.append('timestamp', String(sig.timestamp))
       form.append('signature', sig.signature)
-      form.append('folder', sig.folder || folder)
+      form.append('folder', sig.folder || fld)
       const up = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/auto/upload`, { method: 'POST', body: form })
       const j = await up.json()
       if (up.ok && j.secure_url) return j.secure_url as string
@@ -174,14 +203,15 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
   const [toast, setToast] = useState('')
+  // Account management: extend trial, suspend or delete a customer's app.
+  const [manage, setManage] = useState<LeadDoc | null>(null)
+  const [extH, setExtH] = useState(24)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [editTpl, setEditTpl] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // onboarding form
-  const [ob, setOb] = useState({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })
-  const [prov, setProv] = useState<{ step: number; done: boolean; error?: string; slug?: string; code?: string } | null>(null)
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
@@ -195,7 +225,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   })
   const [leadCreated, setLeadCreated] = useState<{ link: string; title: string; tpl: string; acc: string; exp: number } | null>(null)
   const [upBusy, setUpBusy] = useState('')
-  const [obImgs, setObImgs] = useState<{ hero: string[]; footer: string[]; feed: string[] }>({ hero: [], footer: [], feed: [] })
   const [lf, setLf] = useState<'all' | 'live' | 'expired'>('all')
   const [delLeadId, setDelLeadId] = useState<string | null>(null)
   const [sf, setSf] = useState<'all' | 'live' | 'draft' | 'suspended'>('all')
@@ -205,6 +234,20 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   // delete confirmation
   const [delText, setDelText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [payForm, setPayForm] = useState<{ accountName: string; bankName: string; accountNumber: string; whatsapp: string } | null>(null)
+  // Platform-wide settings (platform/settings): the feed pagination and the
+  // storage each plan carries. Every app reads them; only this console edits them.
+  const [plat, setPlat] = useState<{ feedPageSize: number; storage: { essential: number; complete: number; legacy: number } } | null>(null)
+  const [platSaved, setPlatSaved] = useState('')
+  const [platCustom, setPlatCustom] = useState('')
+  const [paySaved, setPaySaved] = useState('')
+  const [payView, setPayView] = useState<LeadDoc | null>(null)
+  const [musicLib, setMusicLib] = useState<MusicDoc[] | null>(null)
+  const [musicName, setMusicName] = useState('')
+  const [musicLink, setMusicLink] = useState('')
+  const [musicUploading, setMusicUploading] = useState(false)
+  const [delMusicId, setDelMusicId] = useState('')
+  const musicFileRef = useRef<HTMLInputElement | null>(null)
 
   const sites: Site[] = useMemo(
     () =>
@@ -228,12 +271,54 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   async function logAudit(action: string) {
-    const row: AuditRow = { id: `local-${Date.now()}`, actor: user?.email, action, at: Date.now() }
+    const row: AuditRow = { id: `local-${Date.now()}`, actor: user?.email ?? undefined, action, at: Date.now() }
     setAudit((a) => [row, ...(a || [])])
-    proxyCall('add', { collection: 'platform_audit', data: { actor: user?.email || '', action, at: Date.now() } }).catch(() => {})
+    consoleCall('add', { collection: 'platform_audit', data: { actor: user?.email || '', action, at: Date.now() } }).catch(() => {})
   }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
+  // Music library: the tracks couple apps offer in the Inbox invite form.
+  useEffect(() => {
+    if (user?.uid === 'demo') {
+      try { setMusicLib(JSON.parse(localStorage.getItem('evad-music-lib') || '[]')) } catch { setMusicLib([]) }
+      return
+    }
+    let alive = true
+    consoleCall('list', { collection: 'music_library', limit: 100 })
+      .then((res) => { if (alive) setMusicLib((res.docs as MusicDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
+      .catch(() => { if (alive) setMusicLib([]) })
+    return () => { alive = false }
+  }, [user?.uid])
+  useEffect(() => {
+    let alive = true
+    const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) { if (alive) setPayForm(fallback); return }
+      try {
+        const d: any = await consoleCall('get', { collection: 'platform', id: 'payment' })
+        if (!alive) return
+        setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
+      } catch { if (alive) setPayForm(fallback) }
+    })()
+    return () => { alive = false }
+  }, [])
+  useEffect(() => {
+    let alive = true
+    const fallback = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } }
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) { if (alive) setPlat(fallback); return }
+      try {
+        const d: any = await consoleCall('get', { collection: 'platform', id: 'settings' })
+        if (!alive) return
+        const st = (d && d.storage) || {}
+        const num = (v: unknown, def: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def }
+        setPlat(d && d.feedPageSize !== undefined ? { feedPageSize: num(d.feedPageSize, 0), storage: { essential: num(st.essential, 5), complete: num(st.complete, 10), legacy: num(st.legacy, 20) } } : fallback)
+      } catch { if (alive) setPlat(fallback) }
+    })()
+    return () => { alive = false }
+  }, [])
   useEffect(() => {
     if (!menuOpen) return
     const close = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false) }
@@ -250,31 +335,54 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       setLeads([...stored, ...DEMO_LEADS])
       return () => { alive = false }
     }
-    proxyCall('list', { collection: 'events', limit: 50 })
-      .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
-      .catch(() => { if (alive) setEvents([]) })
-    proxyCall('list', { collection: 'leads', limit: 50 })
-      .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))) })
-      .catch(() => { if (alive) setLeads([]) })
-    proxyCall('list', { collection: 'platform_audit', limit: 20 })
-      .then((res) => {
-        if (!alive) return
-        const rows = (res.docs as AuditRow[]).sort((x, y) => (y.at || (y.createdAt?.seconds || 0) * 1000 || 0) - (x.at || (x.createdAt?.seconds || 0) * 1000 || 0))
-        setAudit(rows)
-      })
-      .catch(() => { if (alive) setAudit([]) })
-    proxyCall('get', { collection: 'platform', id: 'catalog' })
-      .then((doc) => {
-        if (!alive) return
-        if (!doc) { setCat(DEFAULT_CAT); return }
-        setCat({
-          prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
-          channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
-          templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
-          tplmeta: { ...(doc.tplmeta || {}) },
+    // Show the last loaded lists straight away so a refresh opens with data on
+    // screen, then wait for the console session to settle before refreshing
+    // from the server. Firing the calls while the session is still restoring
+    // used to leave the Customers and Leads lists empty.
+    try {
+      const c = JSON.parse(localStorage.getItem(CONSOLE_CACHE_KEY) || 'null')
+      if (c && Date.now() - (c.ts || 0) < 6 * 3600e3) {
+        if (Array.isArray(c.leads)) setLeads(c.leads)
+        if (Array.isArray(c.events)) setEvents(c.events)
+        if (Array.isArray(c.audit)) setAudit(c.audit)
+      }
+    } catch { /* fresh console */ }
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) return
+      const save = (patch: Record<string, unknown>) => {
+        try {
+          const cur = JSON.parse(localStorage.getItem(CONSOLE_CACHE_KEY) || '{}')
+          localStorage.setItem(CONSOLE_CACHE_KEY, JSON.stringify({ ...cur, ...patch, ts: Date.now() }))
+        } catch { /* ignore */ }
+      }
+      consoleCall('list', { collection: 'events', limit: 50 })
+        .then((res) => { if (alive) { setEvents(res.docs as EvDoc[]); save({ events: res.docs }) } })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('list', { collection: 'leads', limit: 50 })
+        .then((res) => { if (alive) { const rows = (res.docs as LeadDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt)); setLeads(rows); save({ leads: rows }) } })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('list', { collection: 'platform_audit', limit: 20 })
+        .then((res) => {
+          if (!alive) return
+          const rows = (res.docs as AuditRow[]).sort((x, y) => (y.at || (y.createdAt?.seconds || 0) * 1000 || 0) - (x.at || (x.createdAt?.seconds || 0) * 1000 || 0))
+          setAudit(rows)
+          save({ audit: rows })
         })
-      })
-      .catch(() => { if (alive) setCat(DEFAULT_CAT) })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('get', { collection: 'platform', id: 'catalog' })
+        .then((doc) => {
+          if (!alive) return
+          if (!doc) { setCat(DEFAULT_CAT); return }
+          setCat({
+            prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
+            channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
+            templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
+            tplmeta: { ...(doc.tplmeta || {}) },
+          })
+        })
+        .catch(() => { if (alive) setCat(DEFAULT_CAT) })
+    })()
     return () => { alive = false }
   }, [])
 
@@ -282,79 +390,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   async function signOut() { await signOutEverywhere(); onSignOut() }
 
-  /* ---- onboarding ---- */
-  const o = ob
-  const slug = o.slug || slugOf(o.b, o.g)
-  const slugTaken = slug ? sites.some((s) => s.slug === slug) : false
-  const slugMsg = slug
-    ? slugTaken
-      ? <span className="av no">{slug}.eventicor.com is taken</span>
-      : <span className="av ok">✓ {slug}.eventicor.com is available</span>
-    : null
-  const days = Math.max(0, Math.ceil((new Date(o.date + 'T10:00').getTime() - Date.now()) / 864e5))
 
-  function setObField(k: keyof typeof ob, v: string | boolean) {
-    setOb((prev) => {
-      const next = { ...prev, [k]: v } as typeof ob
-      if (!prev.man && (k === 'b' || k === 'g')) next.slug = ''
-      return next
-    })
-  }
 
-  async function createSite() {
-    if (!o.b || !o.g) { say('Enter the bride’s and groom’s names'); return }
-    if (!slug || slugTaken) { say(slugTaken ? 'That address is taken. Pick another' : 'Pick an address for the couple'); return }
-    const code = (o.b + o.g).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 13) + o.date.slice(2, 4)
-    const steps = [
-      `Create ${o.b} & ${o.g}’s private space`,
-      `Reserve ${slug}.eventicor.com`,
-      'Seed the wedding stages for their tradition',
-      `Generate the guest access code ${code}`,
-      'Save the event record',
-    ]
-    setProv({ step: 0, done: false, slug, code })
-    let i = 0
-    const t = window.setInterval(async () => {
-      i++
-      if (i < steps.length) { setProv((p) => (p ? { ...p, step: i } : p)); return }
-      window.clearInterval(t)
-      try {
-        await proxyCall('add', {
-          collection: 'events',
-          data: {
-            title: `${o.b} & ${o.g}`,
-            bride: o.b, groom: o.g,
-            weddingDate: o.date, city: o.city, contact: o.contact,
-            template: o.tpl, plan: o.plan, pay: o.pay,
-            slug, status: o.pay === 'link' ? 'draft' : 'live',
-            accessCode: code,
-            heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed,
-          },
-        })
-        logAudit(`Onboarded ${o.b} & ${o.g} (${slug}) on ${PL[o.plan].name}`)
-        setEvents((evs) => [
-          { id: `new-${Date.now()}`, title: `${o.b} & ${o.g}`, bride: o.b, groom: o.g, weddingDate: o.date, city: o.city, contact: o.contact, template: o.tpl, plan: o.plan, pay: o.pay, slug, status: o.pay === 'link' ? 'draft' : 'live', accessCode: code, heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed },
-          ...(evs || []),
-        ])
-        setProv({ step: steps.length, done: true, slug, code })
-      } catch (e) {
-        window.clearInterval(t)
-        setProv({ step: steps.length, done: false, error: String((e as Error)?.message || e), slug, code })
-      }
-    }, 700)
-  }
-
-  function provDone() {
-    setProv(null)
-    setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })
-    setObImgs({ hero: [], footer: [], feed: [] })
-    go('sites')
-  }
-  function copyDetails() {
-    if (!prov?.slug || !prov.code) return
-    navigator.clipboard?.writeText(`${prov.slug}.eventicor.com — guest access code ${prov.code}`)
-    say('Link and access code copied')
-  }
 
   /* ---- leads: sample apps built for outbound marketing ---- */
   // A sample app carries its own 3-day expiry (?exp=unix seconds) plus the
@@ -368,7 +405,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     `Hi ${title || 'there'}! Here's a sample of what your event app could look like: ${leadLink(t, a, exp, id)} It's just a sample and stays live for 3 days. To make your own permanent app, go to https://eventicor.name.ng, or tell us and we'll set it up for you.`
   const leadName = (l: LeadDoc) => (l.bride && l.groom ? `${l.bride} & ${l.groom}` : l.title || 'Lead')
 
-  async function addLeadImages(files: FileList | null, kind: 'hero' | 'footer' | 'feed', cap: number, onb: boolean) {
+  async function addLeadImages(files: FileList | null, kind: 'hero' | 'footer' | 'feed', cap: number) {
     if (!files || files.length === 0) return
     setUpBusy(kind)
     const add: string[] = []
@@ -379,24 +416,23 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         add.push(user?.uid === 'demo' ? await shrinkToDataUrl(f) : await uploadOneLead(f, kind))
       } catch { say('One photo could not upload. Try a smaller file') }
     }
-    const cur: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
+    const cur: string[] = (ld as unknown as Record<string, string[]>)[kind] || []
     const next = [...cur, ...add].slice(0, cap)
-    if (onb) setObImgs((p) => ({ ...p, [kind]: next }))
-    else setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: next } as unknown as typeof p))
+    setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: next } as unknown as typeof p))
     setUpBusy('')
     if (add.length > 0) say(`${add.length} photo${add.length > 1 ? 's' : ''} added`)
   }
 
-  function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number, onb: boolean) {
-    const list: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
-    const setList = (v: string[]) => (onb ? setObImgs((p) => ({ ...p, [kind]: v })) : setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: v } as unknown as typeof p)))
+  function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number) {
+    const list: string[] = (ld as unknown as Record<string, string[]>)[kind] || []
+    const setList = (v: string[]) => setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: v } as unknown as typeof p))
     return (
       <div style={{ marginTop: 8 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <label style={{ margin: 0 }}>{label} <small style={{ color: 'var(--mut)' }}>{list.length}/{cap}</small></label>
           <label className="btn g s" style={{ cursor: 'pointer' }}>
             {upBusy === kind ? 'Uploading…' : 'Add photos'}
-            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addLeadImages(e.target.files, kind, cap, onb); e.currentTarget.value = '' }} />
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addLeadImages(e.target.files, kind, cap); e.currentTarget.value = '' }} />
           </label>
         </div>
         {list.length > 0 && (
@@ -439,7 +475,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      const res = await proxyCall('add', { collection: 'leads', data: base }) as any
+      const res = await consoleCall('add', { collection: 'leads', data: base }) as any
       done(res?.id || `lead-${Date.now()}`)
       logAudit(`Created sample app for lead ${title} (${TP[ld.tpl].name})`)
     } catch { say('Could not save the lead. Try again') }
@@ -459,7 +495,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('delete', { collection: 'leads', id })
+      await consoleCall('delete', { collection: 'leads', id })
       setLeads((l) => (l || []).filter((x) => x.id !== id))
       logAudit('Deleted a sample app lead')
       say('Lead deleted')
@@ -475,11 +511,44 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     try {
       const at = Date.now()
       const renews = at + 365 * 864e5
-      await proxyCall('update', { collection: 'leads', id: l.id, data: { activatedAt: at, renewsAt: renews } })
+      await consoleCall('update', { collection: 'leads', id: l.id, data: { activatedAt: at, renewsAt: renews } })
       setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, activatedAt: at, renewsAt: renews } : x)))
       logAudit(`Confirmed payment for ${leadName(l)}; app active for one year`)
       say('Payment confirmed. The account is now active')
     } catch { say('Could not confirm the payment. Try again') }
+    setBusy(false)
+  }
+
+  // Extend a customer's trial (or, for a paid account, its renewal date) by
+  // the duration picked in the manage dialog. Takes effect immediately: the
+  // app reads its own expiry from Firestore, so the trial chip updates live.
+  async function extendCustomer(l: LeadDoc) {
+    setBusy(true)
+    try {
+      const dur = extH * 3600e3
+      const data: any = l.activatedAt
+        ? { renewsAt: Math.max(Date.now(), l.renewsAt || Date.now()) + dur }
+        : { expiresAt: Math.max(Date.now(), l.expiresAt || 0) + dur }
+      await consoleCall('update', { collection: 'leads', id: l.id, data })
+      setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, ...data } as LeadDoc : x)))
+      logAudit(`Extended ${leadName(l)}${l.activatedAt ? "'s plan" : "'s trial"} by ${extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}`)
+      say('Extension applied. It takes effect immediately')
+      setManage(null)
+    } catch { say('Could not extend. Try again') }
+    setBusy(false)
+  }
+
+  // Suspend or delete a customer's app. Both stay on the record (never a hard
+  // delete) so their link can explain what happened instead of erroring.
+  async function setCustomerStatus(l: LeadDoc, status: 'suspended' | 'deleted' | 'active') {
+    setBusy(true)
+    try {
+      await consoleCall('update', { collection: 'leads', id: l.id, data: { status } })
+      setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, status } as LeadDoc : x)))
+      logAudit(`${status === 'deleted' ? 'Deleted' : status === 'suspended' ? 'Suspended' : 'Reinstated'} ${leadName(l)}`)
+      say(status === 'deleted' ? 'App deleted. Its link now tells visitors it no longer exists' : status === 'suspended' ? 'App suspended. Visitors are asked to contact an Eventicor admin' : 'App reinstated')
+      setManage(null)
+    } catch { say('Could not update the account. Try again') }
     setBusy(false)
   }
 
@@ -493,7 +562,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const rows = adminLeads
       .map((l) => ({ ...l, live: (l.expiresAt || 0) > now }))
       .filter((l) => (lf === 'all' ? true : lf === 'live' ? l.live : !l.live))
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
     const photos = [...ld.hero].slice(0, 3)
     return (
       <>
@@ -533,7 +602,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </div>
             <div className="fs" style={{ marginTop: 14 }}>PHOTOS THE SAMPLE USES AS PLACEHOLDERS</div>
             <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Optional. Your hero uploads are the only photos this sample needs: the giant photo wall, the feed posts and the journey photos repeat them until the lead creates their own app and uploads everything. Reels keep their demo clips.</p>
-            {imgRow('hero', 'Hero section', 14, false)}
+            {imgRow('hero', 'Hero section', 14)}
             <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The link expires after 3 days, and your message tells them to create their own app on the Eventicor landing page, or ask us and we onboard them.</p>
             <div style={{ marginTop: 16 }}><button className="btn" onClick={createLead} disabled={busy}>Create sample app</button></div>
           </div>
@@ -596,7 +665,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('update', { collection: 'events', id, data })
+      await consoleCall('update', { collection: 'events', id, data })
       setEvents((evs) => (evs || []).map((e) => (e.id === id ? { ...e, ...data } as EvDoc : e)))
       logAudit(note)
       say('Saved')
@@ -613,7 +682,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('delete', { collection: 'events', id })
+      await consoleCall('delete', { collection: 'events', id })
       setEvents((evs) => (evs || []).filter((e) => e.id !== id))
       logAudit(`Deleted app ${s}`)
       setDrawerId(null)
@@ -626,7 +695,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!cat) return
     setBusy(true)
     try {
-      await proxyCall('set', { collection: 'platform', id: 'catalog', data: cat })
+      await consoleCall('set', { collection: 'platform', id: 'catalog', data: cat })
       logAudit('Saved plan prices and template availability')
       say('Changes saved')
     } catch { say('Could not save. Try again') }
@@ -639,12 +708,15 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const first = (user?.email || 'admin').split('@')[0].replace(/[^a-zA-Z]+/g, ' ').trim()
   const name = first ? first[0].toUpperCase() + first.slice(1) : 'Admin'
 
-  function head(t: string, s: string, right?: React.ReactNode) {
+  function head(t: string, s: string, right?: React.ReactNode, icon?: React.ReactNode) {
     return (
       <div className="top">
-        <div>
-          <h1>{t}</h1>
-          <p>{s}</p>
+        <div style={icon ? { display: 'flex', alignItems: 'center', gap: 12 } : undefined}>
+          {icon}
+          <div>
+            <h1>{t}</h1>
+            <p>{s}</p>
+          </div>
         </div>
         <div className="row" style={{ alignItems: 'center' }}>
           {right}
@@ -664,7 +736,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     ].filter((x) => x.n > 0)
     return (
       <>
-        {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.', <button className="btn" onClick={() => go('onb')}>+ Onboard a couple</button>)}
+        {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.')}
         <div className="g4">
           <div className="k"><small>Couples’ apps</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
           <div className="k"><small>Orders paid</small><b>₦0</b><span>No orders yet</span></div>
@@ -678,7 +750,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               {events === null ? (
                 <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
               ) : sites.length === 0 ? (
-                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No apps yet. Onboard your first couple.</p>
+                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No apps yet.</p>
               ) : (
                 sites.slice(0, 5).map((s) => (
                   <div className="att" key={s.id}>
@@ -744,70 +816,38 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  function onboard() {
-    const chip = (k: 'tpl' | 'plan' | 'pay', list: [string, string][]) => (
-      <div className="row">
-        {list.map(([v, label]) => (
-          <button key={v} className={`chip ${o[k] === v ? 'on' : ''}`} onClick={() => setObField(k, v)}>{label}</button>
-        ))}
-      </div>
-    )
-    return (
-      <>
-        {head('Onboard a couple', 'Create a couple’s app in under a minute. Everything on the right updates as you type.')}
-        <div className="ob">
-          <div className="card">
-            <div className="fs" style={{ marginTop: 0 }}>THE COUPLE</div>
-            <div className="fg">
-              <div><label htmlFor="ob_b">Bride</label><input id="ob_b" value={o.b} maxLength={14} onChange={(e) => setObField('b', e.target.value)} /></div>
-              <div><label htmlFor="ob_g">Groom</label><input id="ob_g" value={o.g} maxLength={14} onChange={(e) => setObField('g', e.target.value)} /></div>
-              <div><label htmlFor="ob_d">Wedding date</label><input id="ob_d" type="date" value={o.date} onChange={(e) => setObField('date', e.target.value)} /></div>
-              <div><label htmlFor="ob_c">City</label><input id="ob_c" value={o.city} maxLength={16} onChange={(e) => setObField('city', e.target.value)} /></div>
-              <div style={{ gridColumn: '1/-1' }}>
-                <label htmlFor="ob_e">Couple’s email or WhatsApp number</label>
-                <input id="ob_e" value={o.contact} placeholder="name@email.com or +234…" onChange={(e) => setObField('contact', e.target.value)} />
-              </div>
-            </div>
-            <div className="fs">TEMPLATE</div>
-            {chip('tpl', Object.keys(TP).filter((k) => !cat || cat.templates[k] !== false).map((k) => [k, TP[k].name] as [string, string]))}
-            <div className="fs">PLAN</div>
-            {chip('plan', Object.keys(PL).map((k) => [k, `${PL[k].name} · ${ng(PL[k].price)}`] as [string, string]))}
-            <div className="fs">ADDRESS</div>
-            <div className="sl">
-              <input id="ob_s" value={slug} maxLength={30} style={{ textAlign: 'right' }} onChange={(e) => setOb((p) => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''), man: true }))} />
-              <span>.eventicor.com</span>
-            </div>
-            {slugMsg}
-            <div className="fs">PAYMENT</div>
-            {chip('pay', [['paid', 'Paid online'], ['bank', 'Bank transfer received'], ['link', 'Send payment link']])}
-            <div className="fs" style={{ marginTop: 14 }}>SEED PHOTOS (OPTIONAL)</div>
-            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Photos the couple can start from. They are saved on the app record as hero, photo-wall and feed seed images.</p>
-            {imgRow('hero', 'Hero section', 14, true)}
-            {imgRow('footer', 'Giant photo wall', 40, true)}
-            {imgRow('feed', 'Feed posts', 40, true)}
-            <div style={{ marginTop: 20 }} className="row">
-              <button className="btn" onClick={createSite}>Create app</button>
-              <button className="btn g" onClick={() => setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })}>Clear form</button>
-            </div>
-          </div>
-          <div>
-            <div className="pf">
-              <MiniPreview b={o.b || 'Bride'} g={o.g || 'Groom'} tpl={TP[o.tpl]} city={o.city || 'City'} days={days} photos={[...obImgs.hero, ...obImgs.footer].slice(0, 3)} />
-            </div>
-          </div>
-        </div>
-      </>
-    )
-  }
-
   function sitesSection() {
     // A couple's app link binds to their own events doc, so it opens with
     // their names, chosen wedding date and city, not the generic demo.
     const appLink = (s: Site) => `${window.location.origin}/app?tpl=${s.tpl || 'classic'}&acc=${DEF_ACC[(s.tpl || 'classic') as keyof typeof DEF_ACC] || 'midnight'}&site=${s.id}`
-    const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
+    // Paid trial apps live here too (user direction Nov 21 2026): a customer
+    // whose account was marked paid graduates out of Free trial apps and into
+    // this table. Their app link stays their own ?lead= link; Manage opens the
+    // same per-customer dialog (extend, suspend, delete).
+    const leadAppLink = (l: LeadDoc) => {
+      const t = l.template || 'classic'
+      const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
+      return `${window.location.origin}/app?tpl=${t}&acc=${a}&lead=${l.id}`
+    }
+    const leadSites: (Site & { _lead: LeadDoc })[] = (leads || [])
+      .filter((l) => l.activatedAt && (!!l.email || l.source === 'landing'))
+      .map((l) => ({
+        id: l.id,
+        couple: [l.bride, l.groom].filter(Boolean).join(' & ') || l.id,
+        slug: '',
+        plan: l.plan,
+        status: l.status === 'suspended' ? 'suspended' : l.status === 'deleted' ? 'revoked' : 'live',
+        tpl: l.template,
+        since: new Date(l.activatedAt as number).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        contact: l.email || '',
+        city: l.city || '',
+        _lead: l,
+      }))
+    const allRows: (Site & { _lead?: LeadDoc })[] = [...sites, ...leadSites]
+    const L = allRows.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>
-        {head('Apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
+        {head('Premium apps', `${allRows.length} couples’ apps. Open one to manage billing, storage and access. Trial apps that paid appear here too.`)}
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             {(['all', 'live', 'draft', 'suspended'] as const).map((k) => (
@@ -826,7 +866,24 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 ) : L.length === 0 ? (
                   <tr><td colSpan={9}>No apps match.</td></tr>
                 ) : (
-                  L.map((s) => (
+                  L.map((s) => s._lead ? (
+                    <tr key={s.id}>
+                      <td><b>{s.couple}</b><small>{s.status === 'live' ? 'Paid app' : s.status === 'suspended' ? 'Paid app · suspended' : 'Paid app · revoked'}{s.city ? ` · ${s.city}` : ''}</small></td>
+                      <td><small>{s.contact || '—'}</small></td>
+                      <td><small>{s.city || '—'}</small></td>
+                      <td>{s.plan ? PL[s.plan]?.name || s.plan : '—'}</td>
+                      <td>{s.status === 'live' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(31,138,91,.16)', color: '#1f8a5b' }}>{`Active · renews ${new Date(s._lead!.renewsAt || (s._lead!.activatedAt as number) + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}</span> : s.status === 'suspended' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(214,140,0,.16)', color: '#a36a00' }}>Suspended</span> : <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(0,0,0,.08)', color: 'var(--mut)' }}>Revoked</span>}</td>
+                      <td>{s.tpl ? TP[s.tpl]?.name || s.tpl : '—'}</td>
+                      <td>{s.since}</td>
+                      <td>
+                        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                          <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(leadAppLink(s._lead!)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
+                          <button className="chip" onClick={() => window.open(leadAppLink(s._lead!), '_blank')}>Open</button>
+                        </div>
+                      </td>
+                      <td><button className="btn g s" onClick={() => setManage(s._lead!)}>Manage</button></td>
+                    </tr>
+                  ) : (
                     <tr key={s.id}>
                       <td><b>{s.couple}</b><small>{s.slug}.eventicor.com</small></td>
                       <td><small>{s.contact || '—'}</small></td>
@@ -875,6 +932,62 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </table>
           </div>
         </div>
+      </>
+    )
+  }
+
+  function settingsSection() {
+    const gb = (k: 'essential' | 'complete' | 'legacy') => (plat ? plat.storage[k] : PL[k].gb)
+    const setGb = (k: 'essential' | 'complete' | 'legacy', v: string) => {
+      const n = Number(v.replace(/[^0-9]/g, '')) || 0
+      if (!plat) return
+      setPlat({ ...plat, storage: { ...plat.storage, [k]: n } })
+    }
+    const savePlat = async (note: string) => {
+      if (!plat) return
+      setBusy(true)
+      try {
+        await consoleCall('set', { collection: 'platform', id: 'settings', data: { feedPageSize: plat.feedPageSize, storage: plat.storage, updatedAt: Date.now() } })
+        Object.keys(PL).forEach((k) => { PL[k].gb = plat.storage[k as 'essential' | 'complete' | 'legacy'] || PL[k].gb })
+        logAudit(note)
+        setPlatSaved('Saved. Every app picks this up on its next load.')
+        window.setTimeout(() => setPlatSaved(''), 4000)
+      } catch (e: any) {
+        say(e?.message || 'Could not save the settings')
+      } finally { setBusy(false) }
+    }
+    if (!plat) return <div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div>
+    return (
+      <>
+        {head('Settings', 'Rules every app on Eventicor follows. Changes here reach every app, its feed and its landing page.')}
+        <div className="card">
+          <h3>Feed pagination</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How many posts show in every app's feed before a Next page button loads the older ones. Eventicor manages the feed for all apps; the apps do not set this themselves.</p>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            {[0, 10, 20, 30, 50].map((n) => (
+              <button key={n} className={`chip ${plat.feedPageSize === n ? 'on' : ''}`} onClick={() => { if (plat.feedPageSize !== n) { setPlat({ ...plat, feedPageSize: n }); savePlat(n === 0 ? 'Feed pagination: all posts show on every app' : `Feed pagination: ${n} posts per page on every app`) } }}>{n === 0 ? 'Show all' : n}</button>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <input value={platCustom} placeholder="Any number" style={{ width: 130 }} onChange={(e) => setPlatCustom(e.target.value.replace(/[^0-9]/g, ''))} />
+            <button className="btn g" disabled={busy} onClick={() => { const n = Math.floor(Number(platCustom)); if (n >= 1 && n <= 500) { setPlat({ ...plat, feedPageSize: n }); setPlatCustom(''); savePlat(`Feed pagination: ${n} posts per page on every app`) } else say('Enter a number between 1 and 500') }}>Apply</button>
+          </div>
+        </div>
+        <div className="card">
+          <h3>Storage per plan</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How much photo and video storage each plan carries. What you set here is what shows inside the apps, on the plan cards of the landing page and at the point of upload: an app that fills its storage is stopped from uploading anything new until it upgrades.</p>
+          {(['essential', 'complete', 'legacy'] as const).map((k) => (
+            <div className="rw" key={k}>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{ng(PL[k].price)} plan</small></div>
+              <div className="row">
+                <input value={String(gb(k))} style={{ width: 90 }} aria-label={`${PL[k].name} storage in GB`} onChange={(e) => setGb(k, e.target.value)} />
+                <small style={{ width: 24 }}>GB</small>
+              </div>
+            </div>
+          ))}
+          <button className="btn" disabled={busy} onClick={() => savePlat('Updated the storage included with each plan')}>Save storage</button>
+        </div>
+        {platSaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '4px 0 0' }}>{platSaved}</p>}
       </>
     )
   }
@@ -976,6 +1089,39 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <span className="pl">Soon</span>
           </div>
         </div>
+        <div className="card">
+          <h3>Giant footer styles</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The big photo wall at the bottom of every app. Preview opens a sample app showing that footer style.</p>
+          {EV_FOOTER_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => { let t = 'halo'; try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${t}&fs=${s.id}`, '_blank') }}>Preview</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <h3>Inbox invite styles</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The invitation cards couples send their guests from the app's Inbox invite section. Preview opens the full card, opening animation included.</p>
+          {IV_IV_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
+                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+                }}>Preview</button>
+              </div>
+            </div>
+          ))}
+        </div>
       </>
     )
   }
@@ -1014,6 +1160,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   const [navOpen, setNavOpen] = useState(initialNavOpen)
+  const [custTab, setCustTab] = useState<'active' | 'expired' | 'deleted'>('active')
 
   // Customers: couples who built their own app from the landing page. Every
   // landing signup lands in the leads collection with its email and the plan
@@ -1023,7 +1170,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const now = Date.now()
     // Customers only: couples who created their app on the landing page (a
     // 24-hour trial). Admin sample leads carry no email and stay in Leads.
-    const mine = (leads || []).filter((l) => !!l.email || l.source === 'landing')
+    // Once a customer pays (activatedAt set) their app graduates to the
+    // Premium apps section (user direction Nov 21 2026), so it leaves here.
+    const mine = (leads || []).filter((l) => (!!l.email || l.source === 'landing') && !l.activatedAt)
     const demo = user?.uid === 'demo' && mine.length === 0
       ? ([
           { id: 'demo-cust-1', bride: 'Ada', groom: 'Obinna', email: 'ada.obinna@example.com', city: 'Lagos', template: 'halo', accent: 'blush', plan: 'Complete', status: 'trial', createdAt: now - 8 * 3600e3, expiresAt: now + 16 * 3600e3 },
@@ -1031,16 +1180,21 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           { id: 'demo-cust-3', bride: 'Ngozi', groom: 'Chike', email: 'ngozi.chike@example.com', city: 'Enugu', template: 'book', accent: 'royal', plan: 'Legacy', status: 'trial', createdAt: now - 50 * 3600e3, expiresAt: now - 26 * 3600e3 },
         ] as LeadDoc[])
       : []
-    const rows = [...mine, ...demo].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    const since = (l: LeadDoc) => (l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+    const rows = [...mine, ...demo].sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
+    const since = (l: LeadDoc) => { const ms = tsMs(l.createdAt); return ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' }
     const appLink = (l: LeadDoc) => {
       const t = l.template || 'classic'
       const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
       // A paid, active account gets a permanent link: no trial expiry in it.
-      const exp = !l.activatedAt && l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
+      // Real customers (landing leads) are governed by their lead doc too, so
+      // their links never carry ?exp: a stale countdown would make an expired
+      // trial read as a sample app. Only console sample links carry ?exp.
+      const exp = l.source !== 'landing' && !l.activatedAt && l.expiresAt ? Math.floor(l.expiresAt / 1000) : ''
       return `${window.location.origin}/app?tpl=${t}&acc=${a}${exp ? `&exp=${exp}` : ''}&lead=${l.id}`
     }
     const planStatus = (l: LeadDoc) => {
+      if (l.status === 'deleted') return { label: 'Deleted', live: false }
+      if (l.status === 'suspended') return { label: 'Suspended', live: false }
       if (l.activatedAt) {
         const d = new Date(l.renewsAt || l.activatedAt + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
         return { label: `Active · renews ${d}`, live: true }
@@ -1049,26 +1203,53 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       if (left > 0) return { label: left >= 3600e3 ? `Trial · ${Math.ceil(left / 3600e3)} h left` : `Trial · ${Math.max(1, Math.ceil(left / 60e3))} min left`, live: true }
       return { label: 'Trial ended', live: false }
     }
+    const custBucket = (l: LeadDoc): 'active' | 'expired' | 'deleted' => {
+      if (l.status === 'deleted' || l.status === 'suspended') return 'deleted'
+      if (l.activatedAt || (l.expiresAt || 0) > now) return 'active'
+      return 'expired'
+    }
+    const counts = { active: 0, expired: 0, deleted: 0 } as Record<typeof custTab, number>
+    rows.forEach((l) => { counts[custBucket(l)]++ })
+    const shown = rows.filter((l) => custBucket(l) === custTab)
     return (
       <>
-        {head('Customers', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.')}
+        {head('Free trial apps', 'Couples still on their 24-hour trial. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here. A customer who pays moves up to Premium apps.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
         {rows.length === 0 ? (
           <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
         ) : (
           <div className="card">
+            <div className="row" style={{ marginBottom: 12 }}>
+              {(['active', 'expired', 'deleted'] as const).map((k) => (
+                <button key={k} className={`chip ${custTab === k ? 'on' : ''}`} onClick={() => setCustTab(k)}>
+                  {k[0].toUpperCase() + k.slice(1)} · {counts[k]}
+                </button>
+              ))}
+            </div>
+            {shown.length === 0 ? (
+              <p style={{ color: 'var(--mut)', margin: 0 }}>
+                {custTab === 'active' ? 'No active customers right now.' : custTab === 'expired' ? 'No expired trials right now.' : 'No deleted apps here.'}
+              </p>
+            ) : (
             <div className="ov">
               <table className="tb">
-                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th></tr></thead>
+                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th>ACTIONS</th></tr></thead>
                 <tbody>
-                  {rows.map((l) => {
+                  {shown.map((l) => {
                     const st = planStatus(l)
                     return (
                       <tr key={l.id}>
-                        <td><b>{(l.bride || '') + ' & ' + (l.groom || '')}</b></td>
+                        <td>
+                          <b>{(l.bride || '') + ' & ' + (l.groom || '')}</b>
+                          {l.lastPayment && (
+                            <button className="chip" style={{ display: 'inline-block', marginTop: 4, fontWeight: 700, background: 'rgba(216,176,106,.18)', color: '#8a6a1d' }} onClick={() => setPayView(l)}>
+                              Receipt · {l.lastPayment.plan || 'plan'} · sent {l.lastPayment.submittedAt ? new Date(l.lastPayment.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                            </button>
+                          )}
+                        </td>
                         <td><small>{l.email || '—'}</small></td>
                         <td><small>{l.city || '—'}</small></td>
                         <td>{l.plan ? PL[l.plan]?.name || l.plan : 'No plan picked'}</td>
-                        <td><span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: st.live ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)', color: st.live ? '#1f8a5b' : 'var(--mut)' }}>{st.label}</span></td>
+                        <td><span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: st.label === 'Suspended' ? 'rgba(214,140,0,.16)' : st.live ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)', color: st.label === 'Suspended' ? '#a36a00' : st.live ? '#1f8a5b' : 'var(--mut)' }}>{st.label}</span></td>
                         <td>{l.template ? TP[l.template]?.name || l.template : '—'}</td>
                         <td><small>{since(l)}</small></td>
                         <td>
@@ -1080,19 +1261,174 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
                           </div>
                         </td>
+                        <td><button className="chip" onClick={() => setManage(l)}>Manage</button></td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         )}
       </>
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, team: team }
+  async function savePay() {
+    if (!payForm) return
+    setBusy(true)
+    try {
+      await consoleCall('set', { collection: 'platform', id: 'payment', data: { accountName: payForm.accountName.trim(), bankName: payForm.bankName.trim(), accountNumber: payForm.accountNumber.trim(), whatsapp: payForm.whatsapp.replace(/[^0-9]/g, ''), updatedAt: Date.now() } })
+      logAudit('Updated the payment account details')
+      setPaySaved('Saved. Every app picks up the new details immediately.')
+      window.setTimeout(() => setPaySaved(''), 4000)
+    } catch (e: any) {
+      say(e?.message || 'Could not save the payment details')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function paySection() {
+    if (!payForm) return <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>Loading payment details…</p></div>
+    return (
+      <>
+        {head('Payment details', 'The bank account customers see in the payment flow after their trial ends. Change it here any time; every app picks it up immediately.', <button className="btn g" disabled={busy} onClick={savePay}>Save changes</button>)}
+        <div className="card">
+          <div className="rw" style={{ flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 200px' }}>Account name
+              <input style={{ width: '100%' }} value={payForm.accountName} onChange={(e) => setPayForm({ ...payForm, accountName: e.target.value })} placeholder="e.g. Michael Ogunnaike" />
+            </label>
+            <label style={{ flex: '1 1 160px' }}>Bank name
+              <input style={{ width: '100%' }} value={payForm.bankName} onChange={(e) => setPayForm({ ...payForm, bankName: e.target.value })} placeholder="e.g. Moniepoint" />
+            </label>
+          </div>
+          <div className="rw" style={{ flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 200px' }}>Account number
+              <input style={{ width: '100%' }} value={payForm.accountNumber} onChange={(e) => setPayForm({ ...payForm, accountNumber: e.target.value })} placeholder="10 digits" />
+            </label>
+            <label style={{ flex: '1 1 200px' }}>WhatsApp number (wa.me digits, e.g. 2349030064109)
+              <input style={{ width: '100%' }} value={payForm.whatsapp} onChange={(e) => setPayForm({ ...payForm, whatsapp: e.target.value })} placeholder="2349030064109" />
+            </label>
+          </div>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '12px 0 0' }}>Customers pay by bank transfer to this account. When a receipt is uploaded it appears on that customer's row in Customers; Confirm payment there activates their app for a year.</p>
+          {paySaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '10px 0 0' }}>{paySaved}</p>}
+        </div>
+      </>
+    )
+  }
+
+  /* ---- inbox invite: card designs and the music library ---- */
+  async function addMusicTrack(url: string) {
+    const name = musicName.trim()
+    if (!name || !url) { say('Give the track a name and upload a file or paste a link'); return }
+    if (user?.uid === 'demo') {
+      const row = { id: `local-${Date.now()}`, name, url, createdAt: Date.now() }
+      const next = [row, ...(musicLib || [])]
+      setMusicLib(next)
+      localStorage.setItem('evad-music-lib', JSON.stringify(next))
+      setMusicName(''); setMusicLink('')
+      say('Track added to the library')
+      return
+    }
+    setBusy(true)
+    try {
+      const res: any = await consoleCall('add', { collection: 'music_library', data: { name, url, at: Date.now() } })
+      setMusicLib((l) => [{ id: res.id, name, url, createdAt: Date.now() }, ...(l || [])])
+      logAudit('Added a track to the music library')
+      setMusicName(''); setMusicLink('')
+      say('Track added to the library')
+    } catch { say('Could not add the track. Try again') }
+    setBusy(false)
+  }
+  async function onMusicFile(e: any) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!musicName.trim()) { say('Name the track first, then upload the file'); return }
+    setMusicUploading(true)
+    try {
+      const url = await uploadOneLead(file, 'track', 'eventicor-music')
+      await addMusicTrack(url)
+    } catch { say('The upload failed. Try again') }
+    setMusicUploading(false)
+  }
+  async function deleteMusicTrack(id: string) {
+    if (delMusicId !== id) { setDelMusicId(id); say('Tap again to remove this track'); return }
+    setDelMusicId(null)
+    if (user?.uid === 'demo') {
+      const next = (musicLib || []).filter((t) => t.id !== id)
+      setMusicLib(next)
+      localStorage.setItem('evad-music-lib', JSON.stringify(next))
+      return
+    }
+    setBusy(true)
+    try {
+      await consoleCall('delete', { collection: 'music_library', id })
+      setMusicLib((l) => (l || []).filter((t) => t.id !== id))
+      logAudit('Removed a track from the music library')
+      say('Track removed from the library')
+    } catch { say('Could not remove the track. Try again') }
+    setBusy(false)
+  }
+  function invitesSection() {
+    return (
+      <>
+        {head('Inbox invite', 'The invitation card designs and the music couples pick from. Whatever is perfected here ships into every app.')}
+        <div className="card">
+          <h3>Card designs</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>Preview opens a full card with placeholder details, opening animation included. Couples create the real cards inside their own app.</p>
+          {IV_IV_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
+                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+                }}>Preview</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <h3>Music library</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The tracks couples choose from when they add music to an invitation. Upload an mp3 or paste a link to one.</p>
+          <div className="fg" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div><label>Track name</label><input value={musicName} maxLength={40} onChange={(e) => setMusicName(e.target.value)} placeholder="Soft piano waltz" /></div>
+            <div><label>Or paste a link (mp3)</label><input value={musicLink} onChange={(e) => setMusicLink(e.target.value)} placeholder="https://.../track.mp3" /></div>
+          </div>
+          <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+            <input ref={musicFileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onMusicFile} />
+            <button className="btn g" onClick={() => musicFileRef.current?.click()} disabled={musicUploading}>{musicUploading ? 'Uploading...' : 'Upload mp3'}</button>
+            <button className="btn" onClick={() => addMusicTrack(musicLink.trim())} disabled={busy}>Add track</button>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            {musicLib === null ? (
+              <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
+            ) : musicLib.length === 0 ? (
+              <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No tracks yet. Every card still carries its own built-in music until you add some.</p>
+            ) : (
+              musicLib.map((t) => (
+                <div className="att" key={t.id} style={{ flexWrap: 'wrap' }}>
+                  <span><b>{t.name}</b></span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <a className="btn g s" href={t.url} target="_blank" rel="noreferrer">Listen</a>
+                    <button className="btn g s" onClick={() => deleteMusicTrack(t.id)}>{delMusicId === t.id ? 'Sure?' : 'Remove'}</button>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
 
   return (
     <div className="evad">
@@ -1178,44 +1514,88 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         </div>
       )}
 
-      {prov && (
-        <div className="md">
-          <div className="mc2">
-            {prov.error ? (
-              <>
-                <h2>Could not create the app</h2>
-                <p style={{ color: 'var(--mut)' }}>{prov.error}</p>
-                <div className="row"><button className="btn g" onClick={() => setProv(null)}>Close</button></div>
-              </>
-            ) : prov.done ? (
-              <>
-                <h2>App is live</h2>
-                <p style={{ margin: '0 0 6px', color: 'var(--mut)' }}>Share this with the couple.</p>
-                <div className="card" style={{ margin: '0 0 10px' }}>
-                  <b>{prov.slug}.eventicor.com</b><br />
-                  <small>Guest access code: <b>{prov.code}</b></small>
-                </div>
-                <div className="row">
-                  <button className="btn" onClick={provDone}>Done</button>
-                  <button className="btn g" onClick={copyDetails}>Copy details</button>
-                </div>
-              </>
+
+
+      {payView && payView.lastPayment && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setPayView(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)', maxHeight: '86vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 19 }}>Payment receipt · {leadName(payView)}</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 4px' }}>
+              {payView.lastPayment.plan || '—'} · {ng(payView.lastPayment.amount || 0)} · sent {payView.lastPayment.submittedAt ? new Date(payView.lastPayment.submittedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+            </p>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 12px' }}>Email {payView.lastPayment.email || '—'} · App {payView.lastPayment.appName || '—'}</p>
+            {payView.lastPayment.receiptUrl && (
+              <a href={payView.lastPayment.receiptUrl} target="_blank" rel="noreferrer">
+                <img src={payView.lastPayment.receiptUrl} alt="Payment receipt" style={{ width: '100%', borderRadius: 12, border: '1px solid rgba(0,0,0,.08)' }} />
+              </a>
+            )}
+            {!payView.activatedAt ? (
+              <button className="btn g" style={{ width: '100%', marginTop: 12 }} disabled={busy} onClick={() => { confirmPayment(payView); setPayView(null) }}>Confirm payment</button>
             ) : (
+              <p style={{ color: '#1f8a5b', fontSize: 13, margin: '12px 0 0' }}>Payment already confirmed; the account is active.</p>
+            )}
+            <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => setPayView(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {manage && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setManage(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 19 }}>{leadName(manage)}</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 14px' }}>Manage this account. Extensions apply immediately; suspending or deleting revokes the app link for visitors.</p>
+            {manage.lastPayment && (
+              <button className="chip" style={{ width: '100%', marginBottom: 12, fontWeight: 700 }} onClick={() => { setManage(null); setPayView(manage) }}>
+                Payment receipt uploaded{manage.lastPayment.plan ? ` · ${manage.lastPayment.plan}` : ''} — view it
+              </button>
+            )}
+            {!manage.activatedAt && (
               <>
-                <h2>Setting up…</h2>
-                {[
-                  `Create ${o.b} & ${o.g}’s private space`,
-                  `Reserve ${slug}.eventicor.com`,
-                  'Seed the wedding stages for their tradition',
-                  `Generate the guest access code ${prov.code}`,
-                  'Save the event record',
-                ].map((s, k) => (
-                  <div key={s} className={`st ${k < prov.step ? 'ok' : k === prov.step ? 'run' : ''}`}>
-                    <i>{k < prov.step ? '✓' : ''}</i>{s}
-                  </div>
-                ))}
+                <b style={{ fontSize: 13 }}>Extend the trial</b>
+                <div className="rw" style={{ margin: '8px 0 4px', flexWrap: 'wrap' }}>
+                  {([[24, '24 hours'], [72, '3 days'], [168, '7 days'], [336, '14 days'], [720, '30 days']] as [number, string][]).map(([h, lab]) => (
+                    <button key={h} className={`chip ${extH === h ? 'on' : ''}`} onClick={() => setExtH(h)}>{lab}</button>
+                  ))}
+                </div>
+                <button className="btn" style={{ width: '100%' }} disabled={busy} onClick={() => extendCustomer(manage)}>Extend by {extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}</button>
               </>
             )}
+            <div className="rw" style={{ marginTop: 14 }}>
+              <div style={{ flex: 1 }}>
+                <b>Plan</b>
+                <small>The plan the app runs on; the couple's storage and features follow it</small>
+              </div>
+              <select
+                style={{ width: 'auto' }}
+                value={PL[manage.plan || ''] ? (manage.plan as string) : ''}
+                disabled={busy}
+                onChange={async (e) => {
+                  const plan = e.target.value
+                  if (!plan || plan === manage.plan) return
+                  setBusy(true)
+                  try {
+                    await consoleCall('update', { collection: 'leads', id: manage.id, data: { plan } })
+                    setManage({ ...manage, plan })
+                    logAudit(`Moved ${(manage.bride || '')} & ${(manage.groom || '')} to the ${PL[plan].name} plan`)
+                    say(`Plan set to ${PL[plan].name}`)
+                  } catch (err: any) {
+                    say(err?.message || 'Could not change the plan')
+                  } finally { setBusy(false) }
+                }}
+              >
+                <option value="">Not set</option>
+                {Object.keys(PL).map((k) => <option key={k} value={k}>{PL[k].name}</option>)}
+              </select>
+            </div>
+            <div className="rw" style={{ marginTop: 14 }}>
+              {manage.status !== 'suspended' ? (
+                <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setCustomerStatus(manage, 'suspended')}>Suspend</button>
+              ) : (
+                <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setCustomerStatus(manage, 'active')}>Reinstate</button>
+              )}
+              <button className="btn" style={{ flex: 1, background: '#b3261e', borderColor: '#b3261e', color: '#fff' }} disabled={busy} onClick={() => setCustomerStatus(manage, 'deleted')}>Delete app</button>
+            </div>
+            <button className="btn g" style={{ width: '100%', marginTop: 10 }} onClick={() => setManage(null)}>Close</button>
           </div>
         </div>
       )}

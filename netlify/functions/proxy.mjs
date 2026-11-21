@@ -60,6 +60,28 @@ export default async (req) => {
   }
 
 
+  // Public read of the platform-wide settings (feed pagination and the storage
+  // included with each plan). The landing page shows the admin-set storage with
+  // every plan, so the values must be readable without signing in. Only these
+  // two fields leave the server, nothing else in the doc.
+  if (body.op === 'get-settings') {
+    try {
+      init()
+      const snap = await getFirestore().collection('platform').doc('settings').get()
+      const d = snap.exists ? snap.data() || {} : {}
+      const fps = Number(d.feedPageSize)
+      const st = d.storage || {}
+      const storage = { essential: 5, complete: 10, legacy: 20 }
+      for (const k of ['essential', 'complete', 'legacy']) {
+        const g = Number(st[k])
+        if (Number.isFinite(g) && g > 0) storage[k] = g
+      }
+      return json(200, { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage })
+    } catch (e) {
+      return json(500, { error: String(e?.message || e) })
+    }
+  }
+
   // Public availability checks for the landing's self-serve flow: an email or a
 // name-pair address can only be used once. An email that already owns an
 // account (Firebase Auth, a landing signup or an onboarded couple) is refused
@@ -99,6 +121,32 @@ export default async (req) => {
       return json(200, { taken: !q1.empty || !q2.empty })
     } catch (e) {
       return json(500, { error: String(e?.message || e) })
+    }
+  }
+
+  // Public feed gate for a couple app's private feed: a guest taps the entry
+  // banner and types the access code. The check happens here, server-side, so
+  // the answer never comes from the browser. The returned generation changes
+  // every time a code is revoked or replaced, which kills every old grant.
+  if (body.op === 'feed-gate') {
+    try {
+      init()
+      // Firestore document ids are case-sensitive (auto ids are mixed case),
+      // so the app id is sanitized but never lower-cased here.
+      const appId = String(body.appId || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 40)
+      if (!appId) return json(400, { ok: false, error: 'invalid' })
+      const cfgSnap = await getFirestore().collection('apps').doc(appId).collection('app_config').doc('main').get()
+      const cfg = cfgSnap.exists ? cfgSnap.data() : null
+      if (!cfg || !cfg.feedPrivate) return json(200, { ok: true, open: true, gen: 0 })
+      const gen = Math.max(1, Number(cfg.feedGateGen) || 1)
+      // One code everywhere: the guest access code opens the private feed too.
+      const gate = String(cfg.activeAccessCode || '').trim().toUpperCase()
+      if (!gate) return json(200, { ok: false, error: 'no-code' })
+      if (code === gate) return json(200, { ok: true, gen })
+      return json(200, { ok: false, error: 'invalid' })
+    } catch (e) {
+      return json(500, { ok: false, error: String(e?.message || e) })
     }
   }
 // Public, add-only access for the landing page's self-serve flow: a visitor
@@ -163,12 +211,85 @@ export default async (req) => {
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
   if (!token) return json(401, { error: 'Missing bearer token' })
 
+  let decoded = null
   try {
     init()
-    const decoded = await getAuth().verifyIdToken(token)
+    decoded = await getAuth().verifyIdToken(token)
     body.uid = decoded.uid
   } catch {
     return json(401, { error: 'Invalid or expired token' })
+  }
+
+  // Server-side enforcement for per-app data. Every couple app's data lives
+  // under apps/<app>/...; admins of that app are named in apps/<app>/admins.
+  // Suspended admins are refused outright, admin sessions expire by the
+  // length each admin set (enforced here, not just in the browser), vendors
+  // (photographer / videographer) may touch only the vendor albums, and
+  // non-admin users (guests) may only write posts and resident profiles.
+  const APPS_RE = /^apps\/([^/]+)\//
+  const colPath = String(body.collection || '')
+  const appMatch = APPS_RE.exec(colPath)
+  if (appMatch) {
+    const email = String(decoded.email || '').toLowerCase()
+    if (email) {
+      let adminDoc = null
+      try {
+        adminDoc = await getFirestore().collection('apps').doc(appMatch[1]).collection('admins').doc(email).get()
+      } catch {}
+      if (adminDoc && adminDoc.exists) {
+        const a = adminDoc.data() || {}
+        if (a.status === 'suspended') return json(403, { error: 'This admin access is suspended.' })
+        const mins = Math.max(5, Math.min(Number(a.sessionMinutes) || 30, 60 * 24 * 7))
+        const authTime = Number(decoded.auth_time) || 0
+        // Sliding idle window: lastActiveAt is stamped by the admin's own
+        // dashboard while it is in use, so an active admin is never refused
+        // mid-session; idle past the window, access ends.
+        let startSec = authTime
+        const la = a.lastActiveAt || null
+        let laSec = 0
+        if (la) {
+          if (typeof la.toDate === 'function') laSec = Math.floor(la.toDate().getTime() / 1000)
+          else laSec = Number(la.seconds ?? la._seconds ?? 0) || 0
+        }
+        const nowSec = Date.now() / 1000
+        if (laSec && laSec <= nowSec + 120 && laSec >= startSec - 120) startSec = Math.max(startSec, laSec)
+        if (startSec && nowSec > startSec + mins * 60) {
+          return json(401, { error: 'Your admin session expired. Sign in again.' })
+        }
+        const restricted = ['photographer', 'videographer', 'vendor'].includes(a.role)
+        if (restricted && !colPath.replace(/^apps\/[^/]+\//, '').startsWith('albums')) {
+          return json(403, { error: 'Your role is limited to the vendor albums.' })
+        }
+      } else {
+        // A signed-in user who is not an admin of this app is a guest: they may
+        // add to the feed and keep their own profile, nothing else.
+        const writeOp = ['add', 'set', 'update', 'delete'].includes(body.op)
+        const tail = colPath.replace(APPS_RE, '')
+        if (writeOp && !tail.startsWith('posts') && !tail.startsWith('residents')) {
+          return json(403, { error: 'You do not have access to do that here.' })
+        }
+      }
+    }
+  } else if (colPath !== 'health') {
+    // Outside app data (leads, events, platform settings, admins, platform
+    // audit): only the platform's own admins (top-level admins docs) may touch
+    // it. A couple app's admin is NOT a platform admin; their account only
+    // reaches their own apps/<id>/ data. One narrow guest exception: reading a
+    // single event doc by its access id, which is how the /guest entry screen
+    // works.
+    const email = String(decoded.email || '').toLowerCase()
+    const guestEventRead = colPath === 'events' && body.op === 'get' && !!body.id
+    if (!guestEventRead) {
+      if (email) {
+        let adm = null
+        try {
+          adm = await getFirestore().collection('admins').doc(email).get()
+        } catch {}
+        if (!adm || !adm.exists) return json(403, { error: 'You do not have access to do that here.' })
+      } else {
+        return json(403, { error: 'Sign in with an admin account to do that.' })
+      }
+    }
   }
 
   const { op, collection, id, data, field, value, limit } = body

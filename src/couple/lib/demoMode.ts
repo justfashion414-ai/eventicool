@@ -1,7 +1,16 @@
 // Demo mode for Eventicor couple-app previews: /app renders the wedding-gallery
 // app itself with GENERIC content until a real couple's data is bound to it.
 // No real couple's names, dates, venues or photos ever appear in a preview.
-export const DEMO = true;
+// DEMO is a live binding: previews and marketing samples keep it true, and
+// CoupleApp flips it false (goLive) the moment a real couple's app renders, so
+// every demo branch re-reads it at call time. The content fixtures below stay
+// the same either way.
+export let DEMO = true;
+
+// Flip the couple app from demo fixtures to the real Firebase-backed app.
+// Only real couple apps call this (adminMode 'real'): previews, samples and
+// expired links stay in demo mode.
+export const goLive = () => { DEMO = false; };
 
 export const DEMO_COUPLE = {
   bride: 'Amara',
@@ -28,6 +37,13 @@ export const DEMO_DETAILS = {
   receptionVenue: 'The Grand Pavilion, Victoria Island, Lagos',
   asoEbi: 'wine and gold',
   hashtag: '#AmaraAndDaniel',
+  giftInfo: {
+    enabled: true,
+    bank: 'Guaranty Trust Bank',
+    accountNumber: '0123456789',
+    accountName: 'Amara & Daniel',
+    note: 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.',
+  },
 };
 
 export const DEMO_PHOTOS = [
@@ -82,6 +98,12 @@ export const DEMO_REELS = [
 // Preview access code: the composer in a preview validates against this local
 // demo code, never the real couple's code from Firebase.
 export const DEMO_ACCESS_CODE = 'AMARA26';
+
+// Guest access code derived from the couple's own names: the first three
+// letters of each name, then 26. Sol & Okx -> SOLOKX26. Every app's code is
+// its own; the couple can change it in the dashboard.
+export const nameCode = (bride?: string, groom?: string) =>
+  (((bride || '').replace(/[^a-zA-Z]/g, '').slice(0, 3)) + ((groom || '').replace(/[^a-zA-Z]/g, '').slice(0, 3)) + '26').toUpperCase();
 
 // ---- Lead sample override -------------------------------------------------
 // A lead sample is a marketing app an admin builds in the console. Its link

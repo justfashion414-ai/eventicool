@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Lock, LoaderCircle, ArrowRight } from 'lucide-react'
 import { updatePassword } from 'firebase/auth'
-import { auth, signOutEverywhere, type User } from '../auth'
+import { consoleAuth, signOutEverywhere, type User } from '../auth'
 import { proxyCall } from '../firebase'
 
 const messages: Record<string, string> = {
@@ -37,11 +37,11 @@ export default function SetPassword({
     }
     setBusy(true)
     try {
-      const cu = auth.currentUser
+      const cu = consoleAuth.currentUser
       if (!cu) throw Object.assign(new Error('signed-out'), { code: 'auth/requires-recent-login' })
       await updatePassword(cu, pw)
       const email = (user?.email || '').toLowerCase()
-      await proxyCall('update', { collection: 'admins', id: email, data: { mustChangePassword: false } })
+      await proxyCall('update', { collection: 'admins', id: email, data: { mustChangePassword: false } }, consoleAuth)
       onDone()
     } catch (err) {
       const code = (err as { code?: string }).code || ''

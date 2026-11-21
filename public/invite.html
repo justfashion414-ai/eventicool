@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>You are invited</title>
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --gold1: #f7d788; --gold2: #d8a63f; --gold3: #8a5c17;
+    --ink: #3d2c1e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Playfair Display', Georgia, serif;
+    color: var(--ink);
+    overflow: hidden;
+    user-select: none;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    overflow: hidden;
+    transition: opacity .5s ease;
+  }
+  .screen {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
+    text-align: center;
+    opacity: 0; pointer-events: none; transform: translateY(14px);
+    transition: opacity .55s ease, transform .55s ease;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  .screen.on { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+  /* ---------- theme backgrounds ---------- */
+  body[data-tpl="palms"] #stage {
+    background: linear-gradient(180deg, #f9c6cf 0%, #f6d9c8 42%, #f3e3d0 62%, #e8d7bf 100%);
+  }
+  body[data-tpl="royal"] #stage {
+    background: linear-gradient(180deg, #f9ead9 0%, #f3ddc9 55%, #ecd2be 100%);
+  }
+  body[data-tpl="seal"] #stage {
+    background: linear-gradient(180deg, #b7a77c 0%, #a89468 55%, #96824f 100%);
+    color: #fdf6e6;
+  }
+  body[data-tpl="seal"] { color: #fdf6e6; }
+
+  .deco { position: absolute; inset: 0; pointer-events: none; }
+  .deco svg { position: absolute; }
+
+  /* ---------- envelope ---------- */
+  .env-wrap { perspective: 900px; }
+  .envelope {
+    position: relative; width: 264px; height: 176px; margin: 0 auto;
+    background: linear-gradient(135deg, #fdf6ea, #f4e7d2);
+    border: 1px solid rgba(138,92,23,.35);
+    border-radius: 10px;
+    box-shadow: 0 18px 40px rgba(61,44,30,.25);
+    transform-style: preserve-3d;
+    transition: transform .8s cubic-bezier(.2,.7,.3,1), opacity .6s ease;
+  }
+  body[data-tpl="royal"] .envelope { background: linear-gradient(135deg, #fdf1e4, #f6e2cf); }
+  body[data-tpl="seal"] .envelope { background: linear-gradient(135deg, #efe4c8, #e4d5ae); }
+  .env-flap {
+    position: absolute; top: 0; left: 0; right: 0; height: 52%;
+    background: linear-gradient(180deg, #f9efdc, #f0e0c4);
+    border-radius: 10px 10px 0 0;
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    transform-origin: top center;
+    transition: transform .8s cubic-bezier(.2,.7,.3,1);
+    z-index: 3;
+  }
+  body[data-tpl="royal"] .env-flap { background: linear-gradient(180deg, #fbe7d3, #f3d8bf); }
+  body[data-tpl="seal"] .env-flap { background: linear-gradient(180deg, #f2e6c6, #e6d5a8); }
+  .env-open .env-flap { transform: rotateX(178deg); }
+  .seal {
+    position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
+    width: 74px; height: 74px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%, var(--gold1), var(--gold2) 58%, var(--gold3));
+    box-shadow: 0 6px 14px rgba(61,44,30,.35), inset 0 0 0 5px rgba(255,255,255,.22);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: #fff8e6; letter-spacing: 1px;
+    z-index: 4; cursor: pointer;
+    transition: transform .5s ease, opacity .5s ease;
+    animation: sealPulse 2.2s ease-in-out infinite;
+  }
+  @keyframes sealPulse { 0%,100% { box-shadow: 0 6px 14px rgba(61,44,30,.35), inset 0 0 0 5px rgba(255,255,255,.22), 0 0 0 0 rgba(216,166,63,.45); } 50% { box-shadow: 0 6px 14px rgba(61,44,30,.35), inset 0 0 0 5px rgba(255,255,255,.22), 0 0 0 12px rgba(216,166,63,0); } }
+  .env-open .seal { animation: none; transform: translate(-50%, -260%) scale(.6); opacity: 0; }
+  .env-names {
+    position: absolute; left: 0; right: 0; bottom: 16px;
+    font-size: 15px; letter-spacing: 2px; text-transform: uppercase; color: #8a6a3c;
+  }
+  .tap-hint {
+    margin-top: 22px; font-size: 13px; letter-spacing: 3px; text-transform: uppercase;
+    opacity: .75; animation: hintPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes hintPulse { 0%,100% { opacity: .45; } 50% { opacity: .9; } }
+  .env-done .envelope { transform: translateY(-30px) scale(.92); opacity: 0; pointer-events: none; }
+  .env-done .tap-hint { opacity: 0; }
+
+  /* ---------- arrive screen ---------- */
+  .arrive-kicker { font-size: 12px; letter-spacing: 4px; text-transform: uppercase; opacity: .7; margin-bottom: 14px; }
+  .arrive-title { font-size: clamp(30px, 8vw, 44px); line-height: 1.15; }
+  .arrive-names { font-family: 'Great Vibes', cursive; font-size: clamp(40px, 11vw, 62px); margin-top: 18px; }
+  .arrive-sub { margin-top: 12px; font-size: 15px; opacity: .8; }
+  .continue-btn {
+    margin-top: 30px; padding: 13px 34px; border-radius: 999px;
+    border: 1.5px solid rgba(138,92,23,.55); background: rgba(255,255,255,.35);
+    font-family: inherit; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+    color: inherit; cursor: pointer;
+  }
+  body[data-tpl="seal"] .continue-btn { background: rgba(255,255,255,.12); }
+
+  /* ---------- reveal screen ---------- */
+  .reveal-hint { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; opacity: .75; }
+  .reveal-script { font-family: 'Great Vibes', cursive; font-size: clamp(44px, 12vw, 68px); margin: 6px 0 4px; }
+  .reveal-sub { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; opacity: .75; }
+  .orbs { display: flex; gap: 18px; margin-top: 34px; justify-content: center; }
+  .orb-box { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  .orb {
+    position: relative; width: 92px; height: 92px; border-radius: 50%;
+  }
+  .orb .val {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 700; letter-spacing: 1px;
+    opacity: 0; transform: scale(.5); transition: opacity .5s ease, transform .5s cubic-bezier(.2,1.6,.4,1);
+  }
+  .orb .val small { display: block; font-size: 10px; font-weight: 500; letter-spacing: 2px; opacity: .8; margin-top: 3px; }
+  .orb canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%;
+    touch-action: none; cursor: pointer;
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .orb.done canvas { opacity: 0; transform: scale(1.25); pointer-events: none; }
+  .orb.done .val { opacity: 1; transform: scale(1); }
+  .orb-label { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; opacity: .8; }
+
+  /* ---------- details ---------- */
+  .details {
+    width: min(360px, 88vw); margin: 0 auto; padding: 26px 22px;
+    background: rgba(255,255,255,.5); border: 1px solid rgba(138,92,23,.35); border-radius: 16px;
+    backdrop-filter: blur(4px);
+  }
+  body[data-tpl="seal"] .details { background: rgba(0,0,0,.22); border-color: rgba(247,215,136,.5); }
+  .details h2 { font-family: 'Great Vibes', cursive; font-size: 40px; font-weight: 400; }
+  .d-line { margin-top: 12px; font-size: 15px; line-height: 1.5; }
+  .d-line b { display: block; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; opacity: .7; margin-bottom: 3px; }
+  .d-msg { margin-top: 16px; font-style: italic; line-height: 1.6; font-size: 15px; white-space: pre-line; }
+  .d-close { margin-top: 18px; font-family: 'Great Vibes', cursive; font-size: 24px; opacity: .9; }
+  .brand { margin-top: 26px; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; opacity: .55; }
+
+  .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 5; background: inherit; }
+  .loading .ring { width: 34px; height: 34px; border-radius: 50%; border: 2.5px solid rgba(138,92,23,.25); border-top-color: #8a5c17; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .err { font-size: 15px; opacity: .85; line-height: 1.6; padding: 0 30px; }
+  .shimmer { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--gold1); box-shadow: 0 0 10px 3px rgba(247,215,136,.65); animation: fall 2.6s linear infinite; pointer-events: none; }
+  @keyframes fall { 0% { transform: translateY(-8vh) scale(1); opacity: 0; } 12% { opacity: .9; } 100% { transform: translateY(105vh) scale(.4); opacity: 0; } }
+</style>
+</head>
+<body data-tpl="palms">
+  <div id="stage">
+    <div class="deco" id="deco"></div>
+
+    <div class="screen on" id="s-env">
+      <div class="env-wrap" id="envwrap">
+        <div class="envelope" id="envelope">
+          <div class="env-flap"></div>
+          <div class="seal" id="seal">A&amp;C</div>
+          <div class="env-names" id="env-names">Ada &amp; Chike</div>
+        </div>
+      </div>
+      <div class="tap-hint" id="tap-hint">Tap to open</div>
+    </div>
+
+    <div class="screen" id="s-arrive">
+      <div class="arrive-kicker" id="arrive-kicker">Wedding day</div>
+      <div class="arrive-title">The day has<br />arrived!</div>
+      <div class="arrive-names" id="arrive-names">Ada &amp; Chike</div>
+      <div class="arrive-sub">We can't wait to celebrate</div>
+      <button class="continue-btn" id="continue-btn">Continue</button>
+    </div>
+
+    <div class="screen" id="s-reveal">
+      <div class="reveal-hint">Scratch all three circles to continue</div>
+      <div class="reveal-script">Reveal</div>
+      <div class="reveal-sub">Scratch to discover the date</div>
+      <div class="orbs">
+        <div class="orb-box">
+          <div class="orb" id="orb-m"><span class="val" id="val-m">May</span><canvas></canvas></div>
+          <div class="orb-label">Month</div>
+        </div>
+        <div class="orb-box">
+          <div class="orb" id="orb-d"><span class="val" id="val-d">27</span><canvas></canvas></div>
+          <div class="orb-label">Day</div>
+        </div>
+        <div class="orb-box">
+          <div class="orb" id="orb-y"><span class="val" id="val-y">2026</span><canvas></canvas></div>
+          <div class="orb-label">Year</div>
+        </div>
+      </div>
+      <div class="details" id="details" style="margin-top:34px; opacity:0; transform:translateY(18px); transition: opacity .7s ease, transform .7s ease; pointer-events:none;">
+        <h2 id="d-names">Ada &amp; Chike</h2>
+        <div class="d-line"><b>Date</b><span id="d-date">Saturday 27 May 2026</span></div>
+        <div class="d-line" id="d-venue-line"><b>Venue</b><span id="d-venue">Grand Hall, Lagos</span></div>
+        <div class="d-msg" id="d-msg" style="display:none"></div>
+        <div class="d-close">We can't wait to celebrate with you</div>
+      </div>
+      <div class="brand">Eventicor</div>
+    </div>
+
+    <div class="loading" id="loading"><div class="ring"></div><div class="tap-hint" style="animation:none; opacity:.7">Opening your invitation</div></div>
+  </div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search)
+  var id = (params.get('i') || '').trim()
+  var APPQ = (function () { var a = (params.get('app') || '').trim(); return a ? '&app=' + encodeURIComponent(a) : ''; })()
+  var stage = document.getElementById('stage')
+  var loading = document.getElementById('loading')
+  var data = null
+
+  function show(screenId) {
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('on') })
+    document.getElementById(screenId).classList.add('on')
+  }
+
+  function esc(s) {
+    var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML
+  }
+
+  function paintDeco(tpl) {
+    var d = document.getElementById('deco')
+    var sun = '<svg style="top:7%;left:50%;transform:translateX(-50%)" width="120" height="120" viewBox="0 0 120 120"><circle cx="60" cy="60" r="34" fill="rgba(255,236,190,.85)"/><circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,236,190,.5)" stroke-width="1.5" stroke-dasharray="2 7"/></svg>'
+    var palmsL = '<svg style="bottom:-4%;left:-8%;width:46vw;height:auto;opacity:.5" viewBox="0 0 200 260" fill="#5c4326"><path d="M96 260c-4-70-8-130-2-190 2-18 8-30 18-34-2 14-4 26-2 42 8-14 22-22 38-24-10 10-18 22-22 38 16-8 34-8 48 0-16 2-30 10-40 24-10 14-16 34-18 60-2 30-2 56-4 84z"/><path d="M60 260c10-60 16-110 30-150" stroke="#5c4326" stroke-width="6" fill="none" stroke-linecap="round"/></svg>'
+    var palmsR = '<svg style="bottom:-4%;right:-8%;width:46vw;height:auto;opacity:.5;transform:scaleX(-1)" viewBox="0 0 200 260" fill="#5c4326"><path d="M96 260c-4-70-8-130-2-190 2-18 8-30 18-34-2 14-4 26-2 42 8-14 22-22 38-24-10 10-18 22-22 38 16-8 34-8 48 0-16 2-30 10-40 24-10 14-16 34-18 60-2 30-2 56-4 84z"/></svg>'
+    var waves = '<svg style="bottom:0;left:0;width:100%;height:12%;opacity:.35" viewBox="0 0 400 60" preserveAspectRatio="none"><path d="M0 30 Q25 18 50 30 T100 30 T150 30 T200 30 T250 30 T300 30 T350 30 T400 30" stroke="#8a5c17" stroke-width="2" fill="none"/><path d="M0 44 Q25 34 50 44 T100 44 T150 44 T200 44 T250 44 T300 44 T350 44 T400 44" stroke="#8a5c17" stroke-width="1.5" fill="none" opacity=".6"/></svg>'
+    var arches = '<svg style="bottom:0;left:50%;transform:translateX(-50%);width:90vw;height:26%;opacity:.3" viewBox="0 0 400 120" fill="none" stroke="#8a5c17" stroke-width="2"><path d="M20 120 V70 Q20 30 60 30 Q100 30 100 70 V120"/><path d="M150 120 V70 Q150 30 190 30 Q230 30 230 70 V120"/><path d="M280 120 V70 Q280 30 320 30 Q360 30 360 70 V120"/><circle cx="60" cy="86" r="8" fill="#8a5c17" stroke="none"/><circle cx="190" cy="86" r="8" fill="#8a5c17" stroke="none"/><circle cx="320" cy="86" r="8" fill="#8a5c17" stroke="none"/></svg>'
+    var feathers = '<svg style="top:12%;left:8%;width:60px;opacity:.5" viewBox="0 0 60 90"><ellipse cx="30" cy="30" rx="26" ry="18" fill="#2f6b5e"/><circle cx="30" cy="30" r="9" fill="#d8a63f"/><circle cx="30" cy="30" r="4" fill="#8a5c17"/><path d="M30 46 C30 62 26 74 20 88" stroke="#2f6b5e" stroke-width="3" fill="none"/></svg>'
+    var feathers2 = '<svg style="top:20%;right:8%;width:60px;opacity:.5;transform:scaleX(-1)" viewBox="0 0 60 90"><ellipse cx="30" cy="30" rx="26" ry="18" fill="#2f6b5e"/><circle cx="30" cy="30" r="9" fill="#d8a63f"/><circle cx="30" cy="30" r="4" fill="#8a5c17"/><path d="M30 46 C30 62 26 74 20 88" stroke="#2f6b5e" stroke-width="3" fill="none"/></svg>'
+    var flourish = '<svg style="top:9%;left:50%;transform:translateX(-50%);width:150px;opacity:.7" viewBox="0 0 150 40" fill="none" stroke="#d8a63f" stroke-width="1.5"><path d="M10 30 Q40 4 75 20 Q110 36 140 10"/><circle cx="75" cy="20" r="3" fill="#d8a63f" stroke="none"/></svg>'
+    var speck = ''
+    for (var i = 0; i < 14; i++) {
+      speck += '<span class="shimmer" style="left:' + (Math.random() * 96 + 2) + '%;top:' + (Math.random() * 80 + 6) + '%;animation-delay:' + (Math.random() * 2.6).toFixed(2) + 's;animation-duration:' + (2 + Math.random() * 2.4).toFixed(2) + 's"></span>'
+    }
+    if (tpl === 'royal') d.innerHTML = speck + flourish + arches + feathers + feathers2
+    else if (tpl === 'seal') d.innerHTML = speck + flourish
+    else d.innerHTML = speck + sun + palmsL + palmsR + waves
+  }
+
+  function render(d) {
+    var tpl = ['palms', 'royal', 'seal'].indexOf(d.tpl) >= 0 ? d.tpl : 'palms'
+    document.body.setAttribute('data-tpl', tpl)
+    paintDeco(tpl)
+    var names = (d.bride || '') + ' & ' + (d.groom || '')
+    var initials = ((d.bride || '?')[0] || 'A') + '&' + ((d.groom || '?')[0] || 'C')
+    document.getElementById('seal').innerHTML = esc(initials)
+    document.getElementById('env-names').innerHTML = esc(names)
+    document.getElementById('arrive-names').innerHTML = esc(names)
+    document.getElementById('arrive-kicker').textContent = 'Wedding day'
+    document.getElementById('d-names').innerHTML = esc(names)
+    document.getElementById('val-m').textContent = d.month || ''
+    document.getElementById('val-d').textContent = d.day || ''
+    document.getElementById('val-y').textContent = d.year || ''
+    var venue = [d.venue, d.city].filter(Boolean).join(', ')
+    document.getElementById('d-venue').textContent = venue || 'To be announced'
+    if (!d.venue && !d.city) document.getElementById('d-venue-line').style.display = 'none'
+    if (d.message) {
+      var m = document.getElementById('d-msg')
+      m.style.display = 'block'
+      m.innerHTML = esc(d.message)
+    }
+    var wd = d.wedDate ? new Date(d.wedDate + 'T00:00:00') : null
+    if (wd && !isNaN(wd)) {
+      document.getElementById('d-date').textContent = wd.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    } else {
+      document.getElementById('d-date').textContent = [d.month, d.day, d.year].filter(Boolean).join(' ') || 'To be announced'
+    }
+    setupScratch()
+  }
+
+  // Count this open exactly once per visitor, at the moment the invitation
+  // card is opened (the tap on the envelope).
+  function countOpen() {
+    if (!id) return
+    try {
+      var key = 'iv-open-' + id
+      if (localStorage.getItem(key)) return
+      localStorage.setItem(key, '1')
+    } catch (e) { /* private mode */ }
+    try { fetch('/api/invite?id=' + encodeURIComponent(id) + APPQ, { method: 'POST', keepalive: true }) } catch (e) {}
+  }
+
+  function setupScratch() {
+    var done = { m: false, d: false, y: false }
+    ;[['m'], ['d'], ['y']].forEach(function (k) {
+      var box = document.getElementById('orb-' + k)
+      var canvas = box.querySelector('canvas')
+      var ctx = canvas.getContext('2d')
+      function paint() {
+        var r = box.getBoundingClientRect()
+        var dpr = window.devicePixelRatio || 1
+        canvas.width = r.width * dpr; canvas.height = r.height * dpr
+        var g = ctx.createRadialGradient(canvas.width * 0.35, canvas.height * 0.3, canvas.width * 0.05, canvas.width * 0.5, canvas.height * 0.5, canvas.width * 0.75)
+        g.addColorStop(0, '#fbe49b'); g.addColorStop(0.55, '#d8a63f'); g.addColorStop(1, '#8a5c17')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.fillStyle = 'rgba(255,255,255,.35)'
+        ctx.beginPath(); ctx.ellipse(canvas.width * 0.34, canvas.height * 0.28, canvas.width * 0.2, canvas.height * 0.13, -0.5, 0, 7); ctx.fill()
+      }
+      paint()
+      window.addEventListener('resize', paint)
+
+      var drawing = false, checks = 0
+      function pos(e) {
+        var r = canvas.getBoundingClientRect()
+        var p = e.touches ? e.touches[0] : e
+        return { x: (p.clientX - r.left) * (canvas.width / r.width), y: (p.clientY - r.top) * (canvas.height / r.height) }
+      }
+      function scratch(x, y) {
+        ctx.globalCompositeOperation = 'destination-out'
+        ctx.beginPath(); ctx.arc(x, y, canvas.width * 0.14, 0, 7); ctx.fill()
+      }
+      function check() {
+        var img = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+        var clear = 0, total = 0
+        for (var i = 3; i < img.length; i += 4 * 37) { total++; if (img[i] === 0) clear++ }
+        if (clear / total > 0.55) {
+          done[k] = true
+          box.classList.add('done')
+          if (done.m && done.d && done.y) setTimeout(unlock, 500)
+        }
+      }
+      function move(e) {
+        if (!drawing) return
+        e.preventDefault()
+        var p = pos(e); scratch(p.x, p.y)
+        if (++checks % 5 === 0) check()
+      }
+      function down(e) { drawing = true; var p = pos(e); scratch(p.x, p.y) }
+      function up() { if (drawing) { drawing = false; check() } }
+      canvas.addEventListener('pointerdown', down)
+      canvas.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      canvas.addEventListener('pointerleave', up)
+    })
+  }
+
+  function unlock() {
+    var d = document.getElementById('details')
+    d.style.opacity = '1'
+    d.style.transform = 'translateY(0)'
+    d.style.pointerEvents = 'auto'
+    setTimeout(function () { d.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 250)
+  }
+
+  if (!id) {
+    var pb = params.get('bride') || ''
+    if (pb) {
+      var pv = { bride: pb, groom: params.get('groom') || '', tpl: params.get('tpl') || 'palms', venue: params.get('venue') || '', city: params.get('city') || '', message: params.get('message') || '' }
+      var pd = params.get('date') || ''
+      if (pd) { var pdd = new Date(pd.replace(/ /, 'T')); if (!isNaN(pdd)) { pv.month = pdd.toLocaleString('en-GB', { month: 'long' }); pv.day = String(pdd.getDate()); pv.year = String(pdd.getFullYear()) } }
+      loading.style.display = 'none'
+      render(pv)
+    } else {
+      loading.style.display = 'none'
+      document.getElementById('s-env').innerHTML = '<div class="err">This invitation link is not complete.<br />Please ask the couple for the full link.</div>'
+      return
+    }
+  } else {
+  fetch('/api/invite?id=' + encodeURIComponent(id) + APPQ)
+    .then(function (r) { if (!r.ok) throw new Error('bad'); return r.json() })
+    .then(function (d) {
+      data = d
+      loading.style.display = 'none'
+      render(d)
+    })
+    .catch(function () {
+      loading.style.display = 'none'
+      document.getElementById('s-env').innerHTML = '<div class="err">We could not open this invitation.<br />Please ask the couple for a fresh link.</div>'
+    })
+  }
+
+  var opened = false
+  document.getElementById('envelope').addEventListener('click', function () {
+    if (opened) return
+    opened = true
+    countOpen()
+    var wrap = document.getElementById('envwrap')
+    wrap.classList.add('env-open')
+    setTimeout(function () { document.getElementById('s-env').classList.add('env-done') }, 350)
+    setTimeout(function () { show('s-arrive') }, 950)
+  })
+  document.getElementById('continue-btn').addEventListener('click', function () { show('s-reveal') })
+})()
+</script>
+</body>
+</html>
