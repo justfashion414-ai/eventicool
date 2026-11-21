@@ -7230,20 +7230,26 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const saveInvite = async () => {
     if (!f.bride.trim() || !f.groom.trim()) { showToast('Bride and groom names are required', 'error'); return; }
     setSaving(true);
-    const dt = f.date ? new Date(f.date + 'T12:00:00') : null;
+    const s = (v: any) => (v == null || typeof v === 'object' ? '' : String(v)).trim();
+    const dateStr = s(f.date).slice(0, 10);
+    const dt = dateStr ? new Date(dateStr + 'T12:00:00') : null;
+    const okDate = !!dt && !isNaN(dt.getTime());
+    const scheduleRows = (Array.isArray(f.schedule) ? f.schedule : [])
+      .map((r: any) => (Array.isArray(r) ? r : []).slice(0, 3).map((c: any) => s(c)))
+      .filter((r: string[]) => r.some((c: string) => c));
     const payload: any = {
-      bride: f.bride.trim(), groom: f.groom.trim(), tpl,
-      wedDate: f.date || '',
-      month: dt ? dt.toLocaleString('en-GB', { month: 'long' }) : '',
-      day: dt ? String(dt.getDate()) : '',
-      year: dt ? String(dt.getFullYear()) : '',
-      venue: (f.venue || '').trim(), city: (f.city || '').trim(),
-      message: (f.story || '').trim(), hashtag: (f.hashtag || '').trim(), dress: (f.dress || '').trim(),
-      whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
-      dressColors: (dressColors || []).filter(Boolean),
-      photos: (f.photos || []).slice(0, 5),
-      schedule: (f.schedule || []).filter((r: any[]) => (r[0] || r[1])),
-      music: f.music || '', updatedAt: serverTimestamp(),
+      bride: s(f.bride), groom: s(f.groom), tpl,
+      wedDate: dateStr,
+      month: okDate && dt ? dt.toLocaleString('en-GB', { month: 'long' }) : '',
+      day: okDate && dt ? String(dt.getDate()) : '',
+      year: okDate && dt ? String(dt.getFullYear()) : '',
+      venue: s(f.venue), city: s(f.city),
+      message: s(f.story), hashtag: s(f.hashtag), dress: s(f.dress),
+      whatsapp: s(f.whatsapp).replace(/\D/g, ''),
+      dressColors: (Array.isArray(dressColors) ? dressColors : []).filter((c: any) => typeof c === 'string' && c.trim()).map((c: string) => c.trim()).slice(0, 12),
+      photos: (Array.isArray(f.photos) ? f.photos : []).slice(0, 5).filter((u: any) => typeof u === 'string' && u),
+      schedule: scheduleRows,
+      music: s(f.music), updatedAt: serverTimestamp(),
     };
     try {
       if (DEMO) {
@@ -7261,7 +7267,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         setSavedLink(buildLink(tpl, res.id));
         showToast('Invitation card created. Send the link to your guests', 'success');
       }
-    } catch (e: any) { showToast('Could not save the invitation' + (e && e.code ? ' (' + e.code + ')' : '') + '. Try again', 'error'); }
+    } catch (e: any) {
+      console.error('[invite-save] failed:', e, { tpl, docId });
+      showToast('Could not save the invitation: ' + String((e && (e.message || e.code)) || 'unknown error').slice(0, 140) + '. Try again', 'error');
+    }
     setSaving(false);
   };
 
@@ -7272,6 +7281,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [guests, setGuests] = useState<any[] | null>(null);
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
   const [addingGuest, setAddingGuest] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -7299,18 +7309,20 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
 
   const addGuest = async () => {
     if (!docId) { showToast('Save the invitation first, then add your invitees', 'error'); return; }
+    if (!guestName.trim()) { showToast("Type the invitee's name first", 'error'); return; }
     setAddingGuest(true);
+    const phone = guestPhone.replace(/\D/g, '');
     try {
       if (docId === 'demo') {
-        const next = [...(guests || []), { id: 'g' + Date.now(), name: guestName.trim(), createdAt: { seconds: Math.floor(Date.now() / 1000) } }];
+        const next = [...(guests || []), { id: 'g' + Date.now(), name: guestName.trim(), phone, createdAt: { seconds: Math.floor(Date.now() / 1000) } }];
         setGuests(next);
         localStorage.setItem(lsKey('iv-guests'), JSON.stringify(next));
       } else {
-        await addDoc(collection(db, scopedPath('invites'), docId, 'guests'), { name: guestName.trim(), createdAt: serverTimestamp() });
+        await addDoc(collection(db, scopedPath('invites'), docId, 'guests'), { name: guestName.trim(), phone, createdAt: serverTimestamp() });
       }
-      setGuestName('');
-      showToast('Invitee added. Copy their link and send it', 'success');
-    } catch { showToast('Could not add the invitee. Try again', 'error'); }
+      setGuestName(''); setGuestPhone('');
+      showToast('Invitee added. Copy their link or tap WhatsApp to send it', 'success');
+    } catch (e: any) { showToast('Could not add the invitee' + (e && e.message ? ': ' + String(e.message).slice(0, 100) : '') + '. Try again', 'error'); }
     setAddingGuest(false);
   };
 
@@ -7328,7 +7340,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     try { await setDoc(doc(db, scopedPath('app_config'), 'main'), { weddingDetails: { dressColors: next } }, { merge: true }); } catch { showToast('Could not save the colours', 'error'); }
   };
 
-  const guestMsg = (gl: string) => `You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${gl}`;
+  const guestMsg = (gl: string) => `You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ', ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${gl}`;
 
   const onInvitePhotos = async (e: any) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -7357,9 +7369,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       </div>
 
       <section>
-        <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="mb-3">
           <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">Card style</label>
-          <button type="button" onClick={() => setPreviewTpl(tpl)} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)]/50 text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0" style={{ touchAction: 'manipulation' }}><Eye className="w-3.5 h-3.5" />Preview</button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {IV_STYLES.map((s) => (
@@ -7434,9 +7445,6 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
             </InvSec>
-            <InvSec id="replies" title="Replies">
-              <p className="text-sm opacity-70">Replies come straight back to you here in the app, on each invitee's card below: whether they opened their invite, and whether they are coming. No WhatsApp needed.</p>
-            </InvSec>
             <InvSec id="music" title="Music">
               <div className="relative">
                 {musicOpen && <div className="fixed inset-0 z-20" onClick={closeMusicDropdown} />}
@@ -7499,18 +7507,24 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                     </div>
                     {openedAt && <p className="text-xs opacity-60 mt-1">Opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
                     {rep && <p className="text-xs mt-1">{rep.attend === 'no' ? "Can't make it" : 'Coming'}{rep.note ? ` · ${rep.note}` : ''}</p>}
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex flex-wrap gap-2 mt-2">
                       <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
                       <button type="button" onClick={() => copyText(guestMsg(gl), 'Message')} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.6rem] font-black uppercase tracking-widest">Copy message</button>
+                      <button type="button" aria-label={`Send ${g.name || 'this invitee'} their invite on WhatsApp`} onClick={() => { const ph = String(g.phone || '').replace(/\D/g, ''); if (!ph) { showToast('Add their WhatsApp number to open the chat', 'error'); return; } window.open('https://wa.me/' + ph + '?text=' + encodeURIComponent(guestMsg(gl)), '_blank'); }} className="px-3 py-1.5 rounded-full bg-[#25D366] text-white text-[0.6rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>WhatsApp</button>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-          <div className="flex gap-2 mt-3">
-            <input className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Their name (optional)" maxLength={40} />
-            <button type="button" onClick={addGuest} disabled={addingGuest} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-50 whitespace-nowrap">{addingGuest ? 'Adding…' : 'Add invitee'}</button>
+          <div className="mt-3">
+            <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5">Add an invitee</label>
+            <div className="flex gap-2">
+              <input className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Their name" maxLength={40} />
+              <input className={inputCls} value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} placeholder="WhatsApp number" inputMode="tel" maxLength={20} />
+              <button type="button" onClick={addGuest} disabled={addingGuest} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-50 whitespace-nowrap" style={{ touchAction: 'manipulation' }}>{addingGuest ? 'Adding…' : 'Add'}</button>
+            </div>
+            <p className="text-[10px] opacity-50 mt-1.5">Their WhatsApp number powers the WhatsApp button on their row.</p>
           </div>
         </section>
       )}
@@ -7521,6 +7535,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           <button type="button" onClick={saveInvite} disabled={saving} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
         </div>
       </div>
+
+      <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, bottom: 84, zIndex: 250, touchAction: 'manipulation' }}>
+        <Eye className="w-5 h-5" />
+      </button>
 
       {previewTpl && (
         <div className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewTpl(null)}>
