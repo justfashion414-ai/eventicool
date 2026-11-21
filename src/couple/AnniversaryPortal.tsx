@@ -596,6 +596,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   });
   const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
+  // The small thank-you line every giant footer style shows above the couple's
+  // names; editable in the dashboard's Giant footer style card.
+  const [footerThanks, setFooterThanks] = useState<string>(() => { try { return localStorage.getItem(lsKey('footer-thanks')) || ''; } catch { return ''; } });
   // Journey dropdown: which event card is expanded (one at a time).
   const [openEventId, setOpenEventId] = useState<string | null>(null);
   // Giant footer look, chosen by the couple in the dashboard. A brand-new app
@@ -1506,6 +1509,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setFooterStyle(data.footerStyle);
           try { localStorage.setItem(lsKey('footer-style'), data.footerStyle); } catch {}
         }
+        if (typeof data.footerThanks === 'string') {
+          setFooterThanks(data.footerThanks);
+          try { localStorage.setItem(lsKey('footer-thanks'), data.footerThanks); } catch {}
+        }
         if (data.heroTemplate === 'classic' || data.heroTemplate === 'halo' || data.heroTemplate === 'hero' || data.heroTemplate === 'book') {
           setHeroTpl(data.heroTemplate);
           try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
@@ -2018,13 +2025,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
   // Giant footer style (dashboard setting; couples pick the look).
-  const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false) => {
+  const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false, thanks?: string) => {
     setFooterStyle(style);
     try { localStorage.setItem(lsKey('footer-style'), style); } catch {}
+    if (typeof thanks === 'string') {
+      setFooterThanks(thanks);
+      try { localStorage.setItem(lsKey('footer-thanks'), thanks); } catch {}
+    }
     if (DEMO) { if (!quiet) showToast('Giant footer style saved for this preview.'); return; }
     if (!isAdmin) return;
     try {
-      await setDoc(doc(db, scopedPath('app_config'), 'main'), { footerStyle: style, lastUpdated: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), { footerStyle: style, ...(typeof thanks === 'string' ? { footerThanks: thanks } : {}), lastUpdated: serverTimestamp() }, { merge: true });
       if (!quiet) showToast('Giant footer style saved.');
     } catch (err) {
       console.error('Update footer style error:', err);
@@ -2957,13 +2968,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
-                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
               ) : footerStyle === 'tunnel' ? (
-                <GiantFooterTunnel images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterTunnel images={footerPool} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
               ) : footerStyle === 'globe' ? (
-                <GiantFooterGlobe images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterGlobe images={footerPool} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
               ) : (
-                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
               )}
 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
@@ -3506,6 +3517,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         contactSettings={cfgContact}
         onUpdateFooterStyle={updateFooterStyle}
         footerStyle={footerStyle}
+        footerThanks={footerThanks}
         onUpdateHeroTemplate={updateHeroTemplate}
         heroTpl={heroTpl}
         accentKey={accentKey}
@@ -5584,7 +5596,7 @@ const footerRows = (images: string[], rows: number): string[][] => {
 // Style 1 · Photo wall: a still 24-photo grid under the couple's serif names.
 // Every tile sits greyed out; a bright scan sweeps the rows top to bottom and
 // back up again, looping (the reference video's arrangement).
-function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void }) {
+function GiantFooterWall({ images = [], isDarkMode, onTap, thanks }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void; thanks?: string }) {
   const ROWS = 8;
   const [activeRow, setActiveRow] = useState(0);
   useEffect(() => {
@@ -5616,6 +5628,7 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
       </div>
       <div className={`absolute inset-0 z-[1] pointer-events-none ${isDarkMode ? 'bg-[#0B171C]/25' : 'bg-white/20'}`} />
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
+        <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
@@ -5634,12 +5647,13 @@ function GiantFooterWall({ images = [], isDarkMode, onTap }: { images?: string[]
 
 // Style 2 · Marquee: dark navy wall, accent bar on top, rounded photo rows
 // drifting at different speeds, and a small photo-count chip.
-function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void }) {
+function GiantFooterMarquee({ images = [], onTap, thanks }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void; thanks?: string }) {
   const rows = footerRows(images, 4);
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
       <div className="h-[12px] bg-[var(--ann-accent)]" />
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
+        <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
@@ -5672,18 +5686,19 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
 // own, respect reduced motion, steer by dragging, and open a photo on tap.
 // compact=true is the dashboard preview mockup's small version.
 const EVFW_CROP = [['cover', 'center'], ['210% auto', '50% 22%'], ['190% auto', '20% 40%'], ['190% auto', '80% 45%']];
+const EVFW_THANKS = 'Thank you for celebrating with us';
 
-function GiantFooterNames({ bride, groom, wed, compact = false }: { bride: string; groom: string; wed: string; compact?: boolean }) {
+function GiantFooterNames({ bride, groom, wed, thanks, compact = false }: { bride: string; groom: string; wed: string; thanks?: string; compact?: boolean }) {
   return (
     <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
-      <small>THANK YOU FOR CELEBRATING WITH US</small>
+      <small>{(thanks || '').trim() || EVFW_THANKS}</small>
       <h2>{bride} <i>&amp;</i> {groom}</h2>
       <p>{wed}</p>
     </div>
   );
 }
 
-function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background, onTap, bride, groom, wed }: { compact?: boolean; worldRef: React.RefObject<HTMLDivElement>; stageRef: React.RefObject<HTMLDivElement>; vignette: string; background: string; onTap?: (src: string) => void; bride?: string; groom?: string; wed?: string }) {
+function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background, onTap, bride, groom, wed, thanks }: { compact?: boolean; worldRef: React.RefObject<HTMLDivElement>; stageRef: React.RefObject<HTMLDivElement>; vignette: string; background: string; onTap?: (src: string) => void; bride?: string; groom?: string; wed?: string; thanks?: string }) {
   return (
     <section
       ref={stageRef}
@@ -5692,7 +5707,7 @@ function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background,
     >
       <div ref={worldRef} className="ev-fw-world" />
       <div className="ev-fw-vig" style={{ background: vignette }} />
-      <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} compact={compact} />
+      <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} thanks={thanks} compact={compact} />
       {onTap ? <div className="ev-fw-hint">DRAG TO STEER · TAP A PHOTO</div> : null}
     </section>
   );
@@ -5745,8 +5760,8 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
     const frame = (t: number) => {
       const dt = Math.min(0.05, (t - last) / 1000); last = t;
       if (!rm) {
-        st.off += (150 * (m / 390)) * dt + st.vy * dt;
-        st.rot += 5 * dt + st.vrot * dt;
+        st.off += (80 * (m / 390)) * dt + st.vy * dt;
+        st.rot += 2.4 * dt + st.vrot * dt;
         st.vy *= Math.pow(0.05, dt);
         st.vrot *= Math.pow(0.05, dt);
       }
@@ -5764,9 +5779,10 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
     };
     raf = requestAnimationFrame(frame);
     let drag: any = null;
+    let lastTapAt = 0;
     const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
     const onDown = (ev: PointerEvent) => {
-      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), mv: 0 };
+      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), t0: performance.now(), mv: 0 };
       stage.classList.add('ev-fw-dg');
       try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
     };
@@ -5780,24 +5796,40 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       }
       drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
     };
+    const tapAt = (x: number, y: number) => {
+      if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
+      const el = (document.elementsFromPoint(x, y) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+      if (el) {
+        const P = pool();
+        onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+      }
+    };
     const onEnd = (ev: PointerEvent) => {
       if (!drag) return;
       const mv = drag.mv; drag = null;
       stage.classList.remove('ev-fw-dg');
-      if (mv < 6 && onTapRef.current && typeof document.elementsFromPoint === 'function') {
-        const el = (document.elementsFromPoint(ev.clientX, ev.clientY) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
-        if (el) {
-          const P = pool();
-          onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
-        }
-      }
+      lastTapAt = performance.now();
+      if (mv < 12) tapAt(ev.clientX, ev.clientY);
     };
-    const onCancel = () => { drag = null; stage.classList.remove('ev-fw-dg'); };
+    const onCancel = (ev: PointerEvent) => {
+      if (!drag) return;
+      const mv = drag.mv, dur = performance.now() - drag.t0; drag = null;
+      stage.classList.remove('ev-fw-dg');
+      lastTapAt = performance.now();
+      // Mobile: a tap the browser mistook for the start of a scroll arrives here.
+      if (mv < 12 && dur < 450) tapAt(ev.clientX, ev.clientY);
+    };
+    const onClick = (ev: MouseEvent) => {
+      if (performance.now() - lastTapAt < 700) return;
+      lastTapAt = performance.now();
+      tapAt(ev.clientX, ev.clientY);
+    };
     const onResize = () => setTick(x => x + 1);
     stage.addEventListener('pointerdown', onDown);
     stage.addEventListener('pointermove', onMove);
     stage.addEventListener('pointerup', onEnd);
     stage.addEventListener('pointercancel', onCancel);
+    stage.addEventListener('click', onClick);
     window.addEventListener('resize', onResize);
     return () => {
       cancelAnimationFrame(raf);
@@ -5806,6 +5838,7 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onEnd);
       stage.removeEventListener('pointercancel', onCancel);
+      stage.removeEventListener('click', onClick);
     };
   }, [tick, compact]);
 
@@ -5873,7 +5906,7 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
     const st = { ry: 0, vry: 0, tilt: 0, vt: 0 };
     let T = 0, last = performance.now(), raf = 0;
     const applyTransform = () => {
-      const tl = -8 + Math.sin(T * 0.35) * 6 + st.tilt;
+      const tl = -8 + Math.sin(T * 0.22) * 4 + st.tilt;
       world.style.transform = `translateZ(${-R * 0.55}px) rotateX(${tl}deg) rotateY(${st.ry}deg)`;
     };
     applyTransform();
@@ -5881,7 +5914,7 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       const dt = Math.min(0.05, (t - last) / 1000); last = t;
       if (!rm) {
         T += dt;
-        st.ry += 11 * dt + st.vry * dt;
+        st.ry += 5 * dt + st.vry * dt;
         st.vry *= Math.pow(0.06, dt);
         st.tilt = Math.max(-40, Math.min(40, st.tilt + st.vt * dt));
         st.vt *= Math.pow(0.06, dt);
@@ -5891,9 +5924,10 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
     };
     raf = requestAnimationFrame(frame);
     let drag: any = null;
+    let lastTapAt = 0;
     const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
     const onDown = (ev: PointerEvent) => {
-      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), mv: 0 };
+      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), t0: performance.now(), mv: 0 };
       stage.classList.add('ev-fw-dg');
       try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
     };
@@ -5907,24 +5941,40 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       }
       drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
     };
+    const tapAt = (x: number, y: number) => {
+      if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
+      const el = (document.elementsFromPoint(x, y) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+      if (el) {
+        const P = pool();
+        onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+      }
+    };
     const onEnd = (ev: PointerEvent) => {
       if (!drag) return;
       const mv = drag.mv; drag = null;
       stage.classList.remove('ev-fw-dg');
-      if (mv < 6 && onTapRef.current && typeof document.elementsFromPoint === 'function') {
-        const el = (document.elementsFromPoint(ev.clientX, ev.clientY) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
-        if (el) {
-          const P = pool();
-          onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
-        }
-      }
+      lastTapAt = performance.now();
+      if (mv < 12) tapAt(ev.clientX, ev.clientY);
     };
-    const onCancel = () => { drag = null; stage.classList.remove('ev-fw-dg'); };
+    const onCancel = (ev: PointerEvent) => {
+      if (!drag) return;
+      const mv = drag.mv, dur = performance.now() - drag.t0; drag = null;
+      stage.classList.remove('ev-fw-dg');
+      lastTapAt = performance.now();
+      // Mobile: a tap the browser mistook for the start of a scroll arrives here.
+      if (mv < 12 && dur < 450) tapAt(ev.clientX, ev.clientY);
+    };
+    const onClick = (ev: MouseEvent) => {
+      if (performance.now() - lastTapAt < 700) return;
+      lastTapAt = performance.now();
+      tapAt(ev.clientX, ev.clientY);
+    };
     const onResize = () => setTick(x => x + 1);
     stage.addEventListener('pointerdown', onDown);
     stage.addEventListener('pointermove', onMove);
     stage.addEventListener('pointerup', onEnd);
     stage.addEventListener('pointercancel', onCancel);
+    stage.addEventListener('click', onClick);
     window.addEventListener('resize', onResize);
     return () => {
       cancelAnimationFrame(raf);
@@ -5933,6 +5983,7 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onEnd);
       stage.removeEventListener('pointercancel', onCancel);
+      stage.removeEventListener('click', onClick);
     };
   }, [tick, compact, imgKey]);
 
@@ -6681,7 +6732,7 @@ function SectionEyeBtn({ hidden, onClick, isDarkMode }: { hidden: boolean; onCli
   );
 }
 
-function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, partners = DEMO_PARTNERS }: any) {
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, thanks, partners = DEMO_PARTNERS }: any) {
   // A faithful miniature of the real home page: the actual template hero
   // components (compact), the same banner, journey timeline and giant footer
   // wall the couple sees, all drawn from the admin's current drafts.
@@ -6721,6 +6772,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       : 'bg-[#EEEDF3] border-[#5A6970]';
   const wallNames = (
     <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none py-8">
+      <div className="mb-1.5 text-[0.55rem] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
       <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{bride}</h2>
       <div className="text-[1rem] font-serif-display italic leading-none my-0.5 text-[var(--ann-accent)]">&amp;</div>
       <h2 className="text-[2.3rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
@@ -6912,13 +6964,14 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       ) : wallMode === 'tunnel' || wallMode === 'globe' ? (
         <div className="relative w-full overflow-hidden bg-[#030306] mt-8" style={{ height: 460 }}>
           {wallMode === 'tunnel'
-            ? <GiantFooterTunnel images={pool} compact bride={bride} groom={groom} wed={wedDot} />
-            : <GiantFooterGlobe images={pool} compact bride={bride} groom={groom} wed={wedDot} />}
+            ? <GiantFooterTunnel images={pool} compact thanks={thanks} bride={bride} groom={groom} wed={wedDot} />
+            : <GiantFooterGlobe images={pool} compact thanks={thanks} bride={bride} groom={groom} wed={wedDot} />}
         </div>
       ) : (
         <section className="relative overflow-hidden w-full bg-[#070716] mt-8">
           <div className="h-[8px] bg-[var(--ann-accent)]" />
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
+            <div className="mb-1.5 text-[0.55rem] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 12px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
             <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>{bride}</h2>
             <div className="text-[0.9rem] font-serif-display italic leading-none my-0.5 text-white" style={{ textShadow: '0 2px 14px rgba(7,7,22,0.75)' }}>&amp;</div>
             <h2 className="text-[2rem] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 18px rgba(7,7,22,0.75)' }}>
@@ -6967,6 +7020,7 @@ function AdminDashboardModal({
   onUpdateFooterImages,
   onUpdateFooterStyle,
   footerStyle,
+  footerThanks,
   onUpdateHeroTemplate,
   heroTpl,
   accentKey,
@@ -7644,6 +7698,7 @@ function AdminDashboardModal({
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
   const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
   const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee' | 'tunnel' | 'globe'>(footerStyle);
+  const [footerThanksDraft, setFooterThanksDraft] = useState<string>(footerThanks || '');
   // Gifts & support draft (Events & photos): initializes straight from the
   // saved details, so the page's single Save bar owns it from the first render.
   const [giftDraft, setGiftDraft] = useState<any>(() => {
@@ -7674,7 +7729,8 @@ function AdminDashboardModal({
       gift: JSON.stringify(giftDraft || {}),
       footer: JSON.stringify(footerDraft || {}),
       heroTpl,
-      footerStyle
+      footerStyle,
+      footerThanks
     };
   }
   // The photos the hero shows right now: the draft list when one exists,
@@ -7689,6 +7745,7 @@ function AdminDashboardModal({
     || JSON.stringify(heroLabelDraft) !== draftBaseRef.current.heroLabels
     || heroTplDraft !== draftBaseRef.current.heroTpl
     || footerStyleDraft !== draftBaseRef.current.footerStyle
+    || (footerThanksDraft || '') !== draftBaseRef.current.footerThanks
     || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift
     || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer;
 
@@ -7721,7 +7778,7 @@ function AdminDashboardModal({
       onUpdateHeroImages(heroImgDraft.slice(0, 20));
       onUpdateHeroLabels(heroLabelDraft || {});
       if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
-      if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true);
+      if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true, (footerThanksDraft || '').trim());
       draftBaseRef.current = {
         story: storyDraft,
         det: JSON.stringify(mergedDet),
@@ -7730,6 +7787,7 @@ function AdminDashboardModal({
         heroLabels: JSON.stringify(heroLabelDraft || {}),
         heroTpl: heroTplDraft,
         footerStyle: footerStyleDraft,
+        footerThanks: (footerThanksDraft || '').trim(),
         gift: JSON.stringify(giftDraft || {}),
         footer: JSON.stringify(footerDraft || {})
       };
@@ -8959,6 +9017,11 @@ function AdminDashboardModal({
                         ))}
                       </div>
                       <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows · Style 3 · travel down a 3D tunnel of photos (drag to spin, drag up/down for speed) · Style 4 · photos wrap a ball that turns slowly (drag to spin it)</p>
+                      <div className="mt-4">
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Thank-you line</span>
+                        <input type="text" value={footerThanksDraft} onChange={(e) => setFooterThanksDraft(e.target.value)} placeholder="Thank you for celebrating with us" className={`${inputCls} w-full`} />
+                        <p className="text-[0.7rem] opacity-50 mt-1.5">The small line above your names on every giant footer style. Leave it empty to keep the default.</p>
+                      </div>
                       <p className="text-[0.75rem] opacity-60 italic mt-3">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
                     </section>
                   )}
@@ -9042,6 +9105,7 @@ function AdminDashboardModal({
                               heroImages={heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES}
                               tpl={heroTplDraft}
                               wallStyle={footerStyleDraft}
+                              thanks={(footerThanksDraft || '').trim()}
                               partners={partnersList}
                             />
                           </div>
