@@ -138,8 +138,10 @@ export default async (req) => {
       const cfg = cfgSnap.exists ? cfgSnap.data() : null
       if (!cfg || !cfg.feedPrivate) return json(200, { ok: true, open: true, gen: 0 })
       const gen = Math.max(1, Number(cfg.feedGateGen) || 1)
-      const gate = String(cfg.feedGateCode || '').trim().toUpperCase()
-      if (gate && code === gate) return json(200, { ok: true, gen })
+      // One code everywhere: the guest access code opens the private feed too.
+      const gate = String(cfg.activeAccessCode || '').trim().toUpperCase()
+      if (!gate) return json(200, { ok: false, error: 'no-code' })
+      if (code === gate) return json(200, { ok: true, gen })
       return json(200, { ok: false, error: 'invalid' })
     } catch (e) {
       return json(500, { ok: false, error: String(e?.message || e) })
