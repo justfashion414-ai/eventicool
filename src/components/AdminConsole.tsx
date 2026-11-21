@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LogOut, LoaderCircle, Menu } from 'lucide-react'
 import '../admin.css'
-import { consoleAuth, signOutEverywhere, type User } from '../auth'
+import { consoleAuth, consoleAuthReady, signOutEverywhere, type User } from '../auth'
 // Every console call rides the console's OWN auth session, never the couple
 // apps' session, so the two can never act as each other.
 const consoleCall = (op: string, payload?: Record<string, unknown>) => proxyCall(op, payload, consoleAuth)
+// Last loaded lists, for painting the console instantly on a refresh.
+const CONSOLE_CACHE_KEY = 'ev-console-cache-v1'
 import { proxyCall } from '../firebase'
 
 /* ---- catalog constants (real product values) ---- */
@@ -253,10 +255,18 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
   useEffect(() => {
+    let alive = true
     const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
-    consoleCall('get', { collection: 'platform', id: 'payment' }).then((d: any) => {
-      setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
-    }).catch(() => setPayForm(fallback))
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) { if (alive) setPayForm(fallback); return }
+      try {
+        const d: any = await consoleCall('get', { collection: 'platform', id: 'payment' })
+        if (!alive) return
+        setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
+      } catch { if (alive) setPayForm(fallback) }
+    })()
+    return () => { alive = false }
   }, [])
   useEffect(() => {
     if (!menuOpen) return
@@ -274,31 +284,54 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       setLeads([...stored, ...DEMO_LEADS])
       return () => { alive = false }
     }
-    consoleCall('list', { collection: 'events', limit: 50 })
-      .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
-      .catch(() => { if (alive) setEvents([]) })
-    consoleCall('list', { collection: 'leads', limit: 50 })
-      .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
-      .catch(() => { if (alive) setLeads([]) })
-    consoleCall('list', { collection: 'platform_audit', limit: 20 })
-      .then((res) => {
-        if (!alive) return
-        const rows = (res.docs as AuditRow[]).sort((x, y) => (y.at || (y.createdAt?.seconds || 0) * 1000 || 0) - (x.at || (x.createdAt?.seconds || 0) * 1000 || 0))
-        setAudit(rows)
-      })
-      .catch(() => { if (alive) setAudit([]) })
-    consoleCall('get', { collection: 'platform', id: 'catalog' })
-      .then((doc) => {
-        if (!alive) return
-        if (!doc) { setCat(DEFAULT_CAT); return }
-        setCat({
-          prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
-          channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
-          templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
-          tplmeta: { ...(doc.tplmeta || {}) },
+    // Show the last loaded lists straight away so a refresh opens with data on
+    // screen, then wait for the console session to settle before refreshing
+    // from the server. Firing the calls while the session is still restoring
+    // used to leave the Customers and Leads lists empty.
+    try {
+      const c = JSON.parse(localStorage.getItem(CONSOLE_CACHE_KEY) || 'null')
+      if (c && Date.now() - (c.ts || 0) < 6 * 3600e3) {
+        if (Array.isArray(c.leads)) setLeads(c.leads)
+        if (Array.isArray(c.events)) setEvents(c.events)
+        if (Array.isArray(c.audit)) setAudit(c.audit)
+      }
+    } catch { /* fresh console */ }
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) return
+      const save = (patch: Record<string, unknown>) => {
+        try {
+          const cur = JSON.parse(localStorage.getItem(CONSOLE_CACHE_KEY) || '{}')
+          localStorage.setItem(CONSOLE_CACHE_KEY, JSON.stringify({ ...cur, ...patch, ts: Date.now() }))
+        } catch { /* ignore */ }
+      }
+      consoleCall('list', { collection: 'events', limit: 50 })
+        .then((res) => { if (alive) { setEvents(res.docs as EvDoc[]); save({ events: res.docs }) } })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('list', { collection: 'leads', limit: 50 })
+        .then((res) => { if (alive) { const rows = (res.docs as LeadDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt)); setLeads(rows); save({ leads: rows }) } })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('list', { collection: 'platform_audit', limit: 20 })
+        .then((res) => {
+          if (!alive) return
+          const rows = (res.docs as AuditRow[]).sort((x, y) => (y.at || (y.createdAt?.seconds || 0) * 1000 || 0) - (x.at || (x.createdAt?.seconds || 0) * 1000 || 0))
+          setAudit(rows)
+          save({ audit: rows })
         })
-      })
-      .catch(() => { if (alive) setCat(DEFAULT_CAT) })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('get', { collection: 'platform', id: 'catalog' })
+        .then((doc) => {
+          if (!alive) return
+          if (!doc) { setCat(DEFAULT_CAT); return }
+          setCat({
+            prices: { ...DEFAULT_CAT.prices, ...(doc.prices || {}) },
+            channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
+            templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
+            tplmeta: { ...(doc.tplmeta || {}) },
+          })
+        })
+        .catch(() => { if (alive) setCat(DEFAULT_CAT) })
+    })()
     return () => { alive = false }
   }, [])
 

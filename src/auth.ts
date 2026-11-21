@@ -94,3 +94,13 @@ export async function signInGuest() {
 export async function signOutEverywhere() {
   await fbSignOut(consoleAuth)
 }
+
+/** Resolves once the console's own session has settled: restored from a
+ * previous visit on a refresh, or confirmed absent. Callers then check
+ * consoleAuth.currentUser before acting, so data calls never fire against a
+ * session that is still restoring. */
+export function consoleAuthReady(): Promise<void> {
+  return new Promise((resolve) => {
+    const un = onAuthStateChanged(consoleAuth, () => { un(); resolve() })
+  })
+}
