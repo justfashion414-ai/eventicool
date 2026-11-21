@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LogOut, LoaderCircle, Menu } from 'lucide-react'
 import '../admin.css'
-import { signOutEverywhere, type User } from '../auth'
+import { consoleAuth, signOutEverywhere, type User } from '../auth'
+// Every console call rides the console's OWN auth session, never the couple
+// apps' session, so the two can never act as each other.
+const consoleCall = (op: string, payload?: Record<string, unknown>) => proxyCall(op, payload, consoleAuth)
 import { proxyCall } from '../firebase'
 
 /* ---- catalog constants (real product values) ---- */
@@ -245,13 +248,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   async function logAudit(action: string) {
     const row: AuditRow = { id: `local-${Date.now()}`, actor: user?.email, action, at: Date.now() }
     setAudit((a) => [row, ...(a || [])])
-    proxyCall('add', { collection: 'platform_audit', data: { actor: user?.email || '', action, at: Date.now() } }).catch(() => {})
+    consoleCall('add', { collection: 'platform_audit', data: { actor: user?.email || '', action, at: Date.now() } }).catch(() => {})
   }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
   useEffect(() => {
     const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
-    proxyCall('get', { collection: 'platform', id: 'payment' }).then((d: any) => {
+    consoleCall('get', { collection: 'platform', id: 'payment' }).then((d: any) => {
       setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
     }).catch(() => setPayForm(fallback))
   }, [])
@@ -271,20 +274,20 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       setLeads([...stored, ...DEMO_LEADS])
       return () => { alive = false }
     }
-    proxyCall('list', { collection: 'events', limit: 50 })
+    consoleCall('list', { collection: 'events', limit: 50 })
       .then((res) => { if (alive) setEvents(res.docs as EvDoc[]) })
       .catch(() => { if (alive) setEvents([]) })
-    proxyCall('list', { collection: 'leads', limit: 50 })
+    consoleCall('list', { collection: 'leads', limit: 50 })
       .then((res) => { if (alive) setLeads((res.docs as LeadDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
       .catch(() => { if (alive) setLeads([]) })
-    proxyCall('list', { collection: 'platform_audit', limit: 20 })
+    consoleCall('list', { collection: 'platform_audit', limit: 20 })
       .then((res) => {
         if (!alive) return
         const rows = (res.docs as AuditRow[]).sort((x, y) => (y.at || (y.createdAt?.seconds || 0) * 1000 || 0) - (x.at || (x.createdAt?.seconds || 0) * 1000 || 0))
         setAudit(rows)
       })
       .catch(() => { if (alive) setAudit([]) })
-    proxyCall('get', { collection: 'platform', id: 'catalog' })
+    consoleCall('get', { collection: 'platform', id: 'catalog' })
       .then((doc) => {
         if (!alive) return
         if (!doc) { setCat(DEFAULT_CAT); return }
@@ -340,7 +343,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       if (i < steps.length) { setProv((p) => (p ? { ...p, step: i } : p)); return }
       window.clearInterval(t)
       try {
-        await proxyCall('add', {
+        await consoleCall('add', {
           collection: 'events',
           data: {
             title: `${o.b} & ${o.g}`,
@@ -460,7 +463,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      const res = await proxyCall('add', { collection: 'leads', data: base }) as any
+      const res = await consoleCall('add', { collection: 'leads', data: base }) as any
       done(res?.id || `lead-${Date.now()}`)
       logAudit(`Created sample app for lead ${title} (${TP[ld.tpl].name})`)
     } catch { say('Could not save the lead. Try again') }
@@ -480,7 +483,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('delete', { collection: 'leads', id })
+      await consoleCall('delete', { collection: 'leads', id })
       setLeads((l) => (l || []).filter((x) => x.id !== id))
       logAudit('Deleted a sample app lead')
       say('Lead deleted')
@@ -496,7 +499,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     try {
       const at = Date.now()
       const renews = at + 365 * 864e5
-      await proxyCall('update', { collection: 'leads', id: l.id, data: { activatedAt: at, renewsAt: renews } })
+      await consoleCall('update', { collection: 'leads', id: l.id, data: { activatedAt: at, renewsAt: renews } })
       setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, activatedAt: at, renewsAt: renews } : x)))
       logAudit(`Confirmed payment for ${leadName(l)}; app active for one year`)
       say('Payment confirmed. The account is now active')
@@ -514,7 +517,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       const data: any = l.activatedAt
         ? { renewsAt: Math.max(Date.now(), l.renewsAt || Date.now()) + dur }
         : { expiresAt: Math.max(Date.now(), l.expiresAt || 0) + dur }
-      await proxyCall('update', { collection: 'leads', id: l.id, data })
+      await consoleCall('update', { collection: 'leads', id: l.id, data })
       setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, ...data } as LeadDoc : x)))
       logAudit(`Extended ${leadName(l)}${l.activatedAt ? "'s plan" : "'s trial"} by ${extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}`)
       say('Extension applied. It takes effect immediately')
@@ -528,7 +531,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   async function setCustomerStatus(l: LeadDoc, status: 'suspended' | 'deleted' | 'active') {
     setBusy(true)
     try {
-      await proxyCall('update', { collection: 'leads', id: l.id, data: { status } })
+      await consoleCall('update', { collection: 'leads', id: l.id, data: { status } })
       setLeads((ls) => (ls || []).map((x) => (x.id === l.id ? { ...x, status } as LeadDoc : x)))
       logAudit(`${status === 'deleted' ? 'Deleted' : status === 'suspended' ? 'Suspended' : 'Reinstated'} ${leadName(l)}`)
       say(status === 'deleted' ? 'App deleted. Its link now tells visitors it no longer exists' : status === 'suspended' ? 'App suspended. Visitors are asked to contact an Eventicor admin' : 'App reinstated')
@@ -650,7 +653,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('update', { collection: 'events', id, data })
+      await consoleCall('update', { collection: 'events', id, data })
       setEvents((evs) => (evs || []).map((e) => (e.id === id ? { ...e, ...data } as EvDoc : e)))
       logAudit(note)
       say('Saved')
@@ -667,7 +670,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     }
     setBusy(true)
     try {
-      await proxyCall('delete', { collection: 'events', id })
+      await consoleCall('delete', { collection: 'events', id })
       setEvents((evs) => (evs || []).filter((e) => e.id !== id))
       logAudit(`Deleted app ${s}`)
       setDrawerId(null)
@@ -680,7 +683,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!cat) return
     setBusy(true)
     try {
-      await proxyCall('set', { collection: 'platform', id: 'catalog', data: cat })
+      await consoleCall('set', { collection: 'platform', id: 'catalog', data: cat })
       logAudit('Saved plan prices and template availability')
       say('Changes saved')
     } catch { say('Could not save. Try again') }
@@ -1188,7 +1191,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!payForm) return
     setBusy(true)
     try {
-      await proxyCall('set', { collection: 'platform', id: 'payment', data: { accountName: payForm.accountName.trim(), bankName: payForm.bankName.trim(), accountNumber: payForm.accountNumber.trim(), whatsapp: payForm.whatsapp.replace(/[^0-9]/g, ''), updatedAt: Date.now() } })
+      await consoleCall('set', { collection: 'platform', id: 'payment', data: { accountName: payForm.accountName.trim(), bankName: payForm.bankName.trim(), accountNumber: payForm.accountNumber.trim(), whatsapp: payForm.whatsapp.replace(/[^0-9]/g, ''), updatedAt: Date.now() } })
       logAudit('Updated the payment account details')
       setPaySaved('Saved. Every app picks up the new details immediately.')
       window.setTimeout(() => setPaySaved(''), 4000)

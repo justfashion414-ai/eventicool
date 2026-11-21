@@ -222,18 +222,25 @@ export default async (req) => {
         }
       }
     }
-  } else if (!['platform', 'leads', 'events', 'health'].includes(colPath)) {
-    // Outside app data: only the platform's own admins (top-level admins docs)
-    // may read or write legacy collections through the proxy.
+  } else if (colPath !== 'health') {
+    // Outside app data (leads, events, platform settings, admins, platform
+    // audit): only the platform's own admins (top-level admins docs) may touch
+    // it. A couple app's admin is NOT a platform admin; their account only
+    // reaches their own apps/<id>/ data. One narrow guest exception: reading a
+    // single event doc by its access id, which is how the /guest entry screen
+    // works.
     const email = String(decoded.email || '').toLowerCase()
-    if (email) {
-      let adm = null
-      try {
-        adm = await getFirestore().collection('admins').doc(email).get()
-      } catch {}
-      if (!adm || !adm.exists) return json(403, { error: 'You do not have access to do that here.' })
-    } else {
-      return json(403, { error: 'Sign in with an admin account to do that.' })
+    const guestEventRead = colPath === 'events' && body.op === 'get' && !!body.id
+    if (!guestEventRead) {
+      if (email) {
+        let adm = null
+        try {
+          adm = await getFirestore().collection('admins').doc(email).get()
+        } catch {}
+        if (!adm || !adm.exists) return json(403, { error: 'You do not have access to do that here.' })
+      } else {
+        return json(403, { error: 'Sign in with an admin account to do that.' })
+      }
     }
   }
 
