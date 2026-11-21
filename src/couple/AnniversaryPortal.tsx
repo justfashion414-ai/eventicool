@@ -6985,9 +6985,6 @@ const IV_STYLES = [
   { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
   { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
-  { id: 'palms', n: 'Palms & sky', d: 'Classic envelope, palms cover', iv: false },
-  { id: 'royal', n: 'Royal court', d: 'Royal cream and gold envelope', iv: false },
-  { id: 'seal', n: 'Gold seal', d: 'Dark card with a wax gold seal', iv: false },
 ];
 
 function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast }: any) {
@@ -6996,6 +6993,21 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const labCls = 'block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5';
   const chipCls = (on: boolean) => `px-3 py-2 rounded-full border text-[11px] font-black uppercase tracking-widest transition-colors ${on ? 'bg-[var(--ann-accent)] text-white border-transparent' : isDarkMode ? 'border-[#22363E] text-white/70' : 'border-[#DAD8E3] text-slate-600'}`;
   const [tpl, setTpl] = useState('envelope');
+  const [musicLib, setMusicLib] = useState<{ id: string; name: string; url: string }[]>([]);
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      for (const ep of ['/api/music-library', '/.netlify/functions/music-library']) {
+        try {
+          const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
+          if (!res.ok) continue
+          const j = await res.json()
+          if (alive && Array.isArray(j.docs)) { setMusicLib(j.docs); return }
+        } catch { /* try the next endpoint */ }
+      }
+    })()
+    return () => { alive = false }
+  }, []);
   const [f, setF] = useState<any>(() => ({
     bride: demoBride() || 'Amara',
     groom: demoGroom() || 'Daniel',
@@ -7204,8 +7216,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           <div className="flex flex-wrap gap-2">
             <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
             <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
+            {musicLib.map((tr) => (
+              <button key={tr.id} type="button" className={chipCls(f.music === tr.url)} onClick={() => setF({ ...f, music: tr.url })}>{tr.name}</button>
+            ))}
           </div>
-          <input className={inputCls + ' mt-2'} value={f.music === 'none' ? '' : f.music} onChange={(e) => setF({ ...f, music: e.target.value })} placeholder="Or paste a link to your own music (mp3)" />
         </div>
       </section>
 

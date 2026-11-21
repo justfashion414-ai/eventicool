@@ -51,14 +51,6 @@ const IV_IV_STYLES = [
   { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors onto the cover card' },
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D onto the cover card' }
 ]
-const IVTPL: Record<string, { name: string }> = {
-  palms: { name: 'Palms & sky' },
-  royal: { name: 'Royal court' },
-  seal: { name: 'Gold seal' },
-  envelope: { name: 'Gold envelope' },
-  ribbon: { name: 'Ribbon & scissors' },
-  doors: { name: 'Palace doors' },
-}
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
 const NAV = [
@@ -108,7 +100,7 @@ interface Site {
   city?: string
 }
 interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
-interface InviteDoc { id: string; bride?: string; groom?: string; tpl?: string; wedDate?: string; month?: string; day?: string; year?: string; venue?: string; city?: string; message?: string; opens?: number; createdAt?: any; lastOpenAt?: any }
+interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -161,9 +153,9 @@ async function shrinkToDataUrl(file: File): Promise<string> {
   return c.toDataURL('image/jpeg', 0.82)
 }
 
-async function uploadOneLead(file: File, kind: string): Promise<string> {
-  const folder = `eventicor-leads-${kind}`
-  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(folder)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`]) {
+async function uploadOneLead(file: File, kind: string, folder?: string): Promise<string> {
+  const fld = folder || `eventicor-leads-${kind}`
+  for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(fld)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(fld)}`]) {
     try {
       // The interim signer is cross-origin and sends no cookies, so omit credentials there.
       const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
@@ -175,7 +167,7 @@ async function uploadOneLead(file: File, kind: string): Promise<string> {
       form.append('api_key', sig.apiKey)
       form.append('timestamp', String(sig.timestamp))
       form.append('signature', sig.signature)
-      form.append('folder', sig.folder || folder)
+      form.append('folder', sig.folder || fld)
       const up = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/auto/upload`, { method: 'POST', body: form })
       const j = await up.json()
       if (up.ok && j.secure_url) return j.secure_url as string
@@ -250,10 +242,12 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [platCustom, setPlatCustom] = useState('')
   const [paySaved, setPaySaved] = useState('')
   const [payView, setPayView] = useState<LeadDoc | null>(null)
-  const [invites, setInvites] = useState<InviteDoc[] | null>(null)
-  const [iv, setIv] = useState({ b: '', g: '', d: '', venue: '', city: '', msg: '', tpl: 'palms' })
-  const [invCreated, setInvCreated] = useState<{ id: string; link: string; title: string } | null>(null)
-  const [delInviteId, setDelInviteId] = useState<string | null>(null)
+  const [musicLib, setMusicLib] = useState<MusicDoc[] | null>(null)
+  const [musicName, setMusicName] = useState('')
+  const [musicLink, setMusicLink] = useState('')
+  const [musicUploading, setMusicUploading] = useState(false)
+  const [delMusicId, setDelMusicId] = useState('')
+  const musicFileRef = useRef<HTMLInputElement | null>(null)
 
   const sites: Site[] = useMemo(
     () =>
@@ -283,18 +277,18 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
-  // Inbox invite live counts: while the section is open, refresh the invites
-  // list every few seconds so the open counts move without a reload.
+  // Music library: the tracks couple apps offer in the Inbox invite form.
   useEffect(() => {
-    if (sec !== 'inv' || user?.uid === 'demo') return
+    if (user?.uid === 'demo') {
+      try { setMusicLib(JSON.parse(localStorage.getItem('evad-music-lib') || '[]')) } catch { setMusicLib([]) }
+      return
+    }
     let alive = true
-    const t = setInterval(() => {
-      consoleCall('list', { collection: 'invites', limit: 50 })
-        .then((res) => { if (alive) setInvites((res.docs as InviteDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
-        .catch(() => { /* keep what is on screen */ })
-    }, 10000)
-    return () => { alive = false; clearInterval(t) }
-  }, [sec, user?.uid])
+    consoleCall('list', { collection: 'music_library', limit: 100 })
+      .then((res) => { if (alive) setMusicLib((res.docs as MusicDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
+      .catch(() => { if (alive) setMusicLib([]) })
+    return () => { alive = false }
+  }, [user?.uid])
   useEffect(() => {
     let alive = true
     const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
@@ -339,7 +333,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       try { ids = JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[] } catch { /* fresh console */ }
       const stored = ids.map((id) => { try { return JSON.parse(localStorage.getItem(`ev-lead-${id}`) || 'null') } catch { return null } }).filter(Boolean) as LeadDoc[]
       setLeads([...stored, ...DEMO_LEADS])
-      setInvites([])
       return () => { alive = false }
     }
     // Show the last loaded lists straight away so a refresh opens with data on
@@ -352,7 +345,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         if (Array.isArray(c.leads)) setLeads(c.leads)
         if (Array.isArray(c.events)) setEvents(c.events)
         if (Array.isArray(c.audit)) setAudit(c.audit)
-        if (Array.isArray(c.invites)) setInvites(c.invites)
       }
     } catch { /* fresh console */ }
     ;(async () => {
@@ -377,9 +369,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           setAudit(rows)
           save({ audit: rows })
         })
-        .catch(() => { /* keep what is on screen */ })
-      consoleCall('list', { collection: 'invites', limit: 50 })
-        .then((res) => { if (alive) { const rows = (res.docs as InviteDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt)); setInvites(rows); save({ invites: rows }) } })
         .catch(() => { /* keep what is on screen */ })
       consoleCall('get', { collection: 'platform', id: 'catalog' })
         .then((doc) => {
@@ -1330,127 +1319,110 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  /* ---- inbox invite: standalone invitation cards ---- */
-  const inviteLink = (v: InviteDoc) => v.tpl && IVTPL[v.tpl] && ['envelope', 'ribbon', 'doors'].includes(v.tpl) ? `${window.location.origin}/iv/iv-${v.tpl}.html?i=${v.id}` : `${window.location.origin}/invite.html?i=${v.id}`
-  function inviteMsg(v: InviteDoc) {
-    const when = v.wedDate ? new Date(v.wedDate + 'T00:00:00') : null
-    const d = when && !isNaN(when.getTime()) ? when.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
-    const where = [v.venue, v.city].filter(Boolean).join(', ')
-    return `You are invited to the wedding of ${v.bride || ''} & ${v.groom || ''}${d ? ` — ${d}` : ''}${where ? `, ${where}` : ''}. Open your invitation card: ${inviteLink(v)}`
-  }
-  async function createInvite() {
-    if (user?.uid === 'demo') { say('Demo console: nothing is saved'); return }
-    if (!iv.b.trim() || !iv.g.trim() || !iv.d) { say('Bride, groom and date are required'); return }
+  /* ---- inbox invite: card designs and the music library ---- */
+  async function addMusicTrack(url: string) {
+    const name = musicName.trim()
+    if (!name || !url) { say('Give the track a name and upload a file or paste a link'); return }
+    if (user?.uid === 'demo') {
+      const row = { id: `local-${Date.now()}`, name, url, createdAt: Date.now() }
+      const next = [row, ...(musicLib || [])]
+      setMusicLib(next)
+      localStorage.setItem('evad-music-lib', JSON.stringify(next))
+      setMusicName(''); setMusicLink('')
+      say('Track added to the library')
+      return
+    }
     setBusy(true)
     try {
-      const dt = new Date(iv.d + 'T00:00:00')
-      const data = {
-        bride: iv.b.trim(),
-        groom: iv.g.trim(),
-        tpl: iv.tpl,
-        wedDate: iv.d,
-        month: dt.toLocaleString('en-GB', { month: 'long' }),
-        day: String(dt.getDate()),
-        year: String(dt.getFullYear()),
-        venue: iv.venue.trim(),
-        city: iv.city.trim(),
-        message: iv.msg.trim(),
-        opens: 0,
-      }
-      const res: any = await consoleCall('add', { collection: 'invites', data })
-      const link = `${window.location.origin}/invite.html?i=${res.id}`
-      setInvCreated({ id: res.id, link, title: `${data.bride} & ${data.groom}` })
-      setInvites((l) => [{ id: res.id, ...data, createdAt: Date.now() } as InviteDoc, ...(l || [])])
-      logAudit(`Created an inbox invite for ${data.bride} & ${data.groom}`)
-      say('Invitation created. Send the link to the guests')
-    } catch { say('Could not create the invite. Try again') }
+      const res: any = await consoleCall('add', { collection: 'music_library', data: { name, url, at: Date.now() } })
+      setMusicLib((l) => [{ id: res.id, name, url, createdAt: Date.now() }, ...(l || [])])
+      logAudit('Added a track to the music library')
+      setMusicName(''); setMusicLink('')
+      say('Track added to the library')
+    } catch { say('Could not add the track. Try again') }
     setBusy(false)
   }
-  async function deleteInvite(id: string) {
-    if (delInviteId !== id) { setDelInviteId(id); say('Tap again to delete this invite'); return }
-    setDelInviteId(null)
-    if (user?.uid === 'demo') { say('Demo console: nothing is saved'); return }
+  async function onMusicFile(e: any) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!musicName.trim()) { say('Name the track first, then upload the file'); return }
+    setMusicUploading(true)
+    try {
+      const url = await uploadOneLead(file, 'track', 'eventicor-music')
+      await addMusicTrack(url)
+    } catch { say('The upload failed. Try again') }
+    setMusicUploading(false)
+  }
+  async function deleteMusicTrack(id: string) {
+    if (delMusicId !== id) { setDelMusicId(id); say('Tap again to remove this track'); return }
+    setDelMusicId(null)
+    if (user?.uid === 'demo') {
+      const next = (musicLib || []).filter((t) => t.id !== id)
+      setMusicLib(next)
+      localStorage.setItem('evad-music-lib', JSON.stringify(next))
+      return
+    }
     setBusy(true)
     try {
-      await consoleCall('delete', { collection: 'invites', id })
-      setInvites((l) => (l || []).filter((x) => x.id !== id))
-      logAudit('Deleted an inbox invite')
-      say('Invite deleted. Its link stops working')
-    } catch { say('Could not delete. Try again') }
+      await consoleCall('delete', { collection: 'music_library', id })
+      setMusicLib((l) => (l || []).filter((t) => t.id !== id))
+      logAudit('Removed a track from the music library')
+      say('Track removed from the library')
+    } catch { say('Could not remove the track. Try again') }
     setBusy(false)
   }
   function invitesSection() {
-    const rows = (invites || []).slice().sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
-    const when = (v: InviteDoc) => {
-      if (!v.wedDate) return '—'
-      const d = new Date(v.wedDate + 'T00:00:00')
-      return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-    }
-    const total = rows.reduce((n, v) => n + (v.opens || 0), 0)
-    const createdRow = invCreated ? (invites || []).find((x) => x.id === invCreated.id) || null : null
     return (
       <>
-        {head('Inbox invite', 'Invitation cards couples send to their guests. A guest opens the link, taps the card, and every open is counted live.')}
-        {invCreated && (
-          <div className="card" style={{ marginBottom: 14 }}>
-            <h3>Invitation ready</h3>
-            <p style={{ color: 'var(--mut)', margin: '4px 0 10px' }}>{invCreated.title} · {IVTPL[iv.tpl]?.name || ''}</p>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              <input readOnly value={invCreated.link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 200 }} />
-              <a className="btn g s" href={invCreated.link} target="_blank" rel="noreferrer">Open</a>
-              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(invCreated.link); say('Link copied') }}>Copy link</button>
-              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteMsg(createdRow || { id: invCreated.id, bride: iv.b, groom: iv.g, wedDate: iv.d, venue: iv.venue, city: iv.city } as InviteDoc)); say('Message copied') }}>Copy message</button>
-              <button className="btn g s" onClick={() => setInvCreated(null)}>Close</button>
-            </div>
-            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>Send the link yourself (WhatsApp, text, anywhere). The link opens the invitation card only, never the couple's app. Each guest's open is counted once.</p>
-          </div>
-        )}
+        {head('Inbox invite', 'The invitation card designs and the music couples pick from. Whatever is perfected here ships into every app.')}
         <div className="card">
-          <h3>Create an invitation</h3>
-          <label style={{ marginTop: 8 }}>Card design</label>
-          <div className="row">
-            {Object.entries(IVTPL).map(([k, t]) => (
-              <button key={k} className={`chip${iv.tpl === k ? ' on' : ''}`} onClick={() => setIv({ ...iv, tpl: k })}>{t.name}</button>
-            ))}
-          </div>
-          <div className="fg" style={{ marginTop: 10 }}>
-            <div><label>Bride</label><input value={iv.b} maxLength={20} onChange={(e) => setIv({ ...iv, b: e.target.value })} placeholder="Bride's first name" /></div>
-            <div><label>Groom</label><input value={iv.g} maxLength={20} onChange={(e) => setIv({ ...iv, g: e.target.value })} placeholder="Groom's first name" /></div>
-            <div><label>Wedding date</label><input type="date" value={iv.d} onChange={(e) => setIv({ ...iv, d: e.target.value })} /></div>
-            <div><label>Venue</label><input value={iv.venue} maxLength={60} onChange={(e) => setIv({ ...iv, venue: e.target.value })} placeholder="Venue name" /></div>
-            <div><label>City</label><input value={iv.city} maxLength={20} onChange={(e) => setIv({ ...iv, city: e.target.value })} placeholder="City" /></div>
-          </div>
-          <label style={{ marginTop: 10 }}>Message on the card (optional)</label>
-          <textarea rows={2} value={iv.msg} maxLength={220} onChange={(e) => setIv({ ...iv, msg: e.target.value })} placeholder="A short line to your guests" style={{ width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.14)', background: 'rgba(255,255,255,.06)', color: 'inherit', fontFamily: 'inherit', fontSize: 14, resize: 'vertical' }} />
-          <div style={{ marginTop: 14 }}><button className="btn" onClick={createInvite} disabled={busy}>Create invitation</button></div>
+          <h3>Card designs</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>Preview opens a full card with placeholder details, opening animation included. Couples create the real cards inside their own app.</p>
+          {IV_IV_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
+                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+                }}>Preview</button>
+              </div>
+            </div>
+          ))}
         </div>
         <div className="card">
-          <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ margin: 0 }}>Invitations ({rows.length})</h3>
-            <span className="pl live">{total} open{total === 1 ? '' : 's'}</span>
+          <h3>Music library</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The tracks couples choose from when they add music to an invitation. Upload an mp3 or paste a link to one.</p>
+          <div className="fg" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <div><label>Track name</label><input value={musicName} maxLength={40} onChange={(e) => setMusicName(e.target.value)} placeholder="Soft piano waltz" /></div>
+            <div><label>Or paste a link (mp3)</label><input value={musicLink} onChange={(e) => setMusicLink(e.target.value)} placeholder="https://.../track.mp3" /></div>
           </div>
-          <div style={{ marginTop: 6 }}>
-            {invites === null ? (
+          <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+            <input ref={musicFileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onMusicFile} />
+            <button className="btn g" onClick={() => musicFileRef.current?.click()} disabled={musicUploading}>{musicUploading ? 'Uploading...' : 'Upload mp3'}</button>
+            <button className="btn" onClick={() => addMusicTrack(musicLink.trim())} disabled={busy}>Add track</button>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            {musicLib === null ? (
               <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
-            ) : rows.length === 0 ? (
-              <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No invitations yet.</p>
+            ) : musicLib.length === 0 ? (
+              <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No tracks yet. Every card still carries its own built-in music until you add some.</p>
             ) : (
-              rows.map((v) => (
-                <div className="att" key={v.id} style={{ flexWrap: 'wrap' }}>
-                  <span><b>{v.bride} & {v.groom}</b> · {when(v)} · {IVTPL[v.tpl || 'palms']?.name || v.tpl}{' '}
-                    <span className="pl live">{v.opens || 0} open{(v.opens || 0) === 1 ? '' : 's'}</span>
-                  </span>
+              musicLib.map((t) => (
+                <div className="att" key={t.id} style={{ flexWrap: 'wrap' }}>
+                  <span><b>{t.name}</b></span>
                   <span className="row" style={{ gap: 6 }}>
-                    <a className="btn g s" href={inviteLink(v)} target="_blank" rel="noreferrer">Open</a>
-                    <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteLink(v)); say('Link copied') }}>Copy link</button>
-                    <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteMsg(v)); say('Message copied') }}>Copy message</button>
-                    <button className="btn g s" onClick={() => deleteInvite(v.id)}>{delInviteId === v.id ? 'Sure?' : 'Delete'}</button>
+                    <a className="btn g s" href={t.url} target="_blank" rel="noreferrer">Listen</a>
+                    <button className="btn g s" onClick={() => deleteMusicTrack(t.id)}>{delMusicId === t.id ? 'Sure?' : 'Remove'}</button>
                   </span>
                 </div>
               ))
             )}
           </div>
-          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>Open counts refresh live every few seconds while this section is open.</p>
         </div>
       </>
     )
