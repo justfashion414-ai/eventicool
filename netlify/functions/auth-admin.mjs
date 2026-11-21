@@ -103,8 +103,19 @@ service cloud.firestore {
     match /apps/{app} {
       match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
       match /posts/{postId} {
-        allow read: if true;
-        allow create: if request.auth != null && (request.resource.data.get('pending', false) == true || isAdminIn(app));
+        // A post waiting for approval is readable only by its author and the
+        // app's signed-in admins; everyone else, a signed-out admin included,
+        // reads only approved posts (user direction Nov 21 2026).
+        allow read: if !resource.data.get('pending', false)
+          || (request.auth != null
+              && (resource.data.get('authorUid', '') == request.auth.uid || isAdminIn(app)));
+        // New posts follow the app's Approve-guest-posts toggle: with it on,
+        // guests may only create posts that wait for approval; with it off,
+        // everything shows for everybody at once. Admins always write freely.
+        allow create: if request.auth != null && (isAdminIn(app)
+          || request.resource.data.get('pending', false) == true
+          || (exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
+              && !get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true)));
         allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
         allow delete: if isAdminIn(app);
         match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }

@@ -78,7 +78,6 @@ function mediaPublicIds(data) {
   return ids
 }
 
-const SUPER_ADMIN = 'justfashion414@gmail.com'
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
@@ -91,15 +90,24 @@ export default async (req) => {
     const decoded = await getAuth().verifyIdToken(token)
     const email = String(decoded.email || '').toLowerCase()
     if (!email) return json(403, { error: 'No email on this account.' })
-    const adminDoc = await db.collection('admins').doc(email).get()
-    if (!adminDoc.exists && email !== SUPER_ADMIN) return json(403, { error: "Only the couple's admins can do that." })
-
     const body = await req.json().catch(() => ({}))
     const action = String(body.action || '')
     const postId = String(body.postId || '')
     const appId = String(body.appId || '')
     if (!['delete', 'restore', 'erase'].includes(action)) return json(400, { error: 'Unknown action.' })
     if (!/^[A-Za-z0-9_-]{5,60}$/.test(postId) || !/^[A-Za-z0-9_-]{5,60}$/.test(appId)) return json(400, { error: 'Bad reference.' })
+
+    // Only the admins THIS app lists may act on its posts, and only full
+    // dashboard roles: the platform's own admin login stays inside the
+    // Eventicor console and never reaches a couple's app (user direction
+    // Nov 21 2026). Restricted roles (photographer / videographer / vendor)
+    // may touch only the vendor albums, like the proxy.
+    let adminDoc = null
+    try { adminDoc = await db.collection('apps').doc(appId).collection('admins').doc(email).get() } catch {}
+    const adminRole = String(adminDoc && adminDoc.exists ? (adminDoc.data() || {}).role : '')
+    if (!adminDoc || !adminDoc.exists || !['owner', 'couple', 'admin', 'bride', 'groom'].includes(adminRole)) {
+      return json(403, { error: "Only the couple's admins can do that." })
+    }
 
     const posts = db.collection('apps').doc(appId).collection('posts')
     const bin = db.collection('apps').doc(appId).collection('deleted_posts')

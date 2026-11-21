@@ -47,7 +47,7 @@ import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
-import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
+import { disableNetwork, enableNetwork, Timestamp, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
@@ -951,6 +951,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Reopen the admin dashboard where it was left after a refresh
   const adminUiFirstRunRef = useRef(true);
   const adminAutoOpenedRef = useRef(false);
+  // Remembers which signed-in account was already told it is not an admin of
+  // this app, so the notice fires once per session, not on every sync.
+  const adminDeniedToastRef = useRef<string>('');
   useEffect(() => {
     if (adminUiFirstRunRef.current) {
       adminUiFirstRunRef.current = false;
@@ -1296,7 +1299,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (noChrome) return; // the preview mockup never touches admin state
     if (!user) return;
 
-    const isSuper = user.email === "justfashion414@gmail.com";
 
     // Sync profile (real wedding apps only: the demo stub db has no residents)
     const profileUnsub = DEMO ? null : onSnapshot(doc(db, scopedPath('residents'), user.uid), (snap) => {
@@ -1363,25 +1365,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setDoc(doc(db, scopedPath('admins'), user.email || ''), { lastActiveAt: Timestamp.fromMillis(lastActivityRef.current) }, { merge: true }).catch(() => {});
         }
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
-      } else if (isSuper) {
-        // The platform owner keeps full access on every app client-side, but is
-        // NEVER written into the app's admins list: their account belongs to
-        // Eventicor, not to the couple's app (user direction Nov 20 2026).
-        setMustSetPassword(false);
-        setIsAdmin(true);
-        setSelfAdminRole('owner');
-        setAdminPermissions({ 
-          canDeletePosts: true, 
-          canUploadImages: true, 
-          canSetAccessCode: true 
-        });
-        if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else {
+        // Every account is checked against THIS app's admins list only: the
+        // platform's own login stays inside the Eventicor console and never
+        // opens a couple's app admin (user direction Nov 21 2026).
         setAdminSync('missing');
         setSelfAdminRole('');
         setIsAdmin(false);
         setAdminPermissions(null);
         adminAutoOpenedRef.current = false;
+        // Tell a signed-in non-admin once, so the refusal is obvious.
+        if (user && !user.isAnonymous && adminDeniedToastRef.current !== user.uid) {
+          adminDeniedToastRef.current = user.uid;
+          showToast('This account is not an admin of this app.', 'info');
+        }
       }
     }, (err) => {
       setAdminSync('err:' + ((err as any).code || String(err)));
@@ -1874,6 +1871,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
+      if (patch.approveGuestPosts === false) {
+        // Approval switched off: every post becomes visible to everybody, so
+        // clear the waiting flag on anything still pending right away.
+        try {
+          const waiting = await getDocs(query(collection(db, scopedPath('posts')), where('pending', '==', true)));
+          if (!waiting.empty) {
+            const batch = writeBatch(db);
+            waiting.forEach((d) => batch.update(d.ref, { pending: false }));
+            await batch.commit();
+          }
+        } catch (sweepErr) { console.error('approve-off sweep failed', sweepErr); }
+      }
       showToast(okMsg);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
@@ -2196,25 +2205,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     //      the server answers, so a slow connection never flashes placeholders;
     //   3. ordering happens on the client, so a post without a timestamp field
     //      still shows instead of silently vanishing from an ordered query.
+    // A post waiting for approval is visible only to its author and to admins
+    // signed into this app (user direction Nov 21 2026). The security rules
+    // enforce that in the database and refuse any query they cannot prove, so
+    // the feed listens with provable queries: signed-in admins read everything
+    // unfiltered; everyone else reads approved posts plus their own waiting one.
     let haveServer = false;
     const seededAtBoot = (() => { try { return localStorage.getItem(lsKey('feed-real')) === '1'; } catch { return false; } })();
     const realDocs = (docs: any[]) => docs.filter((p: any) => !p.localDemo && !String(p.id || '').startsWith('demo-seed-') && !String(p.id || '').startsWith('sample-'));
-    const bail = window.setTimeout(() => {
-      if (haveServer) return;
-      if (seededAtBoot) { setFeedReal(true); setPosts([]); }
-      else { setPosts(demoSeedPosts() as any); }
-      setIsPostsLoading(false);
-    }, 10000);
-    const unsub = onSnapshot(collection(db, scopedPath('posts')), (snapshot) => {
-      const fromCache = !!(snapshot as any).metadata?.fromCache;
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    const apply = (docs: any[], answered: boolean, fromCache: boolean) => {
       if (realDocs(docs).length > 0) {
         haveServer = true;
         try { localStorage.setItem(lsKey('feed-real'), '1'); } catch { /* private mode */ }
         setFeedReal(true);
         setPosts(docs.slice().sort((a: any, b: any) => ((b.timestamp?.toMillis?.() ?? 0) - (a.timestamp?.toMillis?.() ?? 0))));
         setIsPostsLoading(false);
-      } else if (!fromCache) {
+      } else if (answered && !fromCache) {
         // The server itself says there is nothing real here.
         haveServer = true;
         if (seededAtBoot) {
@@ -2232,16 +2238,59 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
       // A cache-only snapshot with nothing real keeps the loader up and waits
       // for the server; a stale cached empty view must never become the feed.
-    }, (err) => {
+    };
+    const bail = window.setTimeout(() => {
+      if (haveServer) return;
+      if (seededAtBoot) { setFeedReal(true); setPosts([]); }
+      else { setPosts(demoSeedPosts() as any); }
+      setIsPostsLoading(false);
+    }, 10000);
+    const onErr = (err: any) => {
       handleFirestoreError(err, OperationType.LIST, 'posts');
       if (seededAtBoot) setFeedReal(true);
       if (!haveServer) {
         setPosts((prev: any[]) => (realDocs(prev).length > 0 ? prev : (seededAtBoot ? [] : (demoSeedPosts() as any))));
       }
       setIsPostsLoading(false);
-    });
-    return () => { window.clearTimeout(bail); unsub(); };
-  }, []);
+    };
+    const unsubs: Array<() => void> = [];
+    if (isAdmin && user && !user.isAnonymous) {
+      const unsub = onSnapshot(collection(db, scopedPath('posts')), (snapshot) => {
+        apply(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })), true, !!(snapshot as any).metadata?.fromCache);
+      }, onErr);
+      unsubs.push(unsub);
+    } else {
+      // Two provable queries: everything approved, plus this viewer's own
+      // post that is still waiting for approval (shown with the tag).
+      const myUid = user?.uid || '';
+      let docsApproved: any[] = [];
+      let docsMine: any[] = [];
+      let gotApproved = false;
+      let gotMine = myUid ? false : true;
+      let cacheApproved = false; let cacheMine = false;
+      const flush = () => {
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        for (const d of [...docsApproved, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        apply(merged, gotApproved && gotMine, cacheApproved || cacheMine);
+      };
+      unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', false)), (snapshot) => {
+        docsApproved = snapshot.docs;
+        cacheApproved = !!(snapshot as any).metadata?.fromCache;
+        if (!cacheApproved) gotApproved = true;
+        flush();
+      }, onErr));
+      if (myUid) {
+        unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', true), where('authorUid', '==', myUid)), (snapshot) => {
+          docsMine = snapshot.docs;
+          cacheMine = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheMine) gotMine = true;
+          flush();
+        }, onErr));
+      }
+    }
+    return () => { window.clearTimeout(bail); unsubs.forEach((u) => { try { u(); } catch { /* already closed */ } }); };
+  }, [isAdmin, user?.uid]);
 
   // Wake refresh: when the app has sat in the background a long while and the
   // visitor comes back, the Firestore connection can be dormant with every
