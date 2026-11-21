@@ -39,6 +39,12 @@ const tsMs = (v: any): number => {
 }
 
 const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+// Inbox invite card designs, each its own standalone invitation page style.
+const IVTPL: Record<string, { name: string }> = {
+  palms: { name: 'Palms & sky' },
+  royal: { name: 'Royal court' },
+  seal: { name: 'Gold seal' },
+}
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
 const NAV = [
@@ -50,6 +56,7 @@ const NAV = [
   { id: 'sites', label: 'Apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
+  { id: 'inv', label: 'Inbox invite' },
   { id: 'pay', label: 'Payment details' },
   { id: 'team', label: 'Team and audit' },
 ] as const
@@ -87,6 +94,7 @@ interface Site {
   city?: string
 }
 interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
+interface InviteDoc { id: string; bride?: string; groom?: string; tpl?: string; wedDate?: string; month?: string; day?: string; year?: string; venue?: string; city?: string; message?: string; opens?: number; createdAt?: any; lastOpenAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
 interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
@@ -112,6 +120,7 @@ const ICONS: Record<SecId, string> = {
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  inv: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
   team: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 4a4 4 0 0 1 0 8"/>',
 }
@@ -225,6 +234,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [payForm, setPayForm] = useState<{ accountName: string; bankName: string; accountNumber: string; whatsapp: string } | null>(null)
   const [paySaved, setPaySaved] = useState('')
   const [payView, setPayView] = useState<LeadDoc | null>(null)
+  const [invites, setInvites] = useState<InviteDoc[] | null>(null)
+  const [iv, setIv] = useState({ b: '', g: '', d: '', venue: '', city: '', msg: '', tpl: 'palms' })
+  const [invCreated, setInvCreated] = useState<{ id: string; link: string; title: string } | null>(null)
+  const [delInviteId, setDelInviteId] = useState<string | null>(null)
 
   const sites: Site[] = useMemo(
     () =>
@@ -254,6 +267,18 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   useEffect(() => { localStorage.setItem(KEY, sec) }, [sec])
+  // Inbox invite live counts: while the section is open, refresh the invites
+  // list every few seconds so the open counts move without a reload.
+  useEffect(() => {
+    if (sec !== 'inv' || user?.uid === 'demo') return
+    let alive = true
+    const t = setInterval(() => {
+      consoleCall('list', { collection: 'invites', limit: 50 })
+        .then((res) => { if (alive) setInvites((res.docs as InviteDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))) })
+        .catch(() => { /* keep what is on screen */ })
+    }, 10000)
+    return () => { alive = false; clearInterval(t) }
+  }, [sec, user?.uid])
   useEffect(() => {
     let alive = true
     const fallback = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' }
@@ -282,6 +307,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       try { ids = JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[] } catch { /* fresh console */ }
       const stored = ids.map((id) => { try { return JSON.parse(localStorage.getItem(`ev-lead-${id}`) || 'null') } catch { return null } }).filter(Boolean) as LeadDoc[]
       setLeads([...stored, ...DEMO_LEADS])
+      setInvites([])
       return () => { alive = false }
     }
     // Show the last loaded lists straight away so a refresh opens with data on
@@ -294,6 +320,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         if (Array.isArray(c.leads)) setLeads(c.leads)
         if (Array.isArray(c.events)) setEvents(c.events)
         if (Array.isArray(c.audit)) setAudit(c.audit)
+        if (Array.isArray(c.invites)) setInvites(c.invites)
       }
     } catch { /* fresh console */ }
     ;(async () => {
@@ -318,6 +345,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           setAudit(rows)
           save({ audit: rows })
         })
+        .catch(() => { /* keep what is on screen */ })
+      consoleCall('list', { collection: 'invites', limit: 50 })
+        .then((res) => { if (alive) { const rows = (res.docs as InviteDoc[]).sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt)); setInvites(rows); save({ invites: rows }) } })
         .catch(() => { /* keep what is on screen */ })
       consoleCall('get', { collection: 'platform', id: 'catalog' })
         .then((doc) => {
@@ -1264,7 +1294,133 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, pay: paySection, team: team }
+  /* ---- inbox invite: standalone invitation cards ---- */
+  const inviteLink = (v: InviteDoc) => `${window.location.origin}/invite.html?i=${v.id}`
+  function inviteMsg(v: InviteDoc) {
+    const when = v.wedDate ? new Date(v.wedDate + 'T00:00:00') : null
+    const d = when && !isNaN(when.getTime()) ? when.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
+    const where = [v.venue, v.city].filter(Boolean).join(', ')
+    return `You are invited to the wedding of ${v.bride || ''} & ${v.groom || ''}${d ? ` — ${d}` : ''}${where ? `, ${where}` : ''}. Open your invitation card: ${inviteLink(v)}`
+  }
+  async function createInvite() {
+    if (user?.uid === 'demo') { say('Demo console: nothing is saved'); return }
+    if (!iv.b.trim() || !iv.g.trim() || !iv.d) { say('Bride, groom and date are required'); return }
+    setBusy(true)
+    try {
+      const dt = new Date(iv.d + 'T00:00:00')
+      const data = {
+        bride: iv.b.trim(),
+        groom: iv.g.trim(),
+        tpl: iv.tpl,
+        wedDate: iv.d,
+        month: dt.toLocaleString('en-GB', { month: 'long' }),
+        day: String(dt.getDate()),
+        year: String(dt.getFullYear()),
+        venue: iv.venue.trim(),
+        city: iv.city.trim(),
+        message: iv.msg.trim(),
+        opens: 0,
+      }
+      const res: any = await consoleCall('add', { collection: 'invites', data })
+      const link = `${window.location.origin}/invite.html?i=${res.id}`
+      setInvCreated({ id: res.id, link, title: `${data.bride} & ${data.groom}` })
+      setInvites((l) => [{ id: res.id, ...data, createdAt: Date.now() } as InviteDoc, ...(l || [])])
+      logAudit(`Created an inbox invite for ${data.bride} & ${data.groom}`)
+      say('Invitation created. Send the link to the guests')
+    } catch { say('Could not create the invite. Try again') }
+    setBusy(false)
+  }
+  async function deleteInvite(id: string) {
+    if (delInviteId !== id) { setDelInviteId(id); say('Tap again to delete this invite'); return }
+    setDelInviteId(null)
+    if (user?.uid === 'demo') { say('Demo console: nothing is saved'); return }
+    setBusy(true)
+    try {
+      await consoleCall('delete', { collection: 'invites', id })
+      setInvites((l) => (l || []).filter((x) => x.id !== id))
+      logAudit('Deleted an inbox invite')
+      say('Invite deleted. Its link stops working')
+    } catch { say('Could not delete. Try again') }
+    setBusy(false)
+  }
+  function invitesSection() {
+    const rows = (invites || []).slice().sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
+    const when = (v: InviteDoc) => {
+      if (!v.wedDate) return '—'
+      const d = new Date(v.wedDate + 'T00:00:00')
+      return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    }
+    const total = rows.reduce((n, v) => n + (v.opens || 0), 0)
+    const createdRow = invCreated ? (invites || []).find((x) => x.id === invCreated.id) || null : null
+    return (
+      <>
+        {head('Inbox invite', 'Invitation cards couples send to their guests. A guest opens the link, taps the card, and every open is counted live.')}
+        {invCreated && (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <h3>Invitation ready</h3>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 10px' }}>{invCreated.title} · {IVTPL[iv.tpl]?.name || ''}</p>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <input readOnly value={invCreated.link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 200 }} />
+              <a className="btn g s" href={invCreated.link} target="_blank" rel="noreferrer">Open</a>
+              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(invCreated.link); say('Link copied') }}>Copy link</button>
+              <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteMsg(createdRow || { id: invCreated.id, bride: iv.b, groom: iv.g, wedDate: iv.d, venue: iv.venue, city: iv.city } as InviteDoc)); say('Message copied') }}>Copy message</button>
+              <button className="btn g s" onClick={() => setInvCreated(null)}>Close</button>
+            </div>
+            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>Send the link yourself (WhatsApp, text, anywhere). The link opens the invitation card only, never the couple's app. Each guest's open is counted once.</p>
+          </div>
+        )}
+        <div className="card">
+          <h3>Create an invitation</h3>
+          <label style={{ marginTop: 8 }}>Card design</label>
+          <div className="row">
+            {Object.entries(IVTPL).map(([k, t]) => (
+              <button key={k} className={`chip${iv.tpl === k ? ' on' : ''}`} onClick={() => setIv({ ...iv, tpl: k })}>{t.name}</button>
+            ))}
+          </div>
+          <div className="fg" style={{ marginTop: 10 }}>
+            <div><label>Bride</label><input value={iv.b} maxLength={20} onChange={(e) => setIv({ ...iv, b: e.target.value })} placeholder="Bride's first name" /></div>
+            <div><label>Groom</label><input value={iv.g} maxLength={20} onChange={(e) => setIv({ ...iv, g: e.target.value })} placeholder="Groom's first name" /></div>
+            <div><label>Wedding date</label><input type="date" value={iv.d} onChange={(e) => setIv({ ...iv, d: e.target.value })} /></div>
+            <div><label>Venue</label><input value={iv.venue} maxLength={60} onChange={(e) => setIv({ ...iv, venue: e.target.value })} placeholder="Venue name" /></div>
+            <div><label>City</label><input value={iv.city} maxLength={20} onChange={(e) => setIv({ ...iv, city: e.target.value })} placeholder="City" /></div>
+          </div>
+          <label style={{ marginTop: 10 }}>Message on the card (optional)</label>
+          <textarea rows={2} value={iv.msg} maxLength={220} onChange={(e) => setIv({ ...iv, msg: e.target.value })} placeholder="A short line to your guests" style={{ width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,.14)', background: 'rgba(255,255,255,.06)', color: 'inherit', fontFamily: 'inherit', fontSize: 14, resize: 'vertical' }} />
+          <div style={{ marginTop: 14 }}><button className="btn" onClick={createInvite} disabled={busy}>Create invitation</button></div>
+        </div>
+        <div className="card">
+          <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 style={{ margin: 0 }}>Invitations ({rows.length})</h3>
+            <span className="pl live">{total} open{total === 1 ? '' : 's'}</span>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            {invites === null ? (
+              <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
+            ) : rows.length === 0 ? (
+              <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No invitations yet.</p>
+            ) : (
+              rows.map((v) => (
+                <div className="att" key={v.id} style={{ flexWrap: 'wrap' }}>
+                  <span><b>{v.bride} & {v.groom}</b> · {when(v)} · {IVTPL[v.tpl || 'palms']?.name || v.tpl}{' '}
+                    <span className="pl live">{v.opens || 0} open{(v.opens || 0) === 1 ? '' : 's'}</span>
+                  </span>
+                  <span className="row" style={{ gap: 6 }}>
+                    <a className="btn g s" href={inviteLink(v)} target="_blank" rel="noreferrer">Open</a>
+                    <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteLink(v)); say('Link copied') }}>Copy link</button>
+                    <button className="btn g s" onClick={() => { navigator.clipboard?.writeText(inviteMsg(v)); say('Message copied') }}>Copy message</button>
+                    <button className="btn g s" onClick={() => deleteInvite(v.id)}>{delInviteId === v.id ? 'Sure?' : 'Delete'}</button>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>Open counts refresh live every few seconds while this section is open.</p>
+        </div>
+      </>
+    )
+  }
+
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
 
   return (
     <div className="evad">
