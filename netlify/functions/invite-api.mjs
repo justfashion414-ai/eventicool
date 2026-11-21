@@ -62,7 +62,7 @@ export default async (req) => {
     }
 
     if (req.method === 'POST') {
-      let body: any = {}
+      let body = {}
       try { body = await req.json() } catch { /* legacy ping with no body */ }
       const action = String(body.action || '')
       const doc = await ref.get()
