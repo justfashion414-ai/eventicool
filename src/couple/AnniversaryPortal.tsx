@@ -48,6 +48,8 @@ import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { disableNetwork, enableNetwork, Timestamp, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
+import PaymentFlow from './PaymentFlow';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
@@ -354,7 +356,39 @@ const demoImageDataUrl = (file: File): Promise<string> => new Promise((resolve, 
 // the bar frozen while the connection or the server takes its time.
 const CLOUDINARY_CHUNK_BYTES = 10 * 1024 * 1024;
 
-const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+// ---- Storage gate (Eventicor platform settings) ----
+// Every app runs on a plan whose photo + video storage is set by the
+// Eventicor admin in the console (platform/settings). Uploads are refused
+// before any bytes leave the device once the app's media reaches the limit,
+// and every accepted upload records its size on the app's usage record so
+// the dashboard's storage chart stays live.
+export const STORAGE_FULL_MESSAGE = 'Your storage is full. Upgrade your plan to keep uploading photos and videos.';
+const GB = 1073741824;
+interface UsageRec { imagesBytes: number; videosBytes: number; count: number; updatedAt?: number }
+let platSettings: { feedPageSize: number; storage: Record<string, number> } = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } };
+let usageRec: UsageRec | null = null;
+let usagePlan = 'essential';
+export function setPlatformSettingsClient(next: { feedPageSize: number; storage: Record<string, number> }) {
+  platSettings = next;
+}
+export function setUsageClient(u: UsageRec | null, plan: string) {
+  usageRec = u;
+  usagePlan = ['essential', 'complete', 'legacy'].includes(plan) ? plan : 'essential';
+}
+export function usageLimitGB(): number { return platSettings.storage[usagePlan] || 5; }
+export function usageUsedGB(): number { return usageRec ? (usageRec.imagesBytes + usageRec.videosBytes) / GB : 0; }
+export function storageBlocked(): boolean { return usageRec ? usageRec.imagesBytes + usageRec.videosBytes >= usageLimitGB() * GB : false; }
+async function recordMediaUsage(bytes: number, isVideo: boolean) {
+  if (DEMO || !auth?.currentUser || !bytes) return;
+  try {
+    const ref = doc(db, scopedPath('usage'), 'main');
+    const patch: any = { count: increment(1), updatedAt: serverTimestamp() };
+    patch[isVideo ? 'videosBytes' : 'imagesBytes'] = increment(bytes);
+    await setDoc(ref, patch, { merge: true });
+  } catch { /* the chart catches up on the next snapshot */ }
+}
+
+const uploadToCloudinaryWithProgressInner = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
   const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
@@ -502,131 +536,25 @@ const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }
 };
 const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
-const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
+// Public wrapper: checks the app's storage before a single byte moves, then
+// records what was accepted once Cloudinary confirms the upload.
+const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+  if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
+  const url = await uploadToCloudinaryWithProgressInner(file, folder, onProgress);
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
-
-  // Attach the caller's Firebase ID token so the signature endpoint can verify them.
-  const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
-
-  console.log(`Starting upload to Cloudinary: ${file.size} bytes (${fileName}) to folder ${folder}`);
-
-  // Strategy 1: Direct signed upload to Cloudinary API (works on both Express /api/upload-signature and Netlify /.netlify/functions/upload-signature)
-  const signatureEndpoints = [
-    `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
-  ];
-
-  for (const sigEndpoint of signatureEndpoints) {
-    try {
-      const sigRes = await fetch(sigEndpoint, {
-        method: 'GET',
-        credentials: sigEndpoint.startsWith('http') ? 'omit' : 'include',
-        headers: {
-          'Accept': 'application/json',
-          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-        }
-      });
-
-      if (sigRes.ok) {
-        const sigText = await sigRes.text();
-        let sigData: any = null;
-        try {
-          sigData = JSON.parse(sigText);
-        } catch {
-          sigData = null;
-        }
-
-        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
-          const directForm = new FormData();
-          directForm.append('file', file, fileName);
-          directForm.append('api_key', sigData.apiKey);
-          directForm.append('timestamp', String(sigData.timestamp));
-          directForm.append('signature', sigData.signature);
-          directForm.append('folder', sigData.folder || folder);
-
-          const resourceType = isVideo ? 'video' : 'auto';
-          const directRes = await fetch(
-            `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${resourceType}/upload`,
-            {
-              method: 'POST',
-              body: directForm
-            }
-          );
-
-          const directJson = await directRes.json().catch(() => null);
-          if (directRes.ok && directJson?.secure_url) {
-            return directJson.secure_url;
-          }
-          console.warn('Direct Cloudinary upload returned non-OK, falling back:', directJson);
-          break;
-        }
-      }
-    } catch (directErr) {
-      console.warn(`Signature check via ${sigEndpoint} failed:`, directErr);
-    }
-  }
-
-  // Strategy 2: Server-side / Netlify Function proxy upload (/api/upload or /.netlify/functions/upload)
-  const formData = new FormData();
-  formData.append('file', file, fileName);
-  formData.append('folder', folder);
-
-  let res = await fetch('/api/upload', {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Accept': 'application/json',
-      ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-    },
-    body: formData
-  });
-
-  if (res.status === 404) {
-    res = await fetch('/.netlify/functions/upload', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-      },
-      body: formData
-    });
-  }
-
-  const responseText = await res.text();
-  let responseData: any = null;
-  try {
-    responseData = JSON.parse(responseText);
-  } catch {
-    // Not JSON (e.g., proxy cookie_check HTML or 413 HTML page)
-  }
-
-  if (res.ok && responseData?.url) {
-    return responseData.url;
-  }
-
-  // Strategy 3: If the proxy intercepted the request with an HTML page (like cookie_check.html)
-  // or if the file is an image that can be embedded as a compact Data URL (< 700KB), fallback gracefully
-  if (!isVideo && file.size <= 700 * 1024) {
-    try {
-      const dataUrl = await blobToDataUrl(file);
-      return dataUrl;
-    } catch {
-      // Ignore fallback error and throw descriptive error below
-    }
-  }
-
-  if (responseText.trim().toLowerCase().startsWith('<!doctype html') || responseText.trim().toLowerCase().startsWith('<html')) {
-    if (res.status === 413 || file.size > 30 * 1024 * 1024) {
-      throw new Error('File is too large (max 30MB). Please choose a smaller file.');
-    }
-    throw new Error('Session cookie check intercepted upload. Please refresh the page and try again.');
-  }
-
-  const errorInfo = responseData?.details || responseData?.error || responseData?.message || responseText.substring(0, 160) || `Status ${res.status}`;
-  throw new Error(`Upload failed: ${errorInfo}`);
+  await recordMediaUsage(file.size || 0, isVideo);
+  return url;
 };
 
+const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
+  if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
+  const url = await uploadToCloudinaryInner(file, folder);
+  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.jpg' : 'upload.jpg');
+  const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
+  await recordMediaUsage(file.size || 0, isVideo);
+  return url;
+};
 export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false, paywallEnter }: AnniversaryPortalProps) {
   // ?nochrome=1 (the dashboard's preview mockup): the Home page only, with no
   // splash, no header buttons, no bottom nav and no admin shortcut.
@@ -1595,8 +1523,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setFeedGateCode(normalizeCode(typeof data.feedGateCode === 'string' ? data.feedGateCode : ''));
         setFeedGatePrev(normalizeCode(typeof data.feedGatePrev === 'string' ? data.feedGatePrev : ''));
         try { localStorage.setItem(lsKey('feed-gate-cfg'), JSON.stringify({ private: data.feedPrivate === true, gen: Number.isFinite(gateGenRaw) && gateGenRaw > 0 ? Math.floor(gateGenRaw) : 1 })); } catch {}
-        const fpsRaw = Number(data.feedPageSize);
-        setFeedPageSize(Number.isFinite(fpsRaw) && fpsRaw > 0 ? Math.floor(fpsRaw) : 0);
         if (data.feedActionMode === 'download' || data.feedActionMode === 'share') setFeedActionMode(data.feedActionMode);
         if (typeof data.pushEnabled === 'boolean') setPushEnabled(data.pushEnabled);
         if (Array.isArray(data.postAds)) {
@@ -2651,6 +2577,29 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Feed pagination: changing the page size sends every visitor back to the
   // first page so nobody lands mid-list on a size they didn't pick.
   useEffect(() => { setFeedPage(1); }, [feedPageSize]);
+
+  // Feed pagination and storage come from the Eventicor console
+  // (platform/settings), not from this app's config: Eventicor manages the
+  // feed for every app. Picked up live, so an admin change lands mid-session.
+  useEffect(() => {
+    try { setFeedPageSize(getCouplePlatform().feedPageSize); } catch {}
+    setPlatformSettingsClient(getCouplePlatform());
+    const unsub = onSnapshot(doc(platformDb as any, 'platform', 'settings'), (snap: any) => {
+      try {
+        const d = snap.exists() ? snap.data() : {};
+        const st: Record<string, number> = { ...getCouplePlatform().storage };
+        for (const k of ['essential', 'complete', 'legacy'] as const) {
+          const v = Number((d as any)?.storage?.[k]);
+          if (Number.isFinite(v) && v > 0) st[k] = v;
+        }
+        const fps = Number((d as any)?.feedPageSize);
+        const next = { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage: st };
+        setFeedPageSize(next.feedPageSize);
+        setPlatformSettingsClient(next);
+      } catch {}
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(lsKey('bookmarks'), JSON.stringify(bookmarks));
@@ -4023,7 +3972,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         console.error("Post error:", err);
                         setUploadingPost(null);
                         const pcode = String(err?.code || '');
-                        showToast(pcode.includes('permission-denied')
+                        const pmsg = String(err?.message || '');
+                        showToast(pmsg.includes('storage is full')
+                          ? STORAGE_FULL_MESSAGE
+                          : pcode.includes('permission-denied')
                           ? 'The couple\u2019s post settings are not accepting this right now. Try again later.'
                           : 'Failed to share memory. Check your connection and try again.', 'error');
                       } finally {
@@ -6638,7 +6590,7 @@ function AdminDashboardModal({
   pushEnabled,
   archiveMode,
   feedActionMode,
-  feedPageSize = 0,
+  adminMode = 'real',
   onUpdateAppFlags,
   feedPrivate,
   feedGateCode,
@@ -6662,7 +6614,20 @@ function AdminDashboardModal({
   onAdminDemoPost
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
-  const [customPageSize, setCustomPageSize] = useState('');
+  // Storage (Eventicor platform settings): live usage record for this app,
+  // the plan storage values the Eventicor admin sets, and the upgrade flow.
+  const [usageRec, setUsageRec] = useState<any>(null);
+  const [platStore, setPlatStore] = useState<Record<string, number>>(() => getCouplePlatform().storage);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const appPlan = getCouplePlan();
+  const planGB = platStore[appPlan] || 5;
+  const usedBytes = usageRec ? (Number(usageRec.imagesBytes) || 0) + (Number(usageRec.videosBytes) || 0) : 0;
+  const limitBytes = planGB * 1073741824;
+  const usedGB = usedBytes / 1073741824;
+  const imagesGB = usageRec ? (Number(usageRec.imagesBytes) || 0) / 1073741824 : 0;
+  const videosGB = usageRec ? (Number(usageRec.videosBytes) || 0) / 1073741824 : 0;
+  const freeBytes = Math.max(0, limitBytes - usedBytes);
+  const storageFull = usedBytes >= limitBytes;
   const [isDirty, setIsDirty] = useState(false);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
@@ -6677,6 +6642,63 @@ function AdminDashboardModal({
   });
   const [mobileAdminNavOpen, setMobileAdminNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // Latest activity popup: the recorded activity, newest first, capped at the
+  // last 30 records.
+  const [activityOpen, setActivityOpen] = useState(false);
+
+  // Plan chooser (Storage > Upgrade): the same three-plan flow as the trial
+  // screen. In demo or preview runs nothing is sent anywhere.
+  const paymentPanel = (() => {
+    if (!upgradeOpen) return null;
+    const header = demoHeader();
+    return (
+      <div className="fixed inset-0 z-[400] flex items-center justify-center p-4" style={{ background: 'rgba(10,10,22,.62)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) setUpgradeOpen(false) }}>
+        <div className="relative w-full max-h-[92vh] overflow-y-auto rounded-[24px] p-6" style={{ background: '#faf7f0', maxWidth: 470 }} onClick={(e) => e.stopPropagation()}>
+          <button type="button" aria-label="Close" onClick={() => setUpgradeOpen(false)} className="absolute right-4 top-4 w-9 h-9 rounded-full border border-[#DAD8E3] bg-white text-[#5A6970] flex items-center justify-center font-black">×</button>
+          <PaymentFlow
+            accent={typeof window !== 'undefined' ? (getComputedStyle(document.documentElement).getPropertyValue('--ann-accent').trim() || '#7a4b9e') : '#7a4b9e'}
+            appName={`${header.bride || 'Bride'} & ${header.groom || 'Groom'}`}
+            email={''}
+            appId={APP_ID}
+            titles={['Choose a new plan', 'Make your transfer', 'Almost there']}
+            intro={'Pick the plan that fits your app. Storage, photographers, vendors and features follow the plan you choose.'}
+            demoMode={DEMO || adminMode !== 'real'}
+            onDone={() => setUpgradeOpen(false)}
+          />
+        </div>
+      </div>
+    );
+  })();
+
+  useEffect(() => {
+    // Live usage: what this app's media has eaten, images and videos apart.
+    // Demo and preview apps have no usage record; they show 0 used.
+    if (DEMO) return;
+    const ref = doc(db, scopedPath('usage'), 'main');
+    const unsub = onSnapshot(ref, (snap: any) => {
+      const u = snap.exists() ? (snap.data() as any) : null;
+      setUsageRec(u);
+      setUsageClient(u, getCouplePlan());
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(platformDb as any, 'platform', 'settings'), (snap: any) => {
+      try {
+        const d = snap.exists() ? (snap.data() as any) : {};
+        const st: Record<string, number> = { ...getCouplePlatform().storage };
+        for (const k of ['essential', 'complete', 'legacy'] as const) {
+          const v = Number(d?.storage?.[k]);
+          if (Number.isFinite(v) && v > 0) st[k] = v;
+        }
+        setPlatStore(st);
+        setPlatformSettingsClient({ feedPageSize: getCouplePlatform().feedPageSize, storage: st });
+        setUsageClient(usageRec, getCouplePlan());
+      } catch {}
+    }, () => {});
+    return () => { try { unsub() } catch {} };
+  }, []);
 
   useEffect(() => {
     try {
@@ -6752,6 +6774,10 @@ function AdminDashboardModal({
   const uploadAlbumBatch = async () => {
     const kind = albumPopupKind;
     if (!kind || !albumPicked.length || albumUploading) return;
+    if (!DEMO && storageBlocked()) {
+      if (showToast) showToast(STORAGE_FULL_MESSAGE, 'error');
+      return;
+    }
     setAlbumUploading(true);
     setAlbumProgressPct(0);
     const totalFiles = albumPicked.length;
@@ -7859,7 +7885,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Latest activity</h3>
                     <div className="space-y-3">
-                      {realPosts.slice(0, 4).map((p: any) => (
+                      {realPosts.slice(0, 5).map((p: any) => (
                         <div key={p.id} className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
                           <div className="min-w-0">
@@ -7870,6 +7896,9 @@ function AdminDashboardModal({
                       ))}
                       {realPosts.length === 0 && <p className="opacity-50 text-sm">No memories yet. Guest posts will show up here the moment they land.</p>}
                     </div>
+                    {realPosts.length > 5 && (
+                      <button type="button" onClick={() => setActivityOpen(true)} className="mt-3 px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">View more</button>
+                    )}
                   </div>
                 </div>
               )}
@@ -8889,7 +8918,7 @@ function AdminDashboardModal({
                             <b className="block text-[0.95rem]">{label}</b>
                             <small className="block opacity-50 text-sm">{sub}</small>
                           </div>
-                          <button type="button" aria-label={label} onClick={() => k === 'private' ? updateFeedPrivacy(on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                          <button type="button" aria-label={label} onClick={() => k === 'private' ? updateFeedPrivacy(!on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
                             <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
                           </button>
                         </div>
@@ -8907,9 +8936,32 @@ function AdminDashboardModal({
                       ))}
                     </div>
                   </div>
-                  {/* Feed pagination: the admin picks how many posts the app's
-                      feed shows at a time; a Next page button loads older ones
-                      (app_config/main.feedPageSize, enforced on every app). */}
+                  {/* Storage: how far this app's photos and videos have gone
+                      against the plan's allowance (Eventicor platform settings),
+                      with the upgrade flow when the space runs out. */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Storage</h3>
+                    <p className="text-sm opacity-60 mb-4">How much of your plan's photo and video storage the app has used. When it is full, new uploads are stopped until you upgrade.</p>
+                    <div className="flex items-baseline justify-between mb-2 flex-wrap gap-1">
+                      <b className="text-[0.95rem]">{(planGB ? planGB.toFixed(planGB >= 10 ? 0 : 1) : '0')} GB plan</b>
+                      <small className="opacity-50 text-sm">{usedGB >= 0.01 ? usedGB.toFixed(usedGB >= 10 ? 1 : 2) : '0.00'} GB used · {(freeBytes / 1073741824).toFixed(freeBytes / 1073741824 >= 10 ? 0 : 2)} GB left</small>
+                    </div>
+                    <div className="flex h-4 rounded-full overflow-hidden" style={{ background: isDarkMode ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)' }}>
+                      {usedBytes > 0 && <div style={{ width: `${Math.min(100, (imagesGB / Math.max(planGB, 0.01)) * 100)}%`, background: 'var(--ann-accent)' }} title={`Photos: ${imagesGB.toFixed(2)} GB`} />}
+                      {videosGB > 0 && <div style={{ width: `${Math.min(100 - Math.min(100, (imagesGB / Math.max(planGB, 0.01)) * 100), (videosGB / Math.max(planGB, 0.01)) * 100)}%`, background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} title={`Videos: ${videosGB.toFixed(2)} GB`} />}
+                    </div>
+                    <div className="flex gap-4 mt-3 flex-wrap text-[0.8rem]">
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'var(--ann-accent)' }} /> Photos {imagesGB >= 0.01 ? imagesGB.toFixed(2) : '0.00'} GB</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} /> Videos {videosGB >= 0.01 ? videosGB.toFixed(2) : '0.00'} GB</span>
+                      <span className="opacity-50">Balance {(freeBytes / 1073741824) >= 0.01 ? (freeBytes / 1073741824).toFixed(2) : '0.00'} GB</span>
+                    </div>
+                    {storageFull && (
+                      <p className="mt-3 text-[0.85rem]" style={{ color: '#b3261e', fontWeight: 700 }}>Your storage is full. Guests cannot post new photos or videos, and you cannot upload any, until you upgrade.</p>
+                    )}
+                    <button type="button" onClick={() => setUpgradeOpen(true)} className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">
+                      {storageFull ? 'Upgrade to keep uploading' : 'Upgrade your plan'}
+                    </button>
+                  </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Feed pagination</h3>
                     <p className="text-sm opacity-60 mb-4">How many posts show in the feed before guests tap Next page to see older ones.</p>
@@ -9340,6 +9392,36 @@ function AdminDashboardModal({
               {/* Admin preview: watch a video or view a photo from All posts full-screen. */}
               {adminViewerPost && (
                 <MediaLightbox post={adminViewerPost} initialIndex={0} isDarkMode={isDarkMode} onClose={() => setAdminViewerPost(null)} />
+              )}
+              {/* Storage > Upgrade: the plan chooser over the dashboard. */}
+              {paymentPanel}
+              {/* Latest activity popup: the recorded activity, newest first,
+                  capped at the last 30 records. */}
+              {activityOpen && (
+                <div className="fixed inset-0 z-[380] flex items-center justify-center p-4" style={{ background: 'rgba(10,10,22,.6)' }} onClick={(e) => { if (e.target === e.currentTarget) setActivityOpen(false) }}>
+                  <div className="relative w-full max-w-md max-h-[80vh] overflow-y-auto rounded-[24px] p-6" style={{ background: isDarkMode ? '#0B171C' : '#fff' }} onClick={(e) => e.stopPropagation()}>
+                    <button type="button" aria-label="Close" onClick={() => setActivityOpen(false)} className="absolute right-4 top-4 w-9 h-9 rounded-full border border-[#DAD8E3] text-[#5A6970] flex items-center justify-center font-black">×</button>
+                    <h3 className="font-black font-display text-xl mb-1 pr-10">Latest activity</h3>
+                    <p className="text-sm opacity-60 mb-4">Everything recorded in your app, newest first. Only the last 30 records are kept.</p>
+                    <div className="space-y-3">
+                      {realPosts.slice(0, 30).map((p: any) => {
+                        const t = p.timestamp?.toDate ? p.timestamp.toDate() : (p.createdAt?.toDate ? p.createdAt.toDate() : null);
+                        return (
+                          <div key={p.id} className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center font-black shrink-0">{(p.authorName || 'G').charAt(0).toUpperCase()}</div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-[0.92rem]">{p.authorName || 'A guest'} shared a memory</p>
+                              <small className="block opacity-50 truncate">{p.text || p.caption || 'Photo or video post'}</small>
+                              {t && <small className="block opacity-40 text-[0.72rem]">{t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</small>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {realPosts.length === 0 && <p className="opacity-50 text-sm">Nothing recorded yet.</p>}
+                      {realPosts.length > 30 && <p className="opacity-40 text-xs pt-2">Older records than these 30 are not kept.</p>}
+                    </div>
+                  </div>
+                </div>
               )}
               {/* Branded confirmation shared by every delete action in the dashboard. */}
               <DeleteConfirmationModal
