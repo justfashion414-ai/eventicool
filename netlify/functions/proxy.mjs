@@ -131,7 +131,9 @@ export default async (req) => {
   if (body.op === 'feed-gate') {
     try {
       init()
-      const appId = String(body.appId || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80)
+      // Firestore document ids are case-sensitive (auto ids are mixed case),
+      // so the app id is sanitized but never lower-cased here.
+      const appId = String(body.appId || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)
       const code = String(body.code || '').trim().toUpperCase().slice(0, 40)
       if (!appId) return json(400, { ok: false, error: 'invalid' })
       const cfgSnap = await getFirestore().collection('apps').doc(appId).collection('app_config').doc('main').get()

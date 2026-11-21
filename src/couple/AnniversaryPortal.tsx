@@ -42,7 +42,7 @@ import {
   Minimize2,
   Mail,
   Images
-, Banknote, Copy } from 'lucide-react';
+, Handshake, Banknote, Copy } from 'lucide-react';
 import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
@@ -365,6 +365,14 @@ const CLOUDINARY_CHUNK_BYTES = 10 * 1024 * 1024;
 // the dashboard's storage chart stays live.
 export const STORAGE_FULL_MESSAGE = 'Your storage is full. Upgrade your plan to keep uploading photos and videos.';
 const GB = 1073741824;
+
+// Partners: the people, brands and businesses a couple wants their guests to
+// know, managed in the dashboard's Partners tab and shown on the app's home
+// page. Demo previews show these two.
+const DEMO_PARTNERS = [
+  { id: 'demo-lens', name: 'Lens & Light Studio', category: 'Photography', description: 'The studio shooting the wedding day. Their full album lands here first.' },
+  { id: 'demo-kiln', name: 'Kiln Films', category: 'Videography', description: 'Every highlight reel and the wedding film come from Kiln Films.' },
+];
 interface UsageRec { imagesBytes: number; videosBytes: number; count: number; updatedAt?: number }
 let platSettings: { feedPageSize: number; storage: Record<string, number> } = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } };
 let usageRec: UsageRec | null = null;
@@ -386,6 +394,7 @@ async function recordMediaUsage(bytes: number, isVideo: boolean) {
     const patch: any = { count: increment(1), updatedAt: serverTimestamp() };
     patch[isVideo ? 'videosBytes' : 'imagesBytes'] = increment(bytes);
     await setDoc(ref, patch, { merge: true });
+    try { window.dispatchEvent(new Event('ann-usage-dirty')); } catch {}
   } catch { /* the chart catches up on the next snapshot */ }
 }
 
@@ -551,7 +560,7 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
 const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
   if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
   const url = await uploadToCloudinaryWithProgressInner(file, folder, () => {});
-  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.jpg' : 'upload.jpg');
+  const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
   await recordMediaUsage(file.size || 0, isVideo);
   return url;
@@ -737,6 +746,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [archiveMode, setArchiveMode] = useState<boolean>(false);
   const [blockedUids, setBlockedUids] = useState<string[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  // Partners: live from this app's Firestore, managed in the dashboard's
+  // Partners tab. Demo previews show the demo partners.
+  const [partners, setPartners] = useState<any[]>(() => DEMO ? DEMO_PARTNERS : []);
+  useEffect(() => {
+    if (DEMO) return;
+    try {
+      const unsub = onSnapshot(query(collection(db, scopedPath('partners')), orderBy('createdAt', 'asc')), (snap: any) => {
+        setPartners(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+      }, () => {});
+      return () => { try { unsub(); } catch {} };
+    } catch { return; }
+  }, []);
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
   // Private feed gate: when the admin turns the feed private, every non-admin
@@ -1934,6 +1955,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setFeedGranted(gen);
         setShowLaunchSplash(false);
         try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
+      } else if (gateData && gateData.error === 'no-code') {
+        showToast('The couple has not set an access code yet. Ask them for one.', 'error');
       } else {
         showToast('Access code is incorrect or invalid.', 'error');
       }
@@ -2859,21 +2882,34 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
               )}
 
-              {/* OUR VENDORS */}
+              {/* OUR PARTNERS — set in the dashboard's Partners tab */}
+              {(partners || []).length > 0 && (
               <section className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our vendors</h2>
-                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Official media partners. They upload full albums here.</p>
-                <div className="flex gap-3">
-                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <b className="block text-[0.95rem] font-serif-display">Lens &amp; Light Studio</b>
-                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Photographer</span>
-                  </div>
-                  <div className={`flex-1 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <b className="block text-[0.95rem] font-serif-display">Kiln Films</b>
-                    <span className={`block text-[0.78rem] mt-0.5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Videographer</span>
-                  </div>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our partners</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
+                <div className="flex flex-col gap-3">
+                  {(partners || []).map((p: any) => {
+                    const wa = String(p.whatsapp || '').replace(/[^0-9]/g, '');
+                    const ig = String(p.instagram || '').replace(/^@/, '');
+                    const link = p.website || (ig ? `https://instagram.com/${ig}` : '') || (wa ? `https://wa.me/${wa}` : '');
+                    const cardCls = `flex items-center gap-3 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+                    return (
+                      <div key={p.id || p.name} className={cardCls}>
+                        {p.photo
+                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+                        <div className="min-w-0 flex-1">
+                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+                          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
+                          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
+                        </div>
+                        {link ? <a href={link} target="_blank" rel="noreferrer" className="shrink-0" aria-label={`Open ${p.name || 'partner'}`}><ExternalLink className="w-4 h-4 opacity-40" /></a> : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
+              )}
 
               {/* CTA */}
               <section className="mt-8 mb-2">
@@ -3142,7 +3178,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                     if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
                       feedElements.push(
-                        <button key="feed-next-page" onClick={() => setFeedPage((v: number) => v + 1)} className="mx-auto my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Next page · older posts</button>
+                        <button key="feed-next-page" onClick={() => setFeedPage((v: number) => v + 1)} className="mx-auto my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
                       );
                     }
                     return feedElements;
@@ -3437,6 +3473,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         weddingDetails={DETAILS}
         onSaveWedding={updateWedding}
         vendors={vendors}
+        partners={partners}
         blockedUids={blockedUids}
         vendorRequests={vendorRequests}
         onUpdatePeople={updatePeople}
@@ -6236,7 +6273,7 @@ function SectionEyeBtn({ hidden, onClick, isDarkMode }: { hidden: boolean; onCli
   );
 }
 
-function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle }: any) {
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, partners = DEMO_PARTNERS }: any) {
   // A faithful miniature of the real home page: the actual template hero
   // components (compact), the same banner, journey timeline and giant footer
   // wall the couple sees, all drawn from the admin's current drafts.
@@ -6384,21 +6421,26 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         </div>
       </section>
       )}
-      {/* Our vendors */}
+      {/* Our partners — whatever the dashboard's Partners tab holds */}
+      {(partners || []).length > 0 && (
       <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our vendors</h2>
-        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">Official media partners. They upload full albums here.</p>
-        <div className="flex gap-2">
-          <div className="flex-1 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
-            <b className="block text-[0.8rem] font-serif-display">Lens &amp; Light Studio</b>
-            <span className="block text-[0.65rem] text-[#5A6970]">Photographer</span>
-          </div>
-          <div className="flex-1 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
-            <b className="block text-[0.8rem] font-serif-display">Kiln Films</b>
-            <span className="block text-[0.65rem] text-[#5A6970]">Videographer</span>
-          </div>
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our partners</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">The people and brands behind this celebration.</p>
+        <div className="flex flex-col gap-2">
+          {(partners || []).map((p: any) => (
+            <div key={p.id || p.name} className="flex items-center gap-3 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
+              {p.photo
+                ? <img src={p.photo} alt={p.name || 'Partner'} className="w-9 h-9 rounded-full object-cover shrink-0" />
+                : <span className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-black text-[0.8rem]" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+              <div className="min-w-0 flex-1">
+                <b className="block text-[0.8rem] font-serif-display">{p.name}</b>
+                {p.category ? <span className="block text-[0.65rem] text-[#5A6970]">{p.category}</span> : null}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
+      )}
       {/* Feed CTA */}
       <section className="px-5 pt-7">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
@@ -6552,6 +6594,7 @@ function AdminDashboardModal({
   onUpdateReelAds,
   posts = [],
   onDeletePost,
+  partners = DEMO_PARTNERS,
   onAdminDemoPost
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
@@ -6577,7 +6620,7 @@ function AdminDashboardModal({
       const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       // Nov 20 2026: the Hero photos tab merged into Events & photos.
       const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'partners', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
@@ -6587,6 +6630,95 @@ function AdminDashboardModal({
   // Latest activity popup: the recorded activity, newest first, capped at the
   // last 30 records.
   const [activityOpen, setActivityOpen] = useState(false);
+  // Partners: the couple's partner directory (name, category, description,
+  // logo, contacts) shown on the app's home page under Our partners. Demo
+  // runs keep the list locally so the preview always has something to show.
+  const [demoPartnersLocal, setDemoPartnersLocal] = useState<any[]>(DEMO_PARTNERS);
+  const partnersList: any[] = DEMO ? demoPartnersLocal : (partners || []);
+  const [partnerForm, setPartnerForm] = useState<any>({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' });
+  const [partnerEditing, setPartnerEditing] = useState<any>(null);
+  const [partnerDelete, setPartnerDelete] = useState<any>(null);
+  const [partnerLogoBusy, setPartnerLogoBusy] = useState(false);
+  // Storage reader: reconciled against Cloudinary so it always shows the real
+  // bytes this app's media occupies, not only the uploads made since tracking
+  // started. The dashboard syncs when it opens and shortly after any upload.
+  const syncUsage = async () => {
+    if (DEMO) return;
+    try {
+      const token = await auth?.currentUser?.getIdToken?.();
+      if (!token) return;
+      const eps = [
+        `/api/usage-sync?app=${encodeURIComponent(APP_ID)}`,
+        `/.netlify/functions/usage-sync?app=${encodeURIComponent(APP_ID)}`
+      ];
+      for (const ep of eps) {
+        try {
+          const r = await fetch(ep, { headers: { Authorization: `Bearer ${token}` } });
+          if (r.ok) {
+            const d = await r.json();
+            setUsageRec((prev: any) => ({ ...(prev || {}), imagesBytes: Number(d.imagesBytes) || 0, videosBytes: Number(d.videosBytes) || 0, syncedAt: new Date() }));
+            return;
+          }
+        } catch { /* try the next endpoint */ }
+      }
+    } catch { /* the reader keeps the last known numbers */ }
+  };
+  useEffect(() => { syncUsage(); }, []);
+  useEffect(() => {
+    let t: any;
+    const on = () => { try { clearTimeout(t); } catch {} t = setTimeout(() => { syncUsage(); }, 10000); };
+    window.addEventListener('ann-usage-dirty', on);
+    return () => { window.removeEventListener('ann-usage-dirty', on); try { clearTimeout(t); } catch {} };
+  }, []);
+
+  const savePartner = async () => {
+    const name = String(partnerForm.name || '').trim();
+    if (!name) { showToast('Give the partner a name first.', 'error'); return; }
+    const payload: any = {
+      name,
+      category: String(partnerForm.category || '').trim(),
+      description: String(partnerForm.description || '').trim(),
+      photo: partnerForm.photo || '',
+      whatsapp: String(partnerForm.whatsapp || '').trim(),
+      instagram: String(partnerForm.instagram || '').trim(),
+      website: String(partnerForm.website || '').trim(),
+    };
+    try {
+      if (DEMO) {
+        if (partnerEditing) setDemoPartnersLocal((l: any[]) => l.map((x: any) => x.id === partnerEditing.id ? { ...x, ...payload } : x));
+        else setDemoPartnersLocal((l: any[]) => [...l, { id: `demo-${Date.now()}`, ...payload }]);
+      } else if (partnerEditing) {
+        await updateDoc(doc(db, scopedPath('partners'), partnerEditing.id), { ...payload, updatedAt: serverTimestamp() });
+      } else {
+        await addDoc(collection(db, scopedPath('partners')), { ...payload, createdAt: serverTimestamp() });
+      }
+      showToast(partnerEditing ? 'Partner updated.' : 'Partner added. It is live on the app now.', 'success');
+      setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' });
+      setPartnerEditing(null);
+    } catch {
+      showToast('Could not save the partner. Check your connection and try again.', 'error');
+    }
+  };
+  const removePartner = async () => {
+    if (!partnerDelete) return;
+    try {
+      if (DEMO) setDemoPartnersLocal((l: any[]) => l.filter((x: any) => x.id !== partnerDelete.id));
+      else await deleteDoc(doc(db, scopedPath('partners'), partnerDelete.id));
+      showToast('Partner removed from the app.', 'success');
+    } catch { showToast('Could not remove the partner.', 'error'); }
+    setPartnerDelete(null);
+  };
+  const uploadPartnerLogo = async (file: any) => {
+    if (!file) return;
+    setPartnerLogoBusy(true);
+    try {
+      const url = await uploadToCloudinary(file, 'partners');
+      setPartnerForm((f: any) => ({ ...f, photo: url }));
+    } catch (err: any) {
+      showToast(String(err?.message || '').includes('storage is full') ? STORAGE_FULL_MESSAGE : 'Logo upload failed. Try again.', 'error');
+    }
+    setPartnerLogoBusy(false);
+  };
 
   // Plan chooser (Storage > Upgrade): the same three-plan flow as the trial
   // screen. In demo or preview runs nothing is sent anywhere.
@@ -7659,6 +7791,8 @@ function AdminDashboardModal({
                           { id: 'events', label: 'Events & photos', icon: Calendar },
                           { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
+                    { id: 'partners', label: 'Partners', icon: Handshake },
+                          { id: 'partners', label: 'Partners', icon: Handshake },
                           { id: 'security', label: 'Security', icon: Lock },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
@@ -8350,6 +8484,7 @@ function AdminDashboardModal({
                               heroImages={heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES}
                               tpl={heroTplDraft}
                               wallStyle={footerStyleDraft}
+                              partners={partnersList}
                             />
                           </div>
                         </div>
@@ -8793,6 +8928,100 @@ function AdminDashboardModal({
                   )}
                 </div>
               )}
+              {activeAdminTab === 'partners' && (
+                <div className="space-y-6">
+                  <p className="text-sm opacity-60 -mt-2">The people, brands and businesses you want your guests to know: photographers, planners, aso-ebi sellers, anyone behind your occasion. Whatever you save here is what shows on the app's home page under Our partners.</p>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">{partnerEditing ? `Edit ${partnerEditing.name || 'partner'}` : 'Add a partner'}</h3>
+                    <p className="text-sm opacity-60 mb-4">{partnerEditing ? 'Change anything and save. Updates show on the app straight away.' : 'Name is the only required field; everything else makes the card richer.'}</p>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Name</span>
+                          <input type="text" value={partnerForm.name} onChange={(e) => setPartnerForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Lens & Light Studio" className={inputCls} />
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">What they do</span>
+                          <input type="text" value={partnerForm.category} onChange={(e) => setPartnerForm((f: any) => ({ ...f, category: e.target.value }))} placeholder="e.g. Photography, Catering, Aso-ebi" className={inputCls} />
+                        </div>
+                      </div>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Description</span>
+                        <textarea value={partnerForm.description} onChange={(e) => setPartnerForm((f: any) => ({ ...f, description: e.target.value }))} rows={3} placeholder="A line or two your guests will read about them." className={`${inputCls} resize-none`} />
+                      </div>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Logo</span>
+                        {partnerForm.photo ? (
+                          <div className="flex items-center gap-3">
+                            <img src={partnerForm.photo} alt="Partner logo" className="w-14 h-14 rounded-full object-cover border border-[#DAD8E3] dark:border-[#22363E]" />
+                            <button type="button" onClick={() => setPartnerForm((f: any) => ({ ...f, photo: '' }))} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Remove</button>
+                          </div>
+                        ) : (
+                          <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer ${partnerLogoBusy ? 'opacity-50 pointer-events-none' : ''} ${isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]'}`}>
+                            <Camera className="w-4 h-4" />
+                            {partnerLogoBusy ? 'Uploading…' : 'Upload a logo'}
+                            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPartnerLogo(f); e.currentTarget.value = ''; }} />
+                          </label>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">WhatsApp / phone</span>
+                          <input type="text" value={partnerForm.whatsapp} onChange={(e) => setPartnerForm((f: any) => ({ ...f, whatsapp: e.target.value }))} placeholder="e.g. 2348012345678" className={inputCls} />
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Instagram</span>
+                          <input type="text" value={partnerForm.instagram} onChange={(e) => setPartnerForm((f: any) => ({ ...f, instagram: e.target.value }))} placeholder="@handle" className={inputCls} />
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Website</span>
+                          <input type="text" value={partnerForm.website} onChange={(e) => setPartnerForm((f: any) => ({ ...f, website: e.target.value }))} placeholder="https://…" className={inputCls} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 flex-wrap pt-1">
+                        <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
+                        {partnerEditing && (
+                          <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {partnersList.length === 0 ? (
+                      <p className="text-sm opacity-60">No partners yet. Add the first one above and it appears on the app's home page immediately.</p>
+                    ) : partnersList.map((p: any) => (
+                      <div key={p.id || p.name} className={`rounded-[20px] p-5 border flex items-start gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                        {p.photo
+                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-11 h-11 rounded-full object-cover shrink-0" />
+                          : <span className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white font-black" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+                        <div className="min-w-0 flex-1">
+                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+                          {p.category ? <span className="block text-[0.7rem] opacity-60">{p.category}</span> : null}
+                          {p.description ? <p className="m-0 text-[0.8rem] opacity-70 mt-1">{p.description}</p> : null}
+                          <div className="flex gap-3 flex-wrap mt-1.5 text-[0.7rem] opacity-70">
+                            {p.whatsapp ? <span>WhatsApp {p.whatsapp}</span> : null}
+                            {p.instagram ? <span>Instagram {p.instagram}</span> : null}
+                            {p.website ? <span className="truncate max-w-[200px]">{p.website}</span> : null}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 shrink-0">
+                          <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '' }); try { document.querySelector('.font-black.font-display.text-lg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
+                          <button type="button" onClick={() => setPartnerDelete(p)} className="px-4 py-2 rounded-full border border-red-400 text-red-500 text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <DeleteConfirmationModal
+                    isOpen={!!partnerDelete}
+                    onClose={() => setPartnerDelete(null)}
+                    onConfirm={removePartner}
+                    isDarkMode={isDarkMode}
+                    title="Remove partner?"
+                    message={`${partnerDelete?.name || 'This partner'} will stop showing on the app's home page right away.`}
+                    confirmLabel="Remove partner"
+                  />
+                </div>
+              )}
               {activeAdminTab === 'settings' && (
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -8857,17 +9086,6 @@ function AdminDashboardModal({
                       ))}
                     </div>
                   </div>
-                  {/* Post action button: the admin picks Share or Download for the
-                      third button on every post and reel (app_config/main.feedActionMode). */}
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Post action button</h3>
-                    <p className="text-sm opacity-60 mb-4">The third button on every post and reel. Share opens the share sheet; Download saves the photo or video straight to the guest's device.</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
-                        <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
-                      ))}
-                    </div>
-                  </div>
                   {/* Storage: how far this app's photos and videos have gone
                       against the plan's allowance (Eventicor platform settings),
                       with the upgrade flow when the space runs out. */}
@@ -8887,6 +9105,10 @@ function AdminDashboardModal({
                       <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} /> Videos {videosGB >= 0.01 ? videosGB.toFixed(2) : '0.00'} GB</span>
                       <span className="opacity-50">Balance {(freeBytes / 1073741824) >= 0.01 ? (freeBytes / 1073741824).toFixed(2) : '0.00'} GB</span>
                     </div>
+                    {usageRec?.syncedAt && (() => {
+                      const t = usageRec.syncedAt?.seconds ? usageRec.syncedAt.seconds * 1000 : (usageRec.syncedAt instanceof Date ? usageRec.syncedAt.getTime() : null);
+                      return t ? <small className="opacity-40 text-[0.7rem] block mt-1">Checked against Cloudinary · {new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</small> : null;
+                    })()}
                     {storageFull && (
                       <p className="mt-3 text-[0.85rem]" style={{ color: '#b3261e', fontWeight: 700 }}>Your storage is full. Guests cannot post new photos or videos, and you cannot upload any, until you upgrade.</p>
                     )}
