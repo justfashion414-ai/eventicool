@@ -47,7 +47,7 @@ import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
-import { disableNetwork, enableNetwork } from 'firebase/firestore';
+import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
@@ -865,6 +865,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Session length (minutes) for THIS admin; the value lives on their admins
   // record on the server and is enforced there too. Default 30 minutes.
   const sessionMinutesRef = useRef(30);
+  // Sliding session window: the timeout counts from the admin's last real
+  // activity, so a signed-in admin who returns is never booted by a clock
+  // that never restarted since the original sign-in.
+  const lastActivityRef = useRef(Date.now());
+  const authTimeMsRef = useRef(0);
+  const lastKnownLaRef = useRef(0);
   const [userLikes, setUserLikes] = useState<Record<string, boolean>>({});
   const [userLoves, setUserLoves] = useState<Record<string, boolean>>({});
   const [reactionsLoading, setReactionsLoading] = useState(true);
@@ -1169,11 +1175,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           explicitSignOutRef.current = false;
           const idToken = await currUser.getIdTokenResult();
           const authTime = (idToken.claims.auth_time as any) || Math.floor(new Date(currUser.metadata.lastSignInTime || Date.now()).getTime() / 1000);
+          authTimeMsRef.current = Number(authTime) * 1000;
           const sessionMinutes = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
           const expiresAt = (Number(authTime) + sessionMinutes * 60) * 1000;
           const now = Date.now();
           
-          if (now >= expiresAt) {
+          const idleExpiresAt = lastActivityRef.current + sessionMinutes * 60000;
+          if (now >= idleExpiresAt) {
             doSignOut();
             setIsAdminSessionValid(false);
             showToast("Your admin session expired. Please sign in again.", "info");
@@ -1220,7 +1228,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
     const checkExpiry = () => {
       const now = Date.now();
-      const timeLeft = sessionExpiry - now;
+      // The window slides with use: the timeout counts from the last real
+      // interaction, not from the original sign-in.
+      const idleMins = Math.max(5, Math.min(Number(sessionMinutesRef.current) || 30, 10080));
+      const timeLeft = lastActivityRef.current + idleMins * 60000 - now;
 
       if (timeLeft <= 0) {
         doSignOut();
@@ -1247,6 +1258,33 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       window.removeEventListener('focus', checkExpiry);
     };
   }, [sessionExpiry, user]);
+
+  // 1c. Keep the server's idle marker current: a visible dashboard writes the
+  // admin's last activity onto their own admins record every few minutes, so
+  // the server's idle check agrees with what the admin experiences.
+  useEffect(() => {
+    if (!user || user.isAnonymous) return;
+    const email = user.email || '';
+    if (!email) return;
+    const bump = () => { lastActivityRef.current = Date.now(); };
+    const ACT = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'];
+    ACT.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    let lastWrite = lastKnownLaRef.current || Date.now();
+    const writeBeat = () => {
+      const when = lastActivityRef.current;
+      lastWrite = Math.max(lastWrite, when);
+      setDoc(doc(db, scopedPath('admins'), email), { lastActiveAt: Timestamp.fromMillis(when) }, { merge: true }).catch(() => {});
+    };
+    const beat = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (lastActivityRef.current <= lastWrite) return; // nothing new since the last write
+      writeBeat();
+    }, 4 * 60 * 1000);
+    return () => {
+      ACT.forEach((e) => window.removeEventListener(e, bump));
+      window.clearInterval(beat);
+    };
+  }, [user?.uid, user?.email]);
 
   // 1c. Live Profile, Admin & Reactions Sync
   useEffect(() => {
@@ -1296,6 +1334,29 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setMustSetPassword(!!admDoc.mustSetPassword);
         const mins = Number(snap.data().sessionMinutes);
         if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
+        // Idle session window: lastActiveAt (written while the admin works)
+        // extends the window past the original sign-in. Opening the app counts
+        // as activity only when the session is still inside its window, so an
+        // idle-expired session ends here and cannot be revived by returning.
+        const admLa: any = admDoc.lastActiveAt;
+        const laMs = admLa?.toDate ? admLa.toDate().getTime() : (Number(admLa?.seconds || 0) * 1000 || 0);
+        lastKnownLaRef.current = laMs;
+        const idleMins = mins >= 5 ? Math.min(mins, 10080) : (Number(sessionMinutesRef.current) || 30);
+        const idleStart = Math.max(authTimeMsRef.current || 0, laMs || 0);
+        if (idleStart && Date.now() - idleStart > idleMins * 60000 + 60000) {
+          doSignOut();
+          setIsAdminSessionValid(false);
+          setIsAdminDashboardOpen(false);
+          if (window.location.hash === '#admin') {
+            try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
+          }
+          setRoute('/');
+          showToast('Your admin session expired. Please sign in again.', 'info');
+        } else if (!laMs || Date.now() - laMs > 60000) {
+          // First read of this visit (or a cold record): stamp this visit's
+          // start as activity.
+          setDoc(doc(db, scopedPath('admins'), user.email || ''), { lastActiveAt: Timestamp.fromMillis(lastActivityRef.current) }, { merge: true }).catch(() => {});
+        }
         if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else if (isSuper) {
         // The platform owner keeps full access on every app client-side, but is
@@ -3635,10 +3696,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                         showToast(pendingFlag ? 'Shared. Waiting for the couple to approve' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'));
 
-                      } catch (err) {
+                      } catch (err: any) {
                         console.error("Post error:", err);
                         setUploadingPost(null);
-                        showToast('Failed to share memory. Check your connection and try again.', 'error');
+                        const pcode = String(err?.code || '');
+                        showToast(pcode.includes('permission-denied')
+                          ? 'The couple\u2019s post settings are not accepting this right now. Try again later.'
+                          : 'Failed to share memory. Check your connection and try again.', 'error');
                       } finally {
                         setIsPosting(false);
                       }
@@ -3967,17 +4031,24 @@ const startVideoBestEffort = (vid: HTMLVideoElement | null, onSoundBlocked?: (bl
 function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string; className?: string; onMediaClick?: (e: any) => void; onEnded?: () => void }) {
   const vidRef = useRef<HTMLVideoElement | null>(null);
   const [soundBlocked, setSoundBlocked] = useState(false);
+  const [mutedNow, setMutedNow] = useState(true);
   useEffect(() => {
     setSoundBlocked(false);
     const vid = vidRef.current;
     if (!vid) return;
-    const t = window.setTimeout(() => startVideoBestEffort(vid, setSoundBlocked), 80);
-    return () => window.clearTimeout(t);
+    const attempt = () => startVideoBestEffort(vid, setSoundBlocked);
+    const t = window.setTimeout(attempt, 80);
+    // If the first try lands before the browser holds any data, play() can
+    // reject for reasons that have nothing to do with sound, so retry once
+    // the first frame can actually play before going quiet.
+    const onCanPlay = () => attempt();
+    vid.addEventListener('canplay', onCanPlay, { once: true });
+    return () => { window.clearTimeout(t); vid.removeEventListener('canplay', onCanPlay); };
   }, [src]);
-  const unmute = () => {
+  const toggleMute = () => {
     const vid = vidRef.current;
     if (!vid) return;
-    vid.muted = false;
+    vid.muted = !vid.muted;
     vid.play().catch(() => {});
     setSoundBlocked(false);
   };
@@ -3994,10 +4065,19 @@ function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string
         onContextMenu={(e) => e.preventDefault()}
         onClick={onMediaClick}
         onEnded={onEnded}
+        onVolumeChange={(e: any) => setMutedNow(!!e.currentTarget?.muted)}
       />
+      <button
+        onClick={toggleMute}
+        className="absolute top-3 right-3 p-2.5 rounded-full bg-black/55 text-white backdrop-blur-md hover:bg-black/75 transition-colors z-10"
+        style={{ touchAction: 'manipulation' }}
+        aria-label={mutedNow ? 'Turn sound on' : 'Turn sound off'}
+      >
+        {mutedNow ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+      </button>
       {soundBlocked && (
         <button
-          onClick={unmute}
+          onClick={toggleMute}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/70 text-white text-[0.65rem] font-black uppercase tracking-widest z-10 shadow-lg"
           style={{ touchAction: 'manipulation' }}
         >
@@ -4719,7 +4799,16 @@ function ReelCard({
         </div>
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={() => setMuted(!muted)}
+            onClick={() => {
+              // React does not apply muted prop updates to a mounted video
+              // element, so the toggle must reach the element directly or the
+              // icon flips while the audio stays silent.
+              const vid = videoRef.current;
+              if (!vid) return;
+              vid.muted = !vid.muted;
+              setMuted(vid.muted);
+              if (vid.paused) vid.play().catch(() => {});
+            }}
             className="p-2.5 rounded-full bg-black/50 text-white backdrop-blur-md hover:bg-black/70 transition-colors"
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}

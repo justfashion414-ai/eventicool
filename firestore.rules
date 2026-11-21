@@ -4,6 +4,16 @@ service cloud.firestore {
   function isSuper() {
     return request.auth != null && request.auth.token.email == 'justfashion414@gmail.com';
   }
+  function guestInstantPost(app, uid) {
+    // Instant posting (pending=false) is allowed when the couple turned
+    // approval off, or when the author is one of the app's listed vendors.
+    // Missing app_config falls back to allowing it; the client sends
+    // pending=true for a missing config anyway.
+    return !exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
+      ? true
+      : (get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true) == false
+        || get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('vendors', []).hasAny([uid]));
+  }
   function isAdminIn(app) {
     return isSuper() || (request.auth != null && request.auth.token.email != null
       && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
@@ -25,7 +35,11 @@ service cloud.firestore {
       match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
       match /posts/{postId} {
         allow read: if true;
-        allow create: if request.auth != null && (request.resource.data.get('pending', false) == true || isAdminIn(app));
+        allow create: if request.auth != null && (
+          isAdminIn(app)
+          || request.resource.data.get('pending', false) == true
+          || (!request.resource.data.get('pending', false) && guestInstantPost(app, request.auth.uid))
+        );
         allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
         allow delete: if isAdminIn(app);
         match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }

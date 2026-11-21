@@ -193,7 +193,19 @@ export default async (req) => {
         if (a.status === 'suspended') return json(403, { error: 'This admin access is suspended.' })
         const mins = Math.max(5, Math.min(Number(a.sessionMinutes) || 30, 60 * 24 * 7))
         const authTime = Number(decoded.auth_time) || 0
-        if (authTime && Date.now() / 1000 > authTime + mins * 60) {
+        // Sliding idle window: lastActiveAt is stamped by the admin's own
+        // dashboard while it is in use, so an active admin is never refused
+        // mid-session; idle past the window, access ends.
+        let startSec = authTime
+        const la = a.lastActiveAt || null
+        let laSec = 0
+        if (la) {
+          if (typeof la.toDate === 'function') laSec = Math.floor(la.toDate().getTime() / 1000)
+          else laSec = Number(la.seconds ?? la._seconds ?? 0) || 0
+        }
+        const nowSec = Date.now() / 1000
+        if (laSec && laSec <= nowSec + 120 && laSec >= startSec - 120) startSec = Math.max(startSec, laSec)
+        if (startSec && nowSec > startSec + mins * 60) {
           return json(401, { error: 'Your admin session expired. Sign in again.' })
         }
         const restricted = ['photographer', 'videographer', 'vendor'].includes(a.role)
