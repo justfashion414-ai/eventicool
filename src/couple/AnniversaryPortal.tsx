@@ -7496,7 +7496,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           ) : (
             <div className="space-y-2">
               {guests.map((g: any, i: number) => {
-                const gl = docId !== 'demo' ? guestLink(g.id) : previewUrl(tpl);
+                const gl = docId !== 'demo' ? guestLink(g.id) : window.location.origin + previewUrl(tpl);
                 const openedAt = g.openedAt?.seconds ? new Date(g.openedAt.seconds * 1000) : (g.openedAt ? new Date(g.openedAt) : null);
                 const rep = g.reply || null;
                 return (
