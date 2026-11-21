@@ -842,13 +842,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [shuffledReelAds, setShuffledReelAds] = useState<AdItem[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
   // True once Firestore reports at least one real post. Then every placeholder
-  // leaves the feed, posts and reels alike.
-  const [feedReal, setFeedReal] = useState(false);
+  // leaves the feed, posts and reels alike. Once an app has made a real post,
+  // that fact is remembered on the device (feed-real): a later empty snapshot,
+  // a slow connection or a listener error must never bring the sample
+  // placeholders back on that account.
+  const [feedReal, setFeedReal] = useState<boolean>(() => {
+    try { return typeof window !== 'undefined' && localStorage.getItem(lsKey('feed-real')) === '1'; } catch { return false; }
+  });
 
   // Sample-mode markers: the demo preview (and any app with no real posts yet)
   // carries a permanent sample notice and chips; they disappear the moment the
   // first real post exists.
-  const sampleMode = DEMO || !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-'));
+  const sampleMode = DEMO || (!feedReal && !(posts || []).some((p: any) => !p.localDemo && !String(p.id || '').startsWith('sample-')));
   const [isPostsLoading, setIsPostsLoading] = useState(true);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
 
@@ -2183,24 +2188,59 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (DEMO) {
       setPosts(demoSeedPosts() as any); setIsPostsLoading(false); return;
     } // Previews read seeded demo posts only
-    const q = query(collection(db, scopedPath('posts')), orderBy('timestamp', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      if (snapshot.empty) {
-        // Until the couple's first real post, a real app shows the same lively
-        // seed content sample apps get: their names, their hero photos and the
-        // demo reels. The first real post replaces all of it.
-        setFeedReal(false);
-        setPosts(demoSeedPosts() as any);
-      } else {
-        setFeedReal(true);
-        setPosts(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      }
+    // The seed content stays ONLY until the couple's first real post; after
+    // that it is gone for good. Three layers hold that:
+    //   1. a real post is remembered per device (lsKey('feed-real')), so a
+    //      stale, failed or empty snapshot can never resurrect the samples;
+    //   2. a cache-only empty snapshot is ignored (the loader stays up) until
+    //      the server answers, so a slow connection never flashes placeholders;
+    //   3. ordering happens on the client, so a post without a timestamp field
+    //      still shows instead of silently vanishing from an ordered query.
+    let haveServer = false;
+    const seededAtBoot = (() => { try { return localStorage.getItem(lsKey('feed-real')) === '1'; } catch { return false; } })();
+    const realDocs = (docs: any[]) => docs.filter((p: any) => !p.localDemo && !String(p.id || '').startsWith('demo-seed-') && !String(p.id || '').startsWith('sample-'));
+    const bail = window.setTimeout(() => {
+      if (haveServer) return;
+      if (seededAtBoot) { setFeedReal(true); setPosts([]); }
+      else { setPosts(demoSeedPosts() as any); }
       setIsPostsLoading(false);
+    }, 10000);
+    const unsub = onSnapshot(collection(db, scopedPath('posts')), (snapshot) => {
+      const fromCache = !!(snapshot as any).metadata?.fromCache;
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (realDocs(docs).length > 0) {
+        haveServer = true;
+        try { localStorage.setItem(lsKey('feed-real'), '1'); } catch { /* private mode */ }
+        setFeedReal(true);
+        setPosts(docs.slice().sort((a: any, b: any) => ((b.timestamp?.toMillis?.() ?? 0) - (a.timestamp?.toMillis?.() ?? 0))));
+        setIsPostsLoading(false);
+      } else if (!fromCache) {
+        // The server itself says there is nothing real here.
+        haveServer = true;
+        if (seededAtBoot) {
+          // This account posted before. Sample content never returns.
+          setFeedReal(true);
+          setPosts([]);
+        } else {
+          // Until the couple's first real post, a real app shows the same lively
+          // seed content sample apps get: their names, their hero photos and the
+          // demo reels. The first real post replaces all of it.
+          setFeedReal(false);
+          setPosts(demoSeedPosts() as any);
+        }
+        setIsPostsLoading(false);
+      }
+      // A cache-only snapshot with nothing real keeps the loader up and waits
+      // for the server; a stale cached empty view must never become the feed.
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'posts');
+      if (seededAtBoot) setFeedReal(true);
+      if (!haveServer) {
+        setPosts((prev: any[]) => (realDocs(prev).length > 0 ? prev : (seededAtBoot ? [] : (demoSeedPosts() as any))));
+      }
       setIsPostsLoading(false);
     });
-    return () => unsub();
+    return () => { window.clearTimeout(bail); unsub(); };
   }, []);
 
   // Wake refresh: when the app has sat in the background a long while and the
@@ -3608,7 +3648,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         setAccessCode('');
                         setNewPostEvent('');
                         setAttachedMedia([]);
-                        showToast('Shared. Waiting for the couple to approve');
+                        showToast('Shared! Your post will be approved soon', 'success');
                         return;
                       }
                       setIsPosting(true);
@@ -3694,7 +3734,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         });
                         setUploadingPost(null);
 
-                        showToast(pendingFlag ? 'Shared. Waiting for the couple to approve' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'));
+                        showToast(pendingFlag ? 'Shared! Your post will be approved soon' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'), 'success');
 
                       } catch (err: any) {
                         console.error("Post error:", err);
@@ -4068,7 +4108,7 @@ function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string
         onVolumeChange={(e: any) => setMutedNow(!!e.currentTarget?.muted)}
       />
       <button
-        onClick={toggleMute}
+        onClick={(e) => { e.stopPropagation(); toggleMute(); }}
         className="absolute top-3 right-3 p-2.5 rounded-full bg-black/55 text-white backdrop-blur-md hover:bg-black/75 transition-colors z-10"
         style={{ touchAction: 'manipulation' }}
         aria-label={mutedNow ? 'Turn sound on' : 'Turn sound off'}
@@ -4077,7 +4117,7 @@ function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string
       </button>
       {soundBlocked && (
         <button
-          onClick={toggleMute}
+          onClick={(e) => { e.stopPropagation(); toggleMute(); }}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/70 text-white text-[0.65rem] font-black uppercase tracking-widest z-10 shadow-lg"
           style={{ touchAction: 'manipulation' }}
         >
