@@ -2275,14 +2275,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         apply(merged, gotApproved && gotMine, cacheApproved || cacheMine);
       };
       unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', false)), (snapshot) => {
-        docsApproved = snapshot.docs;
+        docsApproved = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         cacheApproved = !!(snapshot as any).metadata?.fromCache;
         if (!cacheApproved) gotApproved = true;
         flush();
       }, onErr));
       if (myUid) {
         unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', true), where('authorUid', '==', myUid)), (snapshot) => {
-          docsMine = snapshot.docs;
+          docsMine = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
           cacheMine = !!(snapshot as any).metadata?.fromCache;
           if (!cacheMine) gotMine = true;
           flush();
