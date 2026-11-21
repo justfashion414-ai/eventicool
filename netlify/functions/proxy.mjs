@@ -101,6 +101,28 @@ export default async (req) => {
       return json(500, { error: String(e?.message || e) })
     }
   }
+
+  // Public feed gate for a couple app's private feed: a guest taps the entry
+  // banner and types the access code. The check happens here, server-side, so
+  // the answer never comes from the browser. The returned generation changes
+  // every time a code is revoked or replaced, which kills every old grant.
+  if (body.op === 'feed-gate') {
+    try {
+      init()
+      const appId = String(body.appId || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80)
+      const code = String(body.code || '').trim().toUpperCase().slice(0, 40)
+      if (!appId) return json(400, { ok: false, error: 'invalid' })
+      const cfgSnap = await getFirestore().collection('apps').doc(appId).collection('app_config').doc('main').get()
+      const cfg = cfgSnap.exists ? cfgSnap.data() : null
+      if (!cfg || !cfg.feedPrivate) return json(200, { ok: true, open: true, gen: 0 })
+      const gen = Math.max(1, Number(cfg.feedGateGen) || 1)
+      const gate = String(cfg.feedGateCode || '').trim().toUpperCase()
+      if (gate && code === gate) return json(200, { ok: true, gen })
+      return json(200, { ok: false, error: 'invalid' })
+    } catch (e) {
+      return json(500, { ok: false, error: String(e?.message || e) })
+    }
+  }
 // Public, add-only access for the landing page's self-serve flow: a visitor
   // who designs their app and publishes it creates a 24-hour trial lead. No
   // auth (the landing has no account yet), no reads, and every field is

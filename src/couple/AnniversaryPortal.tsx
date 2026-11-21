@@ -810,6 +810,26 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [vendors, setVendors] = useState<any[]>([]);
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
+  // Private feed gate: when the admin turns the feed private, every non-admin
+  // viewer is held at the entry banner and must type the access code (checked
+  // on the server) before posts and reels show again. feedGateGen changes
+  // every time the code is revoked or replaced, which sends every device that
+  // was granted under the old code back to the banner.
+  const [feedPrivate, setFeedPrivate] = useState<boolean>(() => {
+    try { const g = JSON.parse(localStorage.getItem(lsKey('feed-gate-cfg')) || 'null'); return !!(g && g.private); } catch { return false; }
+  });
+  const [feedGateCode, setFeedGateCode] = useState<string>('');
+  const [feedGatePrev, setFeedGatePrev] = useState<string>('');
+  const [feedGateGen, setFeedGateGen] = useState<number>(() => {
+    try { const g = JSON.parse(localStorage.getItem(lsKey('feed-gate-cfg')) || 'null'); const n = Number(g && g.gen); return n > 0 ? Math.floor(n) : 1; } catch { return 1; }
+  });
+  const [feedGranted, setFeedGranted] = useState<number>(() => {
+    try { return Number(localStorage.getItem(lsKey('feed-gate'))) || 0; } catch { return 0; }
+  });
+  const [showFeedGate, setShowFeedGate] = useState<boolean>(false);
+  const [gateInput, setGateInput] = useState<string>('');
+  const [gateBusy, setGateBusy] = useState<boolean>(false);
+  const [gateNewCode, setGateNewCode] = useState<string>('');
   const [feedPageSize, setFeedPageSize] = useState(0); // 0 = show every post (no pagination)
   const [feedPage, setFeedPage] = useState(1);
   const [pushEnabled, setPushEnabled] = useState<boolean>(true);
@@ -908,11 +928,31 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
+  // The private feed holds every non-admin viewer at the entry banner until
+  // their device holds a grant for the current gate generation.
+  const feedLocked = feedPrivate && adminMode !== 'preview' && !isAdmin && feedGranted !== feedGateGen;
+
   const enterApp = () => {
     if (paywallEnter) { paywallEnter(); return; }
+    // Private feed: the banner tap asks for the access code instead of
+    // opening the app.
+    if (feedLocked) { setShowFeedGate(true); return; }
     try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
     setShowLaunchSplash(false);
   };
+
+  // Hold or release the entry banner as the private feed turns on and off,
+  // including mid-session (the admin flips the toggle while guests are inside).
+  const feedLockSplash = useRef(false);
+  useEffect(() => {
+    if (feedLocked) {
+      feedLockSplash.current = true;
+      setShowLaunchSplash(true);
+    } else if (feedLockSplash.current) {
+      feedLockSplash.current = false;
+      setShowLaunchSplash(false);
+    }
+  }, [feedLocked]);
 
   // Keep the visitor where they were across refreshes
   useEffect(() => {
@@ -1549,6 +1589,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (Array.isArray(data.blockedUids)) setBlockedUids(data.blockedUids);
         if (Array.isArray(data.vendors)) setVendors(data.vendors);
         if (typeof data.approveGuestPosts === 'boolean') setApproveGuestPosts(data.approveGuestPosts);
+        if (typeof data.feedPrivate === 'boolean') setFeedPrivate(data.feedPrivate);
+        const gateGenRaw = Number(data.feedGateGen);
+        setFeedGateGen(Number.isFinite(gateGenRaw) && gateGenRaw > 0 ? Math.floor(gateGenRaw) : 1);
+        setFeedGateCode(normalizeCode(typeof data.feedGateCode === 'string' ? data.feedGateCode : ''));
+        setFeedGatePrev(normalizeCode(typeof data.feedGatePrev === 'string' ? data.feedGatePrev : ''));
+        try { localStorage.setItem(lsKey('feed-gate-cfg'), JSON.stringify({ private: data.feedPrivate === true, gen: Number.isFinite(gateGenRaw) && gateGenRaw > 0 ? Math.floor(gateGenRaw) : 1 })); } catch {}
         const fpsRaw = Number(data.feedPageSize);
         setFeedPageSize(Number.isFinite(fpsRaw) && fpsRaw > 0 ? Math.floor(fpsRaw) : 0);
         if (data.feedActionMode === 'download' || data.feedActionMode === 'share') setFeedActionMode(data.feedActionMode);
@@ -1911,6 +1957,104 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Failed to save the setting.', 'error');
+    }
+  };
+
+  // Private feed: the admin's private/public toggle. Turning it private
+  // seeds the feed gate code from the guest access code the couple already
+  // shares, so guests who know that code can get straight in.
+  const updateFeedPrivacy = async (publicNow: boolean) => {
+    const makePrivate = !publicNow;
+    if (DEMO) {
+      setFeedPrivate(makePrivate);
+      showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
+      return;
+    }
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      const patch: Record<string, any> = { feedPrivate: makePrivate, lastUpdated: serverTimestamp() };
+      if (makePrivate && !feedGateCode) {
+        const seed = normalizeCode(activeAccessCode || '');
+        if (seed) { patch.feedGateCode = seed; patch.feedGateGen = feedGateGen > 0 ? feedGateGen : 1; }
+      }
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), patch, { merge: true });
+      showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to save the setting.', 'error');
+    }
+  };
+
+  // Revoke sends every granted device back to the banner and clears the code:
+  // the admin must save a new one, and the previous code is refused.
+  const revokeGateCode = async () => {
+    if (DEMO) { setFeedGatePrev(feedGateCode); setFeedGateCode(''); showToast('Access code revoked for this preview.'); return; }
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+        feedGatePrev: normalizeCode(feedGateCode || ''),
+        feedGateCode: '',
+        feedGateGen: feedGateGen + 1,
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      showToast('Access code revoked. Guests must enter the new code.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to revoke the access code.', 'error');
+    }
+  };
+
+  // Saves a new private feed access code. A code that matches the previous
+  // one is rejected: a new code is needed so old granted devices stay out.
+  const saveGateCode = async () => {
+    const normalized = normalizeCode(gateNewCode);
+    if (normalized.length < 4) { showToast('Use at least 4 letters or numbers.', 'error'); return; }
+    if (feedGatePrev && normalized === feedGatePrev) { showToast('A new code is needed. That one was already used.', 'error'); return; }
+    if (normalized === normalizeCode(feedGateCode)) { showToast('That is already the current code.', 'error'); return; }
+    if (DEMO) { setFeedGatePrev(feedGateCode); setFeedGateCode(normalized); setGateNewCode(''); showToast('Private feed access code saved for this preview.'); return; }
+    if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    try {
+      await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+        feedGatePrev: normalizeCode(feedGateCode || ''),
+        feedGateCode: normalized,
+        feedGateGen: feedGateGen + 1,
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      setGateNewCode('');
+      showToast('Private feed access code saved. Guests must enter it to see the feed.');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
+      showToast('Failed to save the access code.', 'error');
+    }
+  };
+
+  // The guest side of the gate: the banner tap opens this, and the code is
+  // confirmed on the server, never in the browser.
+  const submitGateCode = async () => {
+    const code = gateInput.trim().toUpperCase();
+    if (!code) { showToast('Enter the access code.', 'error'); return; }
+    setGateBusy(true);
+    try {
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'feed-gate', appId: APP_ID, code })
+      });
+      const gateData = await res.json().catch(() => null);
+      if (res.ok && gateData && gateData.ok) {
+        const gen = Number(gateData.gen) || 0;
+        try { localStorage.setItem(lsKey('feed-gate'), String(gen)); } catch { /* private mode */ }
+        setFeedGranted(gen);
+        setShowFeedGate(false);
+        setShowLaunchSplash(false);
+        try { sessionStorage.setItem('ev-entered', '1'); } catch { /* private mode */ }
+      } else {
+        showToast('Access code is incorrect or invalid.', 'error');
+      }
+    } catch {
+      showToast('We could not check that code right now. Try again.', 'error');
+    } finally {
+      setGateBusy(false);
     }
   };
 
@@ -2582,6 +2726,50 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               className="absolute bottom-8 left-0 right-0 z-10 flex flex-col items-center pointer-events-none"
             >
               <span className="font-serif-display italic text-white text-[1.4rem]">Eventicor</span>
+            </motion.div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* PRIVATE FEED GATE: when the feed is private the banner tap asks for
+          the access code; the server confirms it before the feed opens. */}
+      <AnimatePresence>
+        {showFeedGate && (
+          <motion.section
+            key="feed-gate"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowFeedGate(false)}
+            className="fixed inset-0 z-[600] flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 12, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-sm rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`}
+            >
+              <h2 className="font-black font-display text-xl mb-2 text-[var(--ann-accent)]">Private feed</h2>
+              <p className={`text-sm mb-5 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The couple made their memories private. Enter the access code to continue.</p>
+              <form onSubmit={(e) => { e.preventDefault(); submitGateCode(); }}>
+                <input
+                  type="text"
+                  value={gateInput}
+                  maxLength={20}
+                  onChange={(e) => setGateInput(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase())}
+                  placeholder="Access code"
+                  autoCapitalize="characters"
+                  className={`w-full p-4 rounded-xl border-none outline-none font-black tracking-widest text-center uppercase transition-colors ${isDarkMode ? 'bg-[#0B171C] text-[var(--ann-accent)] placeholder-[#5A6970] ring-1 ring-[#22363E]' : 'bg-[#EEEDF3] text-[var(--ann-accent)] placeholder-[#93A4AB] ring-1 ring-[#DAD8E3]'}`}
+                />
+                <button
+                  type="submit"
+                  disabled={gateBusy || !gateInput.trim()}
+                  className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.75rem] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  {gateBusy ? 'Checking…' : 'Enter'}
+                </button>
+              </form>
             </motion.div>
           </motion.section>
         )}
@@ -8638,6 +8826,23 @@ function AdminDashboardModal({
                         <p className="text-[0.7rem] opacity-50 mt-2">4 to 16 letters or numbers. Changing it stops the old code working.</p>
                       </div>
                     )}
+                  {adminPermissions?.canSetAccessCode && (
+                    <div className={`mt-5 pt-5 border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                      <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Private feed code</span>
+                      <p className="text-sm opacity-60 mb-3">With the feed private, guests type this code at the entry banner to see posts and reels. Revoke sends everyone back to the banner until they enter the new code.</p>
+                      <div className="flex items-center gap-3 flex-wrap mb-3">
+                        <b className="font-display text-xl tracking-[0.2em]">{feedGateCode || 'None yet'}</b>
+                        <button type="button" onClick={revokeGateCode} className="px-5 py-2.5 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border border-red-400 text-red-500 hover:bg-red-500/10">Revoke</button>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <input type="text" value={gateNewCode} maxLength={20} onChange={(e) => setGateNewCode(e.target.value.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase())} placeholder="NEW CODE, E.G. DARAFEMI26" className={`${inputCls} flex-1 min-w-[200px] tracking-widest`} />
+                        <button type="button" onClick={saveGateCode} disabled={gateNewCode.trim().length < 4} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest ${gateNewCode.trim().length >= 4 ? 'bg-[var(--ann-accent)] text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>Save new code</button>
+                      </div>
+                      {feedGatePrev && (
+                        <p className="text-[0.7rem] opacity-50 mt-2">Revoked code: {feedGatePrev}. Setting it again is refused; a new code is needed.</p>
+                      )}
+                    </div>
+                  )}
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">QR code</h3>
@@ -8662,13 +8867,13 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
                     <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: guests see the banner and must enter the access code to see posts and reels.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
                         <div key={k} className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <b className="block text-[0.95rem]">{label}</b>
                             <small className="block opacity-50 text-sm">{sub}</small>
                           </div>
-                          <button type="button" aria-label={label} onClick={() => onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                          <button type="button" aria-label={label} onClick={() => k === 'private' ? updateFeedPrivacy(on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
                             <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
                           </button>
                         </div>
