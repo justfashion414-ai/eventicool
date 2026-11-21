@@ -40,12 +40,31 @@ export default async (req) => {
       if (!snap.exists) return json(404, { error: 'not found' })
     } else if (!snap.exists) return json(404, { error: 'not found' })
     const d = snap.data()
-    const asMs = (v) => {
+    const PLAN_IDS = ['essential', 'complete', 'legacy']
+const planId = (v) => {
+  const k = String(v || '').trim().toLowerCase()
+  return PLAN_IDS.includes(k) ? k : 'essential'
+}
+const asMs = (v) => {
       if (v == null) return undefined
       if (typeof v === 'object' && 'seconds' in v) return Number(v.seconds) * 1000
       const n = Number(v)
       return Number.isFinite(n) ? n : undefined
     }
+    let plat = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } }
+    try {
+      const ps = await getFirestore().collection('platform').doc('settings').get()
+      if (ps.exists) {
+        const pd = ps.data() || {}
+        const fps = Number(pd.feedPageSize)
+        if (Number.isFinite(fps) && fps > 0) plat.feedPageSize = Math.floor(fps)
+        const st = pd.storage || {}
+        for (const k of PLAN_IDS) {
+          const g = Number(st[k])
+          if (Number.isFinite(g) && g > 0) plat.storage[k] = g
+        }
+      }
+    } catch {}
     let cfg = {}
     try {
       const cfgSnap = await getFirestore().collection('apps').doc(siteId).collection('app_config').doc('main').get()
@@ -63,6 +82,8 @@ export default async (req) => {
       heroImages: Array.isArray(d.heroImages) ? d.heroImages : [],
       footerImages: Array.isArray(d.footerImages) ? d.footerImages : [],
       feedImages: Array.isArray(d.feedImages) ? d.feedImages : [],
+      plan: leadMode ? planId(d.plan) : (planId(d.plan) === 'essential' && !d.plan ? '' : planId(d.plan)),
+      platform: plat,
       expiresAt: leadMode ? asMs(d.expiresAt) : undefined,
       activatedAt: leadMode ? asMs(d.activatedAt) : undefined,
     })

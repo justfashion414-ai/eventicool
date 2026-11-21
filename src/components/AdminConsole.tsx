@@ -51,11 +51,11 @@ const NAV = [
   { id: 'over', label: 'Overview' },
   { id: 'pipe', label: 'Pipeline' },
   { id: 'leads', label: 'Leads' },
-  { id: 'cust', label: 'Customers' },
-  { id: 'onb', label: 'Onboard a couple' },
-  { id: 'sites', label: 'Apps' },
+  { id: 'cust', label: 'Free trial apps' },
+  { id: 'sites', label: 'Premium apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
+  { id: 'settings', label: 'Settings' },
   { id: 'inv', label: 'Inbox invite' },
   { id: 'pay', label: 'Payment details' },
   { id: 'team', label: 'Team and audit' },
@@ -116,13 +116,13 @@ const ICONS: Record<SecId, string> = {
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
   leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
   cust: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/>',
-  onb: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   inv: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
   team: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 4a4 4 0 0 1 0 8"/>',
+  settings: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>',
 }
 function Icon({ id }: { id: SecId }) {
   return <svg viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: ICONS[id] }} />
@@ -206,8 +206,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const menuRef = useRef<HTMLDivElement>(null)
 
   // onboarding form
-  const [ob, setOb] = useState({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })
-  const [prov, setProv] = useState<{ step: number; done: boolean; error?: string; slug?: string; code?: string } | null>(null)
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
@@ -221,7 +219,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   })
   const [leadCreated, setLeadCreated] = useState<{ link: string; title: string; tpl: string; acc: string; exp: number } | null>(null)
   const [upBusy, setUpBusy] = useState('')
-  const [obImgs, setObImgs] = useState<{ hero: string[]; footer: string[]; feed: string[] }>({ hero: [], footer: [], feed: [] })
   const [lf, setLf] = useState<'all' | 'live' | 'expired'>('all')
   const [delLeadId, setDelLeadId] = useState<string | null>(null)
   const [sf, setSf] = useState<'all' | 'live' | 'draft' | 'suspended'>('all')
@@ -232,6 +229,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [delText, setDelText] = useState('')
   const [busy, setBusy] = useState(false)
   const [payForm, setPayForm] = useState<{ accountName: string; bankName: string; accountNumber: string; whatsapp: string } | null>(null)
+  // Platform-wide settings (platform/settings): the feed pagination and the
+  // storage each plan carries. Every app reads them; only this console edits them.
+  const [plat, setPlat] = useState<{ feedPageSize: number; storage: { essential: number; complete: number; legacy: number } } | null>(null)
+  const [platSaved, setPlatSaved] = useState('')
+  const [platCustom, setPlatCustom] = useState('')
   const [paySaved, setPaySaved] = useState('')
   const [payView, setPayView] = useState<LeadDoc | null>(null)
   const [invites, setInvites] = useState<InviteDoc[] | null>(null)
@@ -261,7 +263,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   async function logAudit(action: string) {
-    const row: AuditRow = { id: `local-${Date.now()}`, actor: user?.email, action, at: Date.now() }
+    const row: AuditRow = { id: `local-${Date.now()}`, actor: user?.email ?? undefined, action, at: Date.now() }
     setAudit((a) => [row, ...(a || [])])
     consoleCall('add', { collection: 'platform_audit', data: { actor: user?.email || '', action, at: Date.now() } }).catch(() => {})
   }
@@ -290,6 +292,22 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         if (!alive) return
         setPayForm(d && (d.accountNumber || d.accountName) ? { accountName: d.accountName || '', bankName: d.bankName || '', accountNumber: String(d.accountNumber || ''), whatsapp: String(d.whatsapp || '') } : fallback)
       } catch { if (alive) setPayForm(fallback) }
+    })()
+    return () => { alive = false }
+  }, [])
+  useEffect(() => {
+    let alive = true
+    const fallback = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } }
+    ;(async () => {
+      await consoleAuthReady()
+      if (!alive || !consoleAuth.currentUser) { if (alive) setPlat(fallback); return }
+      try {
+        const d: any = await consoleCall('get', { collection: 'platform', id: 'settings' })
+        if (!alive) return
+        const st = (d && d.storage) || {}
+        const num = (v: unknown, def: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def }
+        setPlat(d && d.feedPageSize !== undefined ? { feedPageSize: num(d.feedPageSize, 0), storage: { essential: num(st.essential, 5), complete: num(st.complete, 10), legacy: num(st.legacy, 20) } } : fallback)
+      } catch { if (alive) setPlat(fallback) }
     })()
     return () => { alive = false }
   }, [])
@@ -369,79 +387,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   async function signOut() { await signOutEverywhere(); onSignOut() }
 
-  /* ---- onboarding ---- */
-  const o = ob
-  const slug = o.slug || slugOf(o.b, o.g)
-  const slugTaken = slug ? sites.some((s) => s.slug === slug) : false
-  const slugMsg = slug
-    ? slugTaken
-      ? <span className="av no">{slug}.eventicor.com is taken</span>
-      : <span className="av ok">✓ {slug}.eventicor.com is available</span>
-    : null
-  const days = Math.max(0, Math.ceil((new Date(o.date + 'T10:00').getTime() - Date.now()) / 864e5))
 
-  function setObField(k: keyof typeof ob, v: string | boolean) {
-    setOb((prev) => {
-      const next = { ...prev, [k]: v } as typeof ob
-      if (!prev.man && (k === 'b' || k === 'g')) next.slug = ''
-      return next
-    })
-  }
 
-  async function createSite() {
-    if (!o.b || !o.g) { say('Enter the bride’s and groom’s names'); return }
-    if (!slug || slugTaken) { say(slugTaken ? 'That address is taken. Pick another' : 'Pick an address for the couple'); return }
-    const code = (o.b + o.g).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 13) + o.date.slice(2, 4)
-    const steps = [
-      `Create ${o.b} & ${o.g}’s private space`,
-      `Reserve ${slug}.eventicor.com`,
-      'Seed the wedding stages for their tradition',
-      `Generate the guest access code ${code}`,
-      'Save the event record',
-    ]
-    setProv({ step: 0, done: false, slug, code })
-    let i = 0
-    const t = window.setInterval(async () => {
-      i++
-      if (i < steps.length) { setProv((p) => (p ? { ...p, step: i } : p)); return }
-      window.clearInterval(t)
-      try {
-        await consoleCall('add', {
-          collection: 'events',
-          data: {
-            title: `${o.b} & ${o.g}`,
-            bride: o.b, groom: o.g,
-            weddingDate: o.date, city: o.city, contact: o.contact,
-            template: o.tpl, plan: o.plan, pay: o.pay,
-            slug, status: o.pay === 'link' ? 'draft' : 'live',
-            accessCode: code,
-            heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed,
-          },
-        })
-        logAudit(`Onboarded ${o.b} & ${o.g} (${slug}) on ${PL[o.plan].name}`)
-        setEvents((evs) => [
-          { id: `new-${Date.now()}`, title: `${o.b} & ${o.g}`, bride: o.b, groom: o.g, weddingDate: o.date, city: o.city, contact: o.contact, template: o.tpl, plan: o.plan, pay: o.pay, slug, status: o.pay === 'link' ? 'draft' : 'live', accessCode: code, heroImages: obImgs.hero, footerImages: obImgs.footer, feedImages: obImgs.feed },
-          ...(evs || []),
-        ])
-        setProv({ step: steps.length, done: true, slug, code })
-      } catch (e) {
-        window.clearInterval(t)
-        setProv({ step: steps.length, done: false, error: String((e as Error)?.message || e), slug, code })
-      }
-    }, 700)
-  }
-
-  function provDone() {
-    setProv(null)
-    setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })
-    setObImgs({ hero: [], footer: [], feed: [] })
-    go('sites')
-  }
-  function copyDetails() {
-    if (!prov?.slug || !prov.code) return
-    navigator.clipboard?.writeText(`${prov.slug}.eventicor.com — guest access code ${prov.code}`)
-    say('Link and access code copied')
-  }
 
   /* ---- leads: sample apps built for outbound marketing ---- */
   // A sample app carries its own 3-day expiry (?exp=unix seconds) plus the
@@ -455,7 +402,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     `Hi ${title || 'there'}! Here's a sample of what your event app could look like: ${leadLink(t, a, exp, id)} It's just a sample and stays live for 3 days. To make your own permanent app, go to https://eventicor.name.ng, or tell us and we'll set it up for you.`
   const leadName = (l: LeadDoc) => (l.bride && l.groom ? `${l.bride} & ${l.groom}` : l.title || 'Lead')
 
-  async function addLeadImages(files: FileList | null, kind: 'hero' | 'footer' | 'feed', cap: number, onb: boolean) {
+  async function addLeadImages(files: FileList | null, kind: 'hero' | 'footer' | 'feed', cap: number) {
     if (!files || files.length === 0) return
     setUpBusy(kind)
     const add: string[] = []
@@ -466,24 +413,23 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         add.push(user?.uid === 'demo' ? await shrinkToDataUrl(f) : await uploadOneLead(f, kind))
       } catch { say('One photo could not upload. Try a smaller file') }
     }
-    const cur: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
+    const cur: string[] = (ld as unknown as Record<string, string[]>)[kind] || []
     const next = [...cur, ...add].slice(0, cap)
-    if (onb) setObImgs((p) => ({ ...p, [kind]: next }))
-    else setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: next } as unknown as typeof p))
+    setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: next } as unknown as typeof p))
     setUpBusy('')
     if (add.length > 0) say(`${add.length} photo${add.length > 1 ? 's' : ''} added`)
   }
 
-  function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number, onb: boolean) {
-    const list: string[] = onb ? obImgs[kind] : (ld as unknown as Record<string, string[]>)[kind] || []
-    const setList = (v: string[]) => (onb ? setObImgs((p) => ({ ...p, [kind]: v })) : setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: v } as unknown as typeof p)))
+  function imgRow(kind: 'hero' | 'footer' | 'feed', label: string, cap: number) {
+    const list: string[] = (ld as unknown as Record<string, string[]>)[kind] || []
+    const setList = (v: string[]) => setLd((p) => ({ ...(p as unknown as Record<string, unknown>), [kind]: v } as unknown as typeof p))
     return (
       <div style={{ marginTop: 8 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <label style={{ margin: 0 }}>{label} <small style={{ color: 'var(--mut)' }}>{list.length}/{cap}</small></label>
           <label className="btn g s" style={{ cursor: 'pointer' }}>
             {upBusy === kind ? 'Uploading…' : 'Add photos'}
-            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addLeadImages(e.target.files, kind, cap, onb); e.currentTarget.value = '' }} />
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addLeadImages(e.target.files, kind, cap); e.currentTarget.value = '' }} />
           </label>
         </div>
         {list.length > 0 && (
@@ -653,7 +599,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </div>
             <div className="fs" style={{ marginTop: 14 }}>PHOTOS THE SAMPLE USES AS PLACEHOLDERS</div>
             <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Optional. Your hero uploads are the only photos this sample needs: the giant photo wall, the feed posts and the journey photos repeat them until the lead creates their own app and uploads everything. Reels keep their demo clips.</p>
-            {imgRow('hero', 'Hero section', 14, false)}
+            {imgRow('hero', 'Hero section', 14)}
             <p style={{ color: 'var(--mut)', fontSize: 13, margin: '10px 0 0' }}>No email is asked for and none is stored. The link expires after 3 days, and your message tells them to create their own app on the Eventicor landing page, or ask us and we onboard them.</p>
             <div style={{ marginTop: 16 }}><button className="btn" onClick={createLead} disabled={busy}>Create sample app</button></div>
           </div>
@@ -787,7 +733,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     ].filter((x) => x.n > 0)
     return (
       <>
-        {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.', <button className="btn" onClick={() => go('onb')}>+ Onboard a couple</button>)}
+        {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.')}
         <div className="g4">
           <div className="k"><small>Couples’ apps</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
           <div className="k"><small>Orders paid</small><b>₦0</b><span>No orders yet</span></div>
@@ -801,7 +747,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               {events === null ? (
                 <div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div>
               ) : sites.length === 0 ? (
-                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No apps yet. Onboard your first couple.</p>
+                <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No apps yet.</p>
               ) : (
                 sites.slice(0, 5).map((s) => (
                   <div className="att" key={s.id}>
@@ -867,62 +813,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  function onboard() {
-    const chip = (k: 'tpl' | 'plan' | 'pay', list: [string, string][]) => (
-      <div className="row">
-        {list.map(([v, label]) => (
-          <button key={v} className={`chip ${o[k] === v ? 'on' : ''}`} onClick={() => setObField(k, v)}>{label}</button>
-        ))}
-      </div>
-    )
-    return (
-      <>
-        {head('Onboard a couple', 'Create a couple’s app in under a minute. Everything on the right updates as you type.')}
-        <div className="ob">
-          <div className="card">
-            <div className="fs" style={{ marginTop: 0 }}>THE COUPLE</div>
-            <div className="fg">
-              <div><label htmlFor="ob_b">Bride</label><input id="ob_b" value={o.b} maxLength={14} onChange={(e) => setObField('b', e.target.value)} /></div>
-              <div><label htmlFor="ob_g">Groom</label><input id="ob_g" value={o.g} maxLength={14} onChange={(e) => setObField('g', e.target.value)} /></div>
-              <div><label htmlFor="ob_d">Wedding date</label><input id="ob_d" type="date" value={o.date} onChange={(e) => setObField('date', e.target.value)} /></div>
-              <div><label htmlFor="ob_c">City</label><input id="ob_c" value={o.city} maxLength={16} onChange={(e) => setObField('city', e.target.value)} /></div>
-              <div style={{ gridColumn: '1/-1' }}>
-                <label htmlFor="ob_e">Couple’s email or WhatsApp number</label>
-                <input id="ob_e" value={o.contact} placeholder="name@email.com or +234…" onChange={(e) => setObField('contact', e.target.value)} />
-              </div>
-            </div>
-            <div className="fs">TEMPLATE</div>
-            {chip('tpl', Object.keys(TP).filter((k) => !cat || cat.templates[k] !== false).map((k) => [k, TP[k].name] as [string, string]))}
-            <div className="fs">PLAN</div>
-            {chip('plan', Object.keys(PL).map((k) => [k, `${PL[k].name} · ${ng(PL[k].price)}`] as [string, string]))}
-            <div className="fs">ADDRESS</div>
-            <div className="sl">
-              <input id="ob_s" value={slug} maxLength={30} style={{ textAlign: 'right' }} onChange={(e) => setOb((p) => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''), man: true }))} />
-              <span>.eventicor.com</span>
-            </div>
-            {slugMsg}
-            <div className="fs">PAYMENT</div>
-            {chip('pay', [['paid', 'Paid online'], ['bank', 'Bank transfer received'], ['link', 'Send payment link']])}
-            <div className="fs" style={{ marginTop: 14 }}>SEED PHOTOS (OPTIONAL)</div>
-            <p style={{ color: 'var(--mut)', fontSize: 13, margin: '4px 0 0' }}>Photos the couple can start from. They are saved on the app record as hero, photo-wall and feed seed images.</p>
-            {imgRow('hero', 'Hero section', 14, true)}
-            {imgRow('footer', 'Giant photo wall', 40, true)}
-            {imgRow('feed', 'Feed posts', 40, true)}
-            <div style={{ marginTop: 20 }} className="row">
-              <button className="btn" onClick={createSite}>Create app</button>
-              <button className="btn g" onClick={() => setOb({ b: '', g: '', date: '2027-03-06', city: 'Lagos', contact: '', tpl: 'book', plan: 'complete', pay: 'paid', slug: '', man: false })}>Clear form</button>
-            </div>
-          </div>
-          <div>
-            <div className="pf">
-              <MiniPreview b={o.b || 'Bride'} g={o.g || 'Groom'} tpl={TP[o.tpl]} city={o.city || 'City'} days={days} photos={[...obImgs.hero, ...obImgs.footer].slice(0, 3)} />
-            </div>
-          </div>
-        </div>
-      </>
-    )
-  }
-
   function sitesSection() {
     // A couple's app link binds to their own events doc, so it opens with
     // their names, chosen wedding date and city, not the generic demo.
@@ -930,7 +820,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>
-        {head('Apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
+        {head('Premium apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             {(['all', 'live', 'draft', 'suspended'] as const).map((k) => (
@@ -998,6 +888,62 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </table>
           </div>
         </div>
+      </>
+    )
+  }
+
+  function settingsSection() {
+    const gb = (k: 'essential' | 'complete' | 'legacy') => (plat ? plat.storage[k] : PL[k].gb)
+    const setGb = (k: 'essential' | 'complete' | 'legacy', v: string) => {
+      const n = Number(v.replace(/[^0-9]/g, '')) || 0
+      if (!plat) return
+      setPlat({ ...plat, storage: { ...plat.storage, [k]: n } })
+    }
+    const savePlat = async (note: string) => {
+      if (!plat) return
+      setBusy(true)
+      try {
+        await consoleCall('set', { collection: 'platform', id: 'settings', data: { feedPageSize: plat.feedPageSize, storage: plat.storage, updatedAt: Date.now() } })
+        Object.keys(PL).forEach((k) => { PL[k].gb = plat.storage[k as 'essential' | 'complete' | 'legacy'] || PL[k].gb })
+        logAudit(note)
+        setPlatSaved('Saved. Every app picks this up on its next load.')
+        window.setTimeout(() => setPlatSaved(''), 4000)
+      } catch (e: any) {
+        say(e?.message || 'Could not save the settings')
+      } finally { setBusy(false) }
+    }
+    if (!plat) return <div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div>
+    return (
+      <>
+        {head('Settings', 'Rules every app on Eventicor follows. Changes here reach every app, its feed and its landing page.')}
+        <div className="card">
+          <h3>Feed pagination</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How many posts show in every app's feed before a Next page button loads the older ones. Eventicor manages the feed for all apps; the apps do not set this themselves.</p>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            {[0, 10, 20, 30, 50].map((n) => (
+              <button key={n} className={`chip ${plat.feedPageSize === n ? 'on' : ''}`} onClick={() => { if (plat.feedPageSize !== n) { setPlat({ ...plat, feedPageSize: n }); savePlat(n === 0 ? 'Feed pagination: all posts show on every app' : `Feed pagination: ${n} posts per page on every app`) } }}>{n === 0 ? 'Show all' : n}</button>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <input value={platCustom} placeholder="Any number" style={{ width: 130 }} onChange={(e) => setPlatCustom(e.target.value.replace(/[^0-9]/g, ''))} />
+            <button className="btn g" disabled={busy} onClick={() => { const n = Math.floor(Number(platCustom)); if (n >= 1 && n <= 500) { setPlat({ ...plat, feedPageSize: n }); setPlatCustom(''); savePlat(`Feed pagination: ${n} posts per page on every app`) } else say('Enter a number between 1 and 500') }}>Apply</button>
+          </div>
+        </div>
+        <div className="card">
+          <h3>Storage per plan</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How much photo and video storage each plan carries. What you set here is what shows inside the apps, on the plan cards of the landing page and at the point of upload: an app that fills its storage is stopped from uploading anything new until it upgrades.</p>
+          {(['essential', 'complete', 'legacy'] as const).map((k) => (
+            <div className="rw" key={k}>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{ng(PL[k].price)} plan</small></div>
+              <div className="row">
+                <input value={String(gb(k))} style={{ width: 90 }} aria-label={`${PL[k].name} storage in GB`} onChange={(e) => setGb(k, e.target.value)} />
+                <small style={{ width: 24 }}>GB</small>
+              </div>
+            </div>
+          ))}
+          <button className="btn" disabled={busy} onClick={() => savePlat('Updated the storage included with each plan')}>Save storage</button>
+        </div>
+        {platSaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '4px 0 0' }}>{platSaved}</p>}
       </>
     )
   }
@@ -1188,7 +1134,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const shown = rows.filter((l) => custBucket(l) === custTab)
     return (
       <>
-        {head('Customers', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
+        {head('Free trial apps', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
         {rows.length === 0 ? (
           <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
         ) : (
@@ -1420,7 +1366,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, onb: onboard, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
 
   return (
     <div className="evad">
@@ -1506,47 +1452,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         </div>
       )}
 
-      {prov && (
-        <div className="md">
-          <div className="mc2">
-            {prov.error ? (
-              <>
-                <h2>Could not create the app</h2>
-                <p style={{ color: 'var(--mut)' }}>{prov.error}</p>
-                <div className="row"><button className="btn g" onClick={() => setProv(null)}>Close</button></div>
-              </>
-            ) : prov.done ? (
-              <>
-                <h2>App is live</h2>
-                <p style={{ margin: '0 0 6px', color: 'var(--mut)' }}>Share this with the couple.</p>
-                <div className="card" style={{ margin: '0 0 10px' }}>
-                  <b>{prov.slug}.eventicor.com</b><br />
-                  <small>Guest access code: <b>{prov.code}</b></small>
-                </div>
-                <div className="row">
-                  <button className="btn" onClick={provDone}>Done</button>
-                  <button className="btn g" onClick={copyDetails}>Copy details</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2>Setting up…</h2>
-                {[
-                  `Create ${o.b} & ${o.g}’s private space`,
-                  `Reserve ${slug}.eventicor.com`,
-                  'Seed the wedding stages for their tradition',
-                  `Generate the guest access code ${prov.code}`,
-                  'Save the event record',
-                ].map((s, k) => (
-                  <div key={s} className={`st ${k < prov.step ? 'ok' : k === prov.step ? 'run' : ''}`}>
-                    <i>{k < prov.step ? '✓' : ''}</i>{s}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+
 
       {payView && payView.lastPayment && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setPayView(null)}>
@@ -1592,6 +1498,33 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 <button className="btn" style={{ width: '100%' }} disabled={busy} onClick={() => extendCustomer(manage)}>Extend by {extH % 24 === 0 ? `${extH / 24} day${extH > 24 ? 's' : ''}` : `${extH} hours`}</button>
               </>
             )}
+            <div className="rw" style={{ marginTop: 14 }}>
+              <div style={{ flex: 1 }}>
+                <b>Plan</b>
+                <small>The plan the app runs on; the couple's storage and features follow it</small>
+              </div>
+              <select
+                style={{ width: 'auto' }}
+                value={PL[manage.plan || ''] ? (manage.plan as string) : ''}
+                disabled={busy}
+                onChange={async (e) => {
+                  const plan = e.target.value
+                  if (!plan || plan === manage.plan) return
+                  setBusy(true)
+                  try {
+                    await consoleCall('update', { collection: 'leads', id: manage.id, data: { plan } })
+                    setManage({ ...manage, plan })
+                    logAudit(`Moved ${(manage.bride || '')} & ${(manage.groom || '')} to the ${PL[plan].name} plan`)
+                    say(`Plan set to ${PL[plan].name}`)
+                  } catch (err: any) {
+                    say(err?.message || 'Could not change the plan')
+                  } finally { setBusy(false) }
+                }}
+              >
+                <option value="">Not set</option>
+                {Object.keys(PL).map((k) => <option key={k} value={k}>{PL[k].name}</option>)}
+              </select>
+            </div>
             <div className="rw" style={{ marginTop: 14 }}>
               {manage.status !== 'suspended' ? (
                 <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={() => setCustomerStatus(manage, 'suspended')}>Suspend</button>

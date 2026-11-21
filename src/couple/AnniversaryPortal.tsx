@@ -46,8 +46,9 @@ import {
 import { db, auth } from './lib/firebase';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
-import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
-import { disableNetwork, enableNetwork, Timestamp, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
+import { where } from './lib/firestoreShim';
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';
 import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
@@ -549,7 +550,7 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
 
 const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> => {
   if (!DEMO && storageBlocked()) throw new Error(STORAGE_FULL_MESSAGE);
-  const url = await uploadToCloudinaryInner(file, folder);
+  const url = await uploadToCloudinaryWithProgressInner(file, folder, () => {});
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.jpg' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
   await recordMediaUsage(file.size || 0, isVideo);
@@ -6657,7 +6658,7 @@ function AdminDashboardModal({
           <button type="button" aria-label="Close" onClick={() => setUpgradeOpen(false)} className="absolute right-4 top-4 w-9 h-9 rounded-full border border-[#DAD8E3] bg-white text-[#5A6970] flex items-center justify-center font-black">×</button>
           <PaymentFlow
             accent={typeof window !== 'undefined' ? (getComputedStyle(document.documentElement).getPropertyValue('--ann-accent').trim() || '#7a4b9e') : '#7a4b9e'}
-            appName={`${header.bride || 'Bride'} & ${header.groom || 'Groom'}`}
+            appName={`${demoBride() || 'Bride'} & ${demoGroom() || 'Groom'}`}
             email={''}
             appId={APP_ID}
             titles={['Choose a new plan', 'Make your transfer', 'Almost there']}
@@ -7642,7 +7643,6 @@ function AdminDashboardModal({
     setSessionBusy(true);
     try {
       await setDoc(doc(db, scopedPath('admins'), currentUserEmail || ''), { sessionMinutes: mins }, { merge: true });
-      sessionMinutesRef.current = mins;
       setSessionChoice(mins);
       setSessionDraft(mins);
       showToast(`Auto sign-out set: ${sessionLabel(mins)}. The server enforces it too.`);
@@ -8961,19 +8961,6 @@ function AdminDashboardModal({
                     <button type="button" onClick={() => setUpgradeOpen(true)} className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">
                       {storageFull ? 'Upgrade to keep uploading' : 'Upgrade your plan'}
                     </button>
-                  </div>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">Feed pagination</h3>
-                    <p className="text-sm opacity-60 mb-4">How many posts show in the feed before guests tap Next page to see older ones.</p>
-                    <div className="flex gap-2 flex-wrap">
-                      {[0, 10, 20, 30, 50].map((n) => (
-                        <button key={n} type="button" onClick={() => { if (feedPageSize !== n) onUpdateAppFlags({ feedPageSize: n }, n === 0 ? 'Feed pagination: all posts show.' : `Feed pagination: ${n} posts per page.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedPageSize === n ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{n === 0 ? 'Show all' : n}</button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 mt-3 flex-wrap">
-                      <input type="number" min="1" max="500" value={customPageSize} onChange={(e) => setCustomPageSize(e.target.value)} placeholder="Any number" className={`w-40 px-4 py-2.5 rounded-xl border text-sm outline-none ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] border-[#DAD8E3] text-[#14262D] placeholder-[#93A4AB]'}`} />
-                      <button type="button" onClick={() => { const n = Math.floor(Number(customPageSize)); if (Number.isFinite(n) && n >= 1 && n <= 500) { onUpdateAppFlags({ feedPageSize: n }, `Feed pagination: ${n} posts per page.`); setCustomPageSize(''); } else showToast('Enter a number between 1 and 500.', 'error'); }} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Apply</button>
-                    </div>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Keep the memories</h3>

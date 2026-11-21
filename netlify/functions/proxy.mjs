@@ -60,6 +60,28 @@ export default async (req) => {
   }
 
 
+  // Public read of the platform-wide settings (feed pagination and the storage
+  // included with each plan). The landing page shows the admin-set storage with
+  // every plan, so the values must be readable without signing in. Only these
+  // two fields leave the server, nothing else in the doc.
+  if (body.op === 'get-settings') {
+    try {
+      init()
+      const snap = await getFirestore().collection('platform').doc('settings').get()
+      const d = snap.exists ? snap.data() || {} : {}
+      const fps = Number(d.feedPageSize)
+      const st = d.storage || {}
+      const storage = { essential: 5, complete: 10, legacy: 20 }
+      for (const k of ['essential', 'complete', 'legacy']) {
+        const g = Number(st[k])
+        if (Number.isFinite(g) && g > 0) storage[k] = g
+      }
+      return json(200, { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage })
+    } catch (e) {
+      return json(500, { error: String(e?.message || e) })
+    }
+  }
+
   // Public availability checks for the landing's self-serve flow: an email or a
 // name-pair address can only be used once. An email that already owns an
 // account (Firebase Auth, a landing signup or an onboarded couple) is refused
