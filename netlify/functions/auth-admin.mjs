@@ -78,9 +78,13 @@ service cloud.firestore {
   function isSuper() {
     return request.auth != null && request.auth.token.email == 'justfashion414@gmail.com';
   }
-  function isAdminIn(app) {
+  // The database wildcard is passed in explicitly: rules functions only see
+  // the variables they are handed, so an unbound $(database) here would make
+  // the exists() path invalid and silently deny every app admin (found live
+  // Nov 21 2026 when oke@ was refused every admin action).
+  function isAdminIn(db, app) {
     return isSuper() || (request.auth != null && request.auth.token.email != null
-      && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
+      && exists(/databases/$(db)/documents/apps/$(app)/admins/$(request.auth.token.email)));
   }
   match /databases/{database}/documents {
     match /platform/{doc=**} { allow read: if true; allow write: if false; }
@@ -101,41 +105,52 @@ service cloud.firestore {
     // platform owner and that app's admins write; guests can add pending
     // posts, their own reactions, comments and their own resident profile.
     match /apps/{app} {
-      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
       match /posts/{postId} {
-        // A post waiting for approval is readable only by its author and the
-        // app's signed-in admins; everyone else, a signed-out admin included,
-        // reads only approved posts (user direction Nov 21 2026).
-        allow read: if !resource.data.get('pending', false)
+        // Single-document reads: a post waiting for approval is readable only
+        // by its author and the app's signed-in admins; everyone else, a
+        // signed-out admin included, reads only approved posts (user
+        // direction Nov 21 2026).
+        allow get: if !resource.data.get('pending', false)
           || (request.auth != null
-              && (resource.data.get('authorUid', '') == request.auth.uid || isAdminIn(app)));
+              && (resource.data.get('authorUid', '') == request.auth.uid || isAdminIn(database, app)));
+        // List queries must carry the filter that proves them. Admins may
+        // list everything; a signed-in guest may only list approved posts or
+        // their own pending ones. Any other guest list (unfiltered, or
+        // probing for someone else's pending posts) is refused outright, so
+        // an awaiting-approval post never reaches anyone else.
+        allow list: if isAdminIn(database, app)
+          || (request.auth != null
+              && (resource.data.pending == false
+                  || (resource.data.pending == true
+                      && resource.data.get('authorUid', '') == request.auth.uid)));
         // New posts follow the app's Approve-guest-posts toggle: with it on,
         // guests may only create posts that wait for approval; with it off,
         // everything shows for everybody at once. Admins always write freely.
-        allow create: if request.auth != null && (isAdminIn(app)
+        allow create: if request.auth != null && (isAdminIn(database, app)
           || request.resource.data.get('pending', false) == true
           || (exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
               && !get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true)));
-        allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
-        allow delete: if isAdminIn(app);
+        allow update: if isAdminIn(database, app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
+        allow delete: if isAdminIn(database, app);
         match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
         match /comments/{cid} {
           allow read: if true;
           allow create: if request.auth != null;
-          allow update, delete: if isAdminIn(app);
+          allow update, delete: if isAdminIn(database, app);
         }
       }
       match /residents/{uid} {
         allow read: if true;
-        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(app));
-        allow delete: if isAdminIn(app);
+        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(database, app));
+        allow delete: if isAdminIn(database, app);
       }
-      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
-      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
+      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
       match /admins/{email} {
-        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(app));
-        allow create, update: if isAdminIn(app) || (request.auth != null && request.auth.token.email == email);
-        allow delete: if isAdminIn(app);
+        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(database, app));
+        allow create, update: if isAdminIn(database, app) || (request.auth != null && request.auth.token.email == email);
+        allow delete: if isAdminIn(database, app);
       }
     }
   }
