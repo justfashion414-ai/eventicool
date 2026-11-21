@@ -1688,7 +1688,34 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setAuthError('');
     setAuthBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      // Only an administrator of THIS app may enter its dashboard. Anyone
+      // else (the Eventicor console owner, a couple from another app, a
+      // stray account) is signed straight back out and gets the same
+      // message a wrong password gets, so valid-but-unauthorized
+      // credentials can never hang at a loader or reveal that they exist.
+      const mail = String(cred.user?.email || email.trim()).trim();
+      const candidates: string[] = Array.from(new Set([mail, mail.toLowerCase()].filter(Boolean)));
+      let admitted = false;
+      let lookupErr: any = null;
+      for (const cand of candidates) {
+        try {
+          const adm = await getDoc(doc(db, scopedPath('admins'), cand));
+          if (adm.exists()) { admitted = true; break; }
+        } catch (e: any) {
+          // The rules refuse an admins read to anyone who is not an admin of
+          // this app: that denial is itself the answer. Anything else
+          // (offline, throttled) leaves the check unproven.
+          if (String(e?.code || '').includes('permission-denied')) continue;
+          lookupErr = e; break;
+        }
+      }
+      if (!admitted) {
+        doSignOut();
+        if (lookupErr) setAuthError('Network problem. Check your connection and try again.');
+        else setAuthError('Email or password is incorrect.');
+        return;
+      }
       setAuthScreen(null);
       setAuthPassword('');
       setAuthEmail('');
