@@ -32,10 +32,10 @@ async function loadLead(id: string): Promise<LeadData | null> {
     }
   } catch { /* ignore */ }
   try {
-    const { db } = await import('../firebase')
-    const { doc, getDoc } = await import('firebase/firestore')
-    const snap = await getDoc(doc(db as any, 'leads', id))
-    if (snap.exists()) return snap.data() as LeadData
+    const r = await fetch(`/api/couple?site=${encodeURIComponent(id)}`)
+    if (!r.ok) return null
+    const j = await r.json()
+    if (j && (j.bride || j.groom)) return j as LeadData
   } catch { /* offline or unreadable: the generic copy still works */ }
   return null
 }

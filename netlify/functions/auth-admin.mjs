@@ -88,7 +88,16 @@ service cloud.firestore {
   }
   match /databases/{database}/documents {
     match /platform/{doc=**} { allow read: if true; allow write: if false; }
-    match /leads/{doc=**} { allow read: if false; allow write: if false; }
+    // Sample-app links (?lead=<id>) resolve the lead on the client, so a lead
+    // must be readable by whoever holds its link. Console sample leads store
+    // no email (none asked for, none stored), so only docs WITHOUT an email
+    // field are exposed; landing leads carry the couple's email and stay
+    // private. Listing stays refused, so leads can never be enumerated.
+    match /leads/{lead} {
+      allow get: if !('email' in resource.data);
+      allow list: if false;
+      allow write: if false;
+    }
     match /events/{doc=**} { allow read: if false; allow write: if false; }
     match /health/{doc} { allow read: if true; allow write: if false; }
     // Legacy top-level couple data (pre-2026-11-19). Kept readable, never written.

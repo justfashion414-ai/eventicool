@@ -32,13 +32,16 @@ async function loadLead(id: string): Promise<LeadData | null> {
       if (j && (j.bride || j.title)) return j;
     }
   } catch { /* ignore */ }
-  // Real console leads live in Firestore and must open on any device.
+  // Real console leads live in Firestore and must open on any device. The
+  // leads collection carries the couple's email and is not readable from the
+  // client, so resolution goes through the read-only /api/couple endpoint,
+  // which returns only the fields the app shows.
   try {
-    const { db } = await import('../firebase');
-    const { doc, getDoc } = await import('firebase/firestore');
-    const snap = await getDoc(doc(db as any, 'leads', id));
-    if (snap.exists()) return snap.data() as LeadData;
-  } catch { /* rules or offline: fall back to the generic demo */ }
+    const r = await fetch(`/api/couple?site=${encodeURIComponent(id)}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (j && (j.bride || j.groom)) return j as LeadData;
+  } catch { /* offline: fall back to the generic demo */ }
   return null;
 }
 
