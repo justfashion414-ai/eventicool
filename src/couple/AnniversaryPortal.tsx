@@ -409,12 +409,12 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
           try {
             const form = new FormData();
             form.append('file', file.slice(offset, end), fileName);
-            if (offset === 0) {
-              form.append('api_key', sigData.apiKey);
-              form.append('timestamp', String(sigData.timestamp));
-              form.append('signature', sigData.signature);
-              form.append('folder', sigData.folder || folder);
-            }
+            // Every chunk needs the signed auth params: Cloudinary treats a
+            // chunk without them as unsigned and rejects it with a 400.
+            form.append('api_key', sigData.apiKey);
+            form.append('timestamp', String(sigData.timestamp));
+            form.append('signature', sigData.signature);
+            form.append('folder', sigData.folder || folder);
             const chunkJson: any = await new Promise<any>((resolve, reject) => {
               const xhr = new XMLHttpRequest();
               xhr.open('POST', endpoint);
@@ -3944,6 +3944,71 @@ function ShareSheet({ post, isDarkMode, onClose, showToast }: any) {
   );
 }
 
+// Browsers refuse to autoplay a video with sound unless a real user gesture
+// started it. Try sound first; when the browser refuses, start muted so the
+// video still plays, and surface a "Tap for sound" pill (a tap is a real
+// gesture, so unmuting then brings the audio straight back).
+const startVideoBestEffort = (vid: HTMLVideoElement | null, onSoundBlocked?: (blocked: boolean) => void): void => {
+  if (!vid) return;
+  vid.muted = false;
+  const p = vid.play();
+  if (p && typeof p.catch === 'function') {
+    p.then(() => { if (onSoundBlocked) onSoundBlocked(false); }).catch(() => {
+      vid.muted = true;
+      const p2 = vid.play();
+      if (p2 && typeof p2.catch === 'function') p2.catch(() => {});
+      if (onSoundBlocked) onSoundBlocked(true);
+    });
+  }
+};
+
+// The fullscreen viewers' video: autoplays as soon as it is shown, with
+// sound when the browser allows it and a one-tap unmute when it does not.
+function AutoSoundVideo({ src, className, onMediaClick, onEnded }: { src: string; className?: string; onMediaClick?: (e: any) => void; onEnded?: () => void }) {
+  const vidRef = useRef<HTMLVideoElement | null>(null);
+  const [soundBlocked, setSoundBlocked] = useState(false);
+  useEffect(() => {
+    setSoundBlocked(false);
+    const vid = vidRef.current;
+    if (!vid) return;
+    const t = window.setTimeout(() => startVideoBestEffort(vid, setSoundBlocked), 80);
+    return () => window.clearTimeout(t);
+  }, [src]);
+  const unmute = () => {
+    const vid = vidRef.current;
+    if (!vid) return;
+    vid.muted = false;
+    vid.play().catch(() => {});
+    setSoundBlocked(false);
+  };
+  return (
+    <div className="relative flex items-center justify-center max-w-full max-h-full">
+      <video
+        ref={vidRef}
+        src={src}
+        className={className}
+        controls
+        playsInline
+        controlsList="nodownload noplaybackrate"
+        disablePictureInPicture
+        onContextMenu={(e) => e.preventDefault()}
+        onClick={onMediaClick}
+        onEnded={onEnded}
+      />
+      {soundBlocked && (
+        <button
+          onClick={unmute}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/70 text-white text-[0.65rem] font-black uppercase tracking-widest z-10 shadow-lg"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <VolumeX className="w-4 h-4" />
+          Tap for sound
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
   const [index, setIndex] = useState(initialIndex);
   const media = post.mediaUrls || (post.mediaUrl ? [post.mediaUrl] : []);
@@ -3999,15 +4064,7 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
             className="w-full h-full flex items-center justify-center p-4"
           >
             {isVideo ? (
-              <video
-                src={current}
-                controls
-                autoPlay
-                controlsList="nodownload noplaybackrate"
-                disablePictureInPicture
-                onContextMenu={(e) => e.preventDefault()}
-                className="max-w-full max-h-full rounded-lg"
-              />
+              <AutoSoundVideo src={current} className="max-w-full max-h-full rounded-lg" />
             ) : (
               <img src={current} className="max-w-full max-h-full object-contain rounded-lg" alt="" />
             )}
@@ -5406,14 +5463,11 @@ function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload, on
       </div>
       <div className="flex-1 flex items-center justify-center min-h-0 px-2">
         {item.type === 'video' ? (
-          <video
+          <AutoSoundVideo
             key={idx}
             src={item.url}
             className="max-w-full max-h-full"
-            autoPlay
-            controls
-            playsInline
-            onClick={(e) => e.stopPropagation()}
+            onMediaClick={(e: any) => e.stopPropagation()}
             onEnded={() => { if (idx < items.length - 1) setIdx(idx + 1); else onClose(); }}
           />
         ) : (
