@@ -23,7 +23,7 @@ const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...cors } })
 
 // The only fields a guest's card needs. Nothing else leaves the doc.
-const PUBLIC = ['bride', 'groom', 'tpl', 'wedDate', 'month', 'day', 'year', 'venue', 'city', 'message']
+const PUBLIC = ['bride', 'groom', 'tpl', 'wedDate', 'month', 'day', 'year', 'venue', 'city', 'message', 'hashtag', 'dress', 'rsvpBy', 'whatsapp', 'schedule', 'music']
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: cors })
@@ -32,7 +32,10 @@ export default async (req) => {
     const url = new URL(req.url)
     const id = String(url.searchParams.get('id') || '')
     if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return json(400, { error: 'A valid invite id is required' })
-    const ref = getFirestore().collection('invites').doc(id)
+    const app = String(url.searchParams.get('app') || '').trim()
+    const ref = /^[A-Za-z0-9_-]{10,64}$/.test(app)
+      ? getFirestore().collection('apps').doc(app).collection('invites').doc(id)
+      : getFirestore().collection('invites').doc(id)
 
     if (req.method === 'GET') {
       const doc = await ref.get()

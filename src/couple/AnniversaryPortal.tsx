@@ -6977,6 +6977,274 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
   );
 }
 
+
+// The Inbox invite section: the couple's invitation cards, designed like the
+// Events & details cards. Six styles, one form filled from the couple's own
+// details, and every open of the sent card counted live.
+const IV_STYLES = [
+  { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
+  { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
+  { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
+  { id: 'palms', n: 'Palms & sky', d: 'Classic envelope, palms cover', iv: false },
+  { id: 'royal', n: 'Royal court', d: 'Royal cream and gold envelope', iv: false },
+  { id: 'seal', n: 'Gold seal', d: 'Dark card with a wax gold seal', iv: false },
+];
+
+function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast }: any) {
+  const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm font-medium ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-white/30' : 'bg-white border-[#DAD8E3] text-slate-900'}`;
+  const cardCls = `rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+  const labCls = 'block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5';
+  const chipCls = (on: boolean) => `px-3 py-2 rounded-full border text-[11px] font-black uppercase tracking-widest transition-colors ${on ? 'bg-[var(--ann-accent)] text-white border-transparent' : isDarkMode ? 'border-[#22363E] text-white/70' : 'border-[#DAD8E3] text-slate-600'}`;
+  const [tpl, setTpl] = useState('envelope');
+  const [f, setF] = useState<any>(() => ({
+    bride: demoBride() || 'Amara',
+    groom: demoGroom() || 'Daniel',
+    date: wedDate || '',
+    venue: weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
+    city: demoCity() || '',
+    hashtag: weddingDetails?.hashtag || '',
+    story: story || '',
+    dress: weddingDetails?.asoEbi || '',
+    rsvpBy: '',
+    whatsapp: '',
+    schedule: [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
+    music: '',
+  }));
+  const [docId, setDocId] = useState<string | null>(null);
+  const [opens, setOpens] = useState(0);
+  const [savedLink, setSavedLink] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [previewTpl, setPreviewTpl] = useState<string | null>(null);
+
+  // Load the couple's saved card, if one exists, so the form reopens with it.
+  useEffect(() => {
+    if (DEMO) {
+      try {
+        const s = JSON.parse(localStorage.getItem(lsKey('iv-form')) || 'null');
+        if (s) { setF(s.f); setTpl(s.tpl || 'envelope'); setDocId('demo'); setOpens(s.opens || 0); setSavedLink(s.link || null); }
+      } catch { /* ignore */ }
+      return;
+    }
+    let alive = true;
+    getDocs(collection(db, scopedPath('invites'))).then((snap: any) => {
+      if (!alive) return;
+      let best: any = null; let bestId = '';
+      snap.forEach((x: any) => {
+        const d = x.data() || {};
+        if (!best || ((d.createdAt || {}).seconds || 0) > ((best.createdAt || {}).seconds || 0)) { best = d; bestId = x.id; }
+      });
+      if (!best) return;
+      setDocId(bestId);
+      setOpens(best.opens || 0);
+      if (IV_STYLES.some((s) => s.id === best.tpl)) setTpl(best.tpl);
+      setF({
+        bride: best.bride || demoBride() || 'Amara',
+        groom: best.groom || demoGroom() || 'Daniel',
+        date: best.wedDate || wedDate || '',
+        venue: best.venue || weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
+        city: best.city || demoCity() || '',
+        hashtag: best.hashtag || weddingDetails?.hashtag || '',
+        story: best.message || story || '',
+        dress: best.dress || weddingDetails?.asoEbi || '',
+        rsvpBy: best.rsvpBy || '',
+        whatsapp: best.whatsapp || '',
+        schedule: Array.isArray(best.schedule) && best.schedule.length ? best.schedule : [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
+        music: best.music || '',
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Live open count while the section is open.
+  useEffect(() => {
+    if (DEMO || !docId) return;
+    const unsub = onSnapshot(doc(db, scopedPath('invites'), docId), (s: any) => { if (s.exists()) setOpens((s.data() || {}).opens || 0); });
+    return () => { try { unsub(); } catch { /* ignore */ } };
+  }, [docId]);
+
+  const setRow = (i: number, k: number, v: string) => {
+    const rows = f.schedule.map((r: any[], ri: number) => ri === i ? r.map((c, ci) => ci === k ? v : c) : r.slice());
+    setF({ ...f, schedule: rows });
+  };
+
+  const cardParams = () => {
+    const p = new URLSearchParams();
+    p.set('name1', f.bride || 'Amara');
+    p.set('name2', f.groom || 'Daniel');
+    if (f.date) p.set('date', f.date + ' 10:00');
+    if (f.venue) p.set('venue', f.venue);
+    if (f.city) p.set('address', f.city);
+    if (f.hashtag) p.set('hashtag', f.hashtag);
+    if (f.story) p.set('story', f.story);
+    if (f.dress) p.set('dress', f.dress);
+    if (f.rsvpBy) p.set('rsvpBy', f.rsvpBy);
+    if (f.whatsapp) p.set('whatsapp', f.whatsapp);
+    if (f.music) p.set('music', f.music);
+    if (f.schedule && f.schedule.length) p.set('schedule', JSON.stringify(f.schedule));
+    return p.toString();
+  };
+
+  const previewUrl = (t: string) => {
+    const st = IV_STYLES.find((s) => s.id === t);
+    if (st && st.iv) return `/iv/iv-${t}.html?${cardParams()}`;
+    const p = new URLSearchParams();
+    p.set('tpl', t);
+    p.set('bride', f.bride || 'Amara');
+    p.set('groom', f.groom || 'Daniel');
+    if (f.date) p.set('date', f.date + ' 10:00');
+    if (f.venue) p.set('venue', f.venue);
+    if (f.city) p.set('city', f.city);
+    if (f.story) p.set('message', f.story);
+    return `/invite.html?${p.toString()}`;
+  };
+
+  const buildLink = (t: string, id: string) => {
+    const st = IV_STYLES.find((s) => s.id === t);
+    return st && st.iv ? `${window.location.origin}/iv/iv-${t}.html?i=${id}&app=${APP_ID}` : `${window.location.origin}/invite.html?i=${id}&app=${APP_ID}`;
+  };
+
+  const fmtDate = (v: string) => { try { return new Date(v + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return v; } };
+
+  const saveInvite = async () => {
+    if (!f.bride.trim() || !f.groom.trim()) { showToast('Bride and groom names are required', 'error'); return; }
+    setSaving(true);
+    const dt = f.date ? new Date(f.date + 'T12:00:00') : null;
+    const payload: any = {
+      bride: f.bride.trim(), groom: f.groom.trim(), tpl,
+      wedDate: f.date || '',
+      month: dt ? dt.toLocaleString('en-GB', { month: 'long' }) : '',
+      day: dt ? String(dt.getDate()) : '',
+      year: dt ? String(dt.getFullYear()) : '',
+      venue: (f.venue || '').trim(), city: (f.city || '').trim(),
+      message: (f.story || '').trim(), hashtag: (f.hashtag || '').trim(), dress: (f.dress || '').trim(),
+      rsvpBy: (f.rsvpBy || '').trim(), whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
+      schedule: (f.schedule || []).filter((r: any[]) => (r[0] || r[1])),
+      music: f.music || '', updatedAt: serverTimestamp(),
+    };
+    try {
+      if (DEMO) {
+        const link = `${window.location.origin}${previewUrl(tpl)}`;
+        localStorage.setItem(lsKey('iv-form'), JSON.stringify({ f, tpl, opens, link }));
+        setDocId('demo'); setSavedLink(link);
+        showToast('Demo app: the card is saved on this device only', 'success');
+      } else if (docId) {
+        await updateDoc(doc(db, scopedPath('invites'), docId), payload);
+        setSavedLink(buildLink(tpl, docId));
+        showToast('Invitation card updated. The link still works', 'success');
+      } else {
+        const res: any = await addDoc(collection(db, scopedPath('invites')), { ...payload, opens: 0, createdAt: serverTimestamp() });
+        setDocId(res.id);
+        setSavedLink(buildLink(tpl, res.id));
+        showToast('Invitation card created. Send the link to your guests', 'success');
+      }
+    } catch { showToast('Could not save the invitation. Try again', 'error'); }
+    setSaving(false);
+  };
+
+  const copyText = async (t: string, what: string) => {
+    try { await navigator.clipboard.writeText(t); showToast(what + ' copied', 'success'); } catch { showToast('Could not copy', 'error'); }
+  };
+
+  const link = savedLink || (docId && docId !== 'demo' ? buildLink(tpl, docId) : null);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-black font-display tracking-tight">Inbox invite</h2>
+        <p className="text-sm opacity-60 mt-0.5">Invitation cards you send your guests. Pick a style, check the details, save, then copy your link. Every open is counted live.</p>
+      </div>
+
+      <section>
+        <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-3">Card style</label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {IV_STYLES.map((s) => (
+            <div key={s.id} className={`relative rounded-2xl border p-4 cursor-pointer transition-all ${tpl === s.id ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/30' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} onClick={() => setTpl(s.id)}>
+              {tpl === s.id && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center"><Check className="w-3 h-3" /></span>}
+              <b className="text-sm font-black block pr-6">{s.n}</b>
+              <span className="text-xs opacity-50 block mt-1">{s.d}</span>
+              <button type="button" onClick={(e) => { e.stopPropagation(); setPreviewTpl(s.id); }} className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--ann-accent)]"><Eye className="w-3.5 h-3.5" />Preview</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className={cardCls}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div><label className={labCls}>Bride</label><input className={inputCls} value={f.bride} onChange={(e) => setF({ ...f, bride: e.target.value })} placeholder="Bride's name" /></div>
+          <div><label className={labCls}>Groom</label><input className={inputCls} value={f.groom} onChange={(e) => setF({ ...f, groom: e.target.value })} placeholder="Groom's name" /></div>
+          <div><label className={labCls}>Wedding date</label><BrandedDateField value={f.date} onChange={(v: string) => setF({ ...f, date: v })} isDarkMode={isDarkMode} inputCls={inputCls} /></div>
+          <div><label className={labCls}>Hashtag</label><input className={inputCls} value={f.hashtag} onChange={(e) => setF({ ...f, hashtag: e.target.value })} placeholder="#YourNames" /></div>
+          <div><label className={labCls}>Venue</label><input className={inputCls} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} placeholder="Venue name" /></div>
+          <div><label className={labCls}>Address / city</label><input className={inputCls} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} placeholder="12 Palm Avenue, Lekki, Lagos" /></div>
+          <div><label className={labCls}>RSVP by</label><input className={inputCls} value={f.rsvpBy} onChange={(e) => setF({ ...f, rsvpBy: e.target.value })} placeholder="1 May 2027" /></div>
+          <div><label className={labCls}>Dress code</label><input className={inputCls} value={f.dress} onChange={(e) => setF({ ...f, dress: e.target.value })} placeholder="Aso ebi: wine and gold" /></div>
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>A note to your guests</label>
+          <textarea className={inputCls + ' min-h-[70px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>WhatsApp number for RSVPs</label>
+          <input className={inputCls} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="0803 000 0000" inputMode="tel" />
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>Day schedule</label>
+          <div className="space-y-2">
+            {f.schedule.map((r: any[], i: number) => (
+              <div key={i} className="grid grid-cols-3 gap-2">
+                <input className={inputCls} value={r[0] || ''} onChange={(e) => setRow(i, 0, e.target.value)} placeholder="2:00 PM" />
+                <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="Ceremony" />
+                <input className={inputCls} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className={labCls}>Music</label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
+            <button type="button" className={chipCls(f.music === 'none')} onClick={() => setF({ ...f, music: 'none' })}>No music</button>
+          </div>
+          <input className={inputCls + ' mt-2'} value={f.music === 'none' ? '' : f.music} onChange={(e) => setF({ ...f, music: e.target.value })} placeholder="Or paste a link to your own music (mp3)" />
+        </div>
+      </section>
+
+      {link && (
+        <section className={cardCls}>
+          <label className={labCls}>Your invite link{docId ? ` · ${opens} open${opens === 1 ? '' : 's'}` : ''}</label>
+          <p className="text-xs opacity-60 break-all">{link}</p>
+          <div className="flex gap-2 mt-3">
+            <button type="button" onClick={() => copyText(link, 'Link')} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Copy link</button>
+            <button type="button" onClick={() => copyText(`You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${link}`, 'Message')} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest">Copy message</button>
+          </div>
+        </section>
+      )}
+
+      <div className="sticky bottom-4 z-20">
+        <div className={`${cardCls} flex items-center justify-between gap-3`}>
+          <span className="text-xs opacity-60">{docId ? 'Your card is live. Changes update the same link.' : 'Nothing saved yet.'}</span>
+          <button type="button" onClick={saveInvite} disabled={saving} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
+        </div>
+      </div>
+
+      {previewTpl && (
+        <div className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewTpl(null)}>
+          <div className="relative w-[340px] max-w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2 text-white">
+              <span className="text-xs font-black uppercase tracking-widest">Preview · {IV_STYLES.find((s) => s.id === previewTpl)?.n || ''}</span>
+              <button type="button" onClick={() => setPreviewTpl(null)} className="text-xs font-black uppercase tracking-widest opacity-70">Close</button>
+            </div>
+            <div className="rounded-[28px] bg-black p-1.5 shadow-2xl">
+              <iframe src={previewUrl(previewTpl)} className="w-[320px] h-[620px] rounded-[22px] bg-white" title="Invitation preview" />
+            </div>
+            <p className="text-center text-[11px] text-white/70 mt-2">Your card as guests will open it · tap inside the mockup</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminDashboardModal({ 
   isOpen, 
   asPage, 
@@ -7063,7 +7331,7 @@ function AdminDashboardModal({
       const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       // Nov 20 2026: the Hero photos tab merged into Events & photos.
       const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'invite', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
@@ -8252,6 +8520,7 @@ function AdminDashboardModal({
                           { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                           { id: 'posts', label: 'All posts', icon: Film },
                           { id: 'events', label: 'Events & photos', icon: Calendar },
+                          { id: 'invite', label: 'Inbox invite', icon: Mail },
                           { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
                                                                         { id: 'security', label: 'Security', icon: Lock },
@@ -8319,6 +8588,7 @@ function AdminDashboardModal({
                     { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
                     { id: 'posts', label: 'All posts', icon: Film },
                     { id: 'events', label: 'Events & photos', icon: Calendar },
+                          { id: 'invite', label: 'Inbox invite', icon: Mail },
                     { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
                     { id: 'security', label: 'Security', icon: Lock },
@@ -9102,7 +9372,11 @@ function AdminDashboardModal({
                 )}
               </AnimatePresence>
 
-              {activeAdminTab === 'albums' && (
+              {activeAdminTab === 'invite' && (
+                <InviteCardSection isDarkMode={isDarkMode} weddingDetails={weddingDetails} story={story} wedDate={previewWedDate()} showToast={showToast} />
+              )}
+
+              {activeAdminTab === 'albums' && ( 
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Vendor albums</h3>

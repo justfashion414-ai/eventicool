@@ -221,6 +221,7 @@
 (function () {
   var params = new URLSearchParams(location.search)
   var id = (params.get('i') || '').trim()
+  var APPQ = (function () { var a = (params.get('app') || '').trim(); return a ? '&app=' + encodeURIComponent(a) : ''; })()
   var stage = document.getElementById('stage')
   var loading = document.getElementById('loading')
   var data = null
@@ -293,7 +294,7 @@
       if (localStorage.getItem(key)) return
       localStorage.setItem(key, '1')
     } catch (e) { /* private mode */ }
-    try { fetch('/api/invite?id=' + encodeURIComponent(id), { method: 'POST', keepalive: true }) } catch (e) {}
+    try { fetch('/api/invite?id=' + encodeURIComponent(id) + APPQ, { method: 'POST', keepalive: true }) } catch (e) {}
   }
 
   function setupScratch() {
@@ -360,11 +361,20 @@
   }
 
   if (!id) {
-    loading.style.display = 'none'
-    document.getElementById('s-env').innerHTML = '<div class="err">This invitation link is not complete.<br />Please ask the couple for the full link.</div>'
-    return
-  }
-  fetch('/api/invite?id=' + encodeURIComponent(id))
+    var pb = params.get('bride') || ''
+    if (pb) {
+      var pv = { bride: pb, groom: params.get('groom') || '', tpl: params.get('tpl') || 'palms', venue: params.get('venue') || '', city: params.get('city') || '', message: params.get('message') || '' }
+      var pd = params.get('date') || ''
+      if (pd) { var pdd = new Date(pd.replace(/ /, 'T')); if (!isNaN(pdd)) { pv.month = pdd.toLocaleString('en-GB', { month: 'long' }); pv.day = String(pdd.getDate()); pv.year = String(pdd.getFullYear()) } }
+      loading.style.display = 'none'
+      render(pv)
+    } else {
+      loading.style.display = 'none'
+      document.getElementById('s-env').innerHTML = '<div class="err">This invitation link is not complete.<br />Please ask the couple for the full link.</div>'
+      return
+    }
+  } else {
+  fetch('/api/invite?id=' + encodeURIComponent(id) + APPQ)
     .then(function (r) { if (!r.ok) throw new Error('bad'); return r.json() })
     .then(function (d) {
       data = d
@@ -375,6 +385,7 @@
       loading.style.display = 'none'
       document.getElementById('s-env').innerHTML = '<div class="err">We could not open this invitation.<br />Please ask the couple for a fresh link.</div>'
     })
+  }
 
   var opened = false
   document.getElementById('envelope').addEventListener('click', function () {

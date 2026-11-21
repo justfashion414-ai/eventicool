@@ -9,10 +9,12 @@
     var v = q.get(k); if (v) o[k] = v;
   });
   var id = (q.get('i') || '').trim();
+  var ivApp = (q.get('app') || '').trim();
+  var ivAppQ = ivApp ? '&app=' + encodeURIComponent(ivApp) : '';
   if (id && !Object.keys(o).length) {
     try {
       var x = new XMLHttpRequest();
-      x.open('GET', '/api/invite?id=' + encodeURIComponent(id), false);
+      x.open('GET', '/api/invite?id=' + encodeURIComponent(id) + ivAppQ, false);
       x.send(null);
       if (x.status === 200) {
         var d = JSON.parse(x.responseText);
@@ -23,6 +25,12 @@
         if (d.venue) o.venue = d.venue;
         if (d.city) o.address = d.city;
         if (d.message) o.story = d.message;
+        if (d.hashtag) o.hashtag = d.hashtag;
+        if (d.dress) o.dress = d.dress;
+        if (d.rsvpBy) o.rsvpBy = d.rsvpBy;
+        if (d.whatsapp) o.whatsapp = d.whatsapp;
+        if (d.music) o.music = d.music;
+        if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
       }
     } catch (e) {}
   }
@@ -464,6 +472,7 @@ try {
   if (ivO.story) C.story = ivO.story;
   if (ivO.dress) C.dress = ivO.dress;
   if (ivO.schedule) { try { C.schedule = JSON.parse(ivO.schedule); } catch (e) {} }
+  if (ivO.music !== undefined) window.IV_MUSIC = ivO.music;
   if (typeof C.date === 'string') { var ivD = new Date(C.date.replace(/ /, 'T')); if (!isNaN(ivD)) C.date = ivD; }
 } catch (e) {}
 
@@ -520,7 +529,16 @@ function floraSVG() {
 $("#hero").insertAdjacentHTML("afterbegin", floraSVG());
 
 /* ===== Music box (generated, no file needed) ===== */
-const Music = (() => {
+const MusicIV = (function () {
+  var m = window.IV_MUSIC;
+  if (!m) return null;
+  if (m === 'none') return { on: false, start: function () { return false; }, stop: function () {} };
+  try {
+    var a = new Audio(m); a.loop = true; a.volume = 0.55;
+    return { on: true, start: function () { a.play().catch(function () {}); return true; }, stop: function () { a.pause(); } };
+  } catch (e) { return null; }
+})();
+const Music = MusicIV || (() => {
   let ctx, master, timer, next = 0, step = 0, on = false;
   const chords = [[293.66, 369.99, 440], [246.94, 293.66, 369.99], [196, 246.94, 293.66], [220, 277.18, 329.63]];
   const arp = [0, 1, 2, 1, 2, 1, 0, 2];
