@@ -28,6 +28,7 @@
         if (d.hashtag) o.hashtag = d.hashtag;
         if (d.dress) o.dress = d.dress;
         if (d.rsvpBy) o.rsvpBy = d.rsvpBy;
+        if (Array.isArray(d.photos)) o.photos = d.photos;
         if (d.whatsapp) o.whatsapp = d.whatsapp;
         if (d.music) o.music = d.music;
         if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
@@ -212,6 +213,8 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:0 28px;color:var(--rose-ink)}
 .ph-t{font-style:italic;font-size:24px;line-height:1.1}
 .ph-s{font-family:var(--sans);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.8}
+.ph-caro img{opacity:0;transition:opacity .9s ease}
+.ph-caro img.on{opacity:1}
 .couple-line{margin:22px 0 4px;font-family:var(--script);font-size:38px;line-height:1.1;color:var(--gold)}
 
 /* ---------- Map preview ---------- */
@@ -390,7 +393,6 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
     <section class="sec rsvp-sec pad" aria-labelledby="rsvpH">
       <p class="kicker">Kindly reply</p>
       <h3 id="rsvpH">RSVP</h3>
-      <p class="by">Reply by <span data-f="rsvpBy"></span></p>
       <form id="rsvpForm" novalidate>
         <div><label for="rName">Your name</label><input type="text" id="rName" autocomplete="name" placeholder="Full name"></div>
         <div>
@@ -400,17 +402,9 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
             <button type="button" role="radio" aria-checked="false" data-v="no">Regretfully decline</button>
           </div>
         </div>
-        <div id="guestsWrap">
-          <span class="lbl" id="gLbl">Number of guests</span>
-          <div class="stepper" role="group" aria-labelledby="gLbl">
-            <button type="button" id="gMinus" aria-label="One fewer guest">&minus;</button>
-            <output id="gOut" aria-live="polite">1</output>
-            <button type="button" id="gPlus" aria-label="One more guest">+</button>
-          </div>
-        </div>
-        <div><label for="rNote">Note or dietary needs (optional)</label><textarea id="rNote" placeholder="Anything we should know?"></textarea></div>
+        <div><label for="rNote">Note (optional)</label><textarea id="rNote" placeholder="Anything we should know?"></textarea></div>
         <p class="err" id="rErr" role="alert"></p>
-        <button class="btn solid" type="submit" style="margin-top:0;width:100%">Prepare my reply</button>
+        <button class="btn solid" type="submit" style="margin-top:0;width:100%">Send my reply</button>
       </form>
       <div class="sent" id="sent" hidden>
         <h4>One last step</h4>
@@ -468,7 +462,7 @@ try {
   if (ivO.whatsapp) C.whatsapp = String(ivO.whatsapp).replace(/\D/g, '');
   if (ivO.hashtag) C.hashtag = ivO.hashtag;
   else if (ivO.name1 && ivO.name2) C.hashtag = '#' + ivO.name1.replace(/\s+/g, '') + 'And' + ivO.name2.replace(/\s+/g, '');
-  if (ivO.photo) C.photo = ivO.photo;
+  if (Array.isArray(ivO.photos) && ivO.photos.length) { C.photos = ivO.photos; } else if (ivO.photo) { C.photo = ivO.photo; }
   if (ivO.story) C.story = ivO.story;
   if (ivO.dress) C.dress = ivO.dress;
   if (ivO.schedule) { try { C.schedule = JSON.parse(ivO.schedule); } catch (e) {} }
@@ -729,7 +723,26 @@ buildMap();
 $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 
 /* ===== Couple photo (set C.photo to a picture to replace the placeholder) ===== */
-if (C.photo) { const img = new Image(); img.alt = couple; img.onload = () => { $("#phHolder").remove(); $("#archIn").appendChild(img); }; img.src = C.photo; }
+(function () {
+  var list = (Array.isArray(C.photos) && C.photos.length) ? C.photos.slice(0, 6) : (C.photo ? [C.photo] : []);
+  if (!list.length) return;
+  var ready = new Image();
+  ready.onload = function () {
+    var h = $("#phHolder"); if (h) h.remove();
+    var host = $("#archIn"); if (!host) return;
+    if (list.length === 1) { ready.alt = couple; host.appendChild(ready); return; }
+    var wrap = document.createElement('div'); wrap.className = 'ph-caro';
+    var imgs = list.map(function (u) { var im = new Image(); im.alt = couple; im.src = u; wrap.appendChild(im); return im; });
+    imgs[0].className = 'on';
+    host.appendChild(wrap);
+    var ci = 0;
+    setInterval(function () {
+      ci = (ci + 1) % imgs.length;
+      imgs.forEach(function (im, k) { im.className = k === ci ? 'on' : ''; });
+    }, 4500);
+  };
+  ready.src = list[0];
+})();
 
 /* ===== Countdown ===== */
 function tickCount() {
@@ -740,21 +753,22 @@ function tickCount() {
 tickCount(); setInterval(tickCount, 1000);
 
 /* ===== RSVP ===== */
-let attend = "yes", guests = 1;
+let attend = "yes";
 $$(".choice button").forEach(b => b.addEventListener("click", () => {
   attend = b.dataset.v; $$(".choice button").forEach(x => x.setAttribute("aria-checked", String(x === b)));
-  $("#guestsWrap").hidden = attend === "no";
 }));
-const setG = n => { guests = Math.min(6, Math.max(1, n)); $("#gOut").textContent = guests; };
-$("#gMinus").addEventListener("click", () => setG(guests - 1));
-$("#gPlus").addEventListener("click", () => setG(guests + 1));
 $("#rsvpForm").addEventListener("submit", e => {
   e.preventDefault();
   const name = $("#rName").value.trim(), note = $("#rNote").value.trim();
   if (!name) { $("#rErr").textContent = "Please add your name so they know who is replying."; $("#rName").focus(); return; }
   $("#rErr").textContent = "";
   const dateStr = D.getDate() + " " + MONTHS[D.getMonth()] + " " + D.getFullYear();
-  const msg = `RSVP for ${couple}'s wedding, ${dateStr}\nName: ${name}\nReply: ${attend === "yes" ? "Joyfully accepts" : "Regretfully declines"}` + (attend === "yes" ? `\nGuests: ${guests}` : "") + (note ? `\nNote: ${note}` : "");
+  const msg = `RSVP for ${couple}'s wedding, ${dateStr}\nName: ${name}\nReply: ${attend === "yes" ? "Joyfully accepts" : "Regretfully declines"}` + (note ? `\nNote: ${note}` : "");
+  try {
+    const q = new URLSearchParams(location.search);
+    const ivId = q.get('i'), gid = q.get('g');
+    if (ivId && gid) fetch('/api/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', id: ivId, app: q.get('app') || '', g: gid, name: name, attend: attend, note: note }) }).catch(function (e2) {});
+  } catch (err2) {}
   $("#rPreview").value = msg;
   $("#waLink").href = "https://wa.me/" + C.whatsapp.replace(/\D/g, "") + "?text=" + encodeURIComponent(msg);
   $("#sent").hidden = false; $("#copied").textContent = "";
@@ -769,12 +783,18 @@ $("#copyBtn").addEventListener("click", async () => {
 
 <script>
 (function () {
-  var m = location.search.match(/[?&]i=([A-Za-z0-9_-]+)/);
-  if (!m) return;
+  var q = new URLSearchParams(location.search);
+  var idv = q.get('i');
+  if (!idv) return;
   var sent = false;
   var f = function () {
     if (sent) return; sent = true;
-    try { fetch('/api/invite?id=' + encodeURIComponent(m[1]), { method: 'POST', keepalive: true }) } catch (e) {}
+    try {
+      fetch('/api/invite', {
+        method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'open', id: idv, app: q.get('app') || '', g: q.get('g') || '' })
+      });
+    } catch (e) {}
     document.removeEventListener('pointerdown', f);
   };
   document.addEventListener('pointerdown', f);

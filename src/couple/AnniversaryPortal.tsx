@@ -7019,6 +7019,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     dress: weddingDetails?.asoEbi || '',
     rsvpBy: '',
     whatsapp: '',
+    photos: [] as string[],
     schedule: [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
     music: '',
   }));
@@ -7062,6 +7063,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         whatsapp: best.whatsapp || '',
         schedule: Array.isArray(best.schedule) && best.schedule.length ? best.schedule : [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
         music: best.music || '',
+        photos: Array.isArray(best.photos) ? best.photos : [],
       });
     }).catch(() => {});
     return () => { alive = false; };
@@ -7089,9 +7091,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     if (f.hashtag) p.set('hashtag', f.hashtag);
     if (f.story) p.set('story', f.story);
     if (f.dress) p.set('dress', f.dress);
-    if (f.rsvpBy) p.set('rsvpBy', f.rsvpBy);
     if (f.whatsapp) p.set('whatsapp', f.whatsapp);
     if (f.music) p.set('music', f.music);
+    if (f.photos && f.photos.length) p.set('photo', f.photos[0]);
     if (f.schedule && f.schedule.length) p.set('schedule', JSON.stringify(f.schedule));
     return p.toString();
   };
@@ -7130,13 +7132,14 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       venue: (f.venue || '').trim(), city: (f.city || '').trim(),
       message: (f.story || '').trim(), hashtag: (f.hashtag || '').trim(), dress: (f.dress || '').trim(),
       rsvpBy: (f.rsvpBy || '').trim(), whatsapp: String(f.whatsapp || '').replace(/\D/g, ''),
+      photos: (f.photos || []).slice(0, 5),
       schedule: (f.schedule || []).filter((r: any[]) => (r[0] || r[1])),
       music: f.music || '', updatedAt: serverTimestamp(),
     };
     try {
       if (DEMO) {
         const link = `${window.location.origin}${previewUrl(tpl)}`;
-        localStorage.setItem(lsKey('iv-form'), JSON.stringify({ f, tpl, opens, link }));
+        localStorage.setItem(lsKey('iv-form'), JSON.stringify({ f, tpl, opens }));
         setDocId('demo'); setSavedLink(link);
         showToast('Demo app: the card is saved on this device only', 'success');
       } else if (docId) {
@@ -7157,13 +7160,76 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     try { await navigator.clipboard.writeText(t); showToast(what + ' copied', 'success'); } catch { showToast('Could not copy', 'error'); }
   };
 
-  const link = savedLink || (docId && docId !== 'demo' ? buildLink(tpl, docId) : null);
+  const [guests, setGuests] = useState<any[] | null>(null);
+  const [guestName, setGuestName] = useState('');
+  const [addingGuest, setAddingGuest] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!docId) { setGuests(null); return; }
+    if (docId === 'demo') {
+      try { setGuests(JSON.parse(localStorage.getItem(lsKey('iv-guests')) || '[]')); } catch { setGuests([]); }
+      return;
+    }
+    const unsub = onSnapshot(collection(db, scopedPath('invites'), docId, 'guests'), (snap: any) => {
+      const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      rows.sort((a: any, b: any) => ((a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)));
+      setGuests(rows);
+    }, () => setGuests([]));
+    return () => { try { unsub(); } catch { /* gone */ } };
+  }, [docId]);
+
+  const guestLink = (gid: string) => {
+    const st = IV_STYLES.find((s) => s.id === tpl);
+    return st && st.iv
+      ? `${window.location.origin}/iv/iv-${tpl}.html?i=${docId}&g=${gid}&app=${APP_ID}`
+      : `${window.location.origin}/invite.html?i=${docId}&g=${gid}&app=${APP_ID}`;
+  };
+
+  const addGuest = async () => {
+    if (!docId) { showToast('Save the invitation first, then add your invitees', 'error'); return; }
+    setAddingGuest(true);
+    try {
+      if (docId === 'demo') {
+        const next = [...(guests || []), { id: 'g' + Date.now(), name: guestName.trim(), createdAt: { seconds: Math.floor(Date.now() / 1000) } }];
+        setGuests(next);
+        localStorage.setItem(lsKey('iv-guests'), JSON.stringify(next));
+      } else {
+        await addDoc(collection(db, scopedPath('invites'), docId, 'guests'), { name: guestName.trim(), createdAt: serverTimestamp() });
+      }
+      setGuestName('');
+      showToast('Invitee added. Copy their link and send it', 'success');
+    } catch { showToast('Could not add the invitee. Try again', 'error'); }
+    setAddingGuest(false);
+  };
+
+  const guestMsg = (gl: string) => `You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${gl}`;
+
+  const onInvitePhotos = async (e: any) => {
+    const files = Array.from(e.target.files || []) as File[];
+    e.target.value = '';
+    if (!files.length) return;
+    const room = 5 - (f.photos || []).length;
+    if (room <= 0) { showToast('Up to 5 photos on the card', 'error'); return; }
+    setPhotoBusy(true);
+    try {
+      const urls: string[] = [];
+      for (const file of files.slice(0, room)) {
+        if (DEMO) { urls.push(await demoImageDataUrl(file)); }
+        else { urls.push(await uploadToCloudinaryWithProgress(file, 'eventicor-invite', () => {})); }
+      }
+      setF((prev: any) => ({ ...prev, photos: [...(prev.photos || []), ...urls] }));
+      showToast(urls.length === 1 ? 'Photo added' : urls.length + ' photos added', 'success');
+    } catch { showToast('Could not upload that photo. Try again', 'error'); }
+    setPhotoBusy(false);
+  };
 
   return (
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-black font-display tracking-tight">Inbox invite</h2>
-        <p className="text-sm opacity-60 mt-0.5">Invitation cards you send your guests. Pick a style, check the details, save, then copy your link. Every open is counted live.</p>
+        <p className="text-sm opacity-60 mt-0.5">Invitation cards you send your guests. Pick a style, check the details, save, then add your invitees. Each one gets their own link, and you see when they open it and what they reply.</p>
       </div>
 
       <section>
@@ -7212,6 +7278,24 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           </div>
         </div>
         <div className="mt-4">
+          <label className={labCls}>Your photos on the card</label>
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            {(f.photos || []).map((u: string, i: number) => (
+              <div key={i} className={`relative rounded-xl overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ aspectRatio: '3/4' }}>
+                <img src={u} alt="" className="w-full h-full object-cover" />
+                <button type="button" onClick={() => setF({ ...f, photos: f.photos.filter((_: string, j: number) => j !== i) })} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+              </div>
+            ))}
+            {(f.photos || []).length < 5 && (
+              <button type="button" onClick={() => photoInputRef.current?.click()} className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 text-xs font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E] text-white/50' : 'border-[#DAD8E3] text-slate-400'}`} style={{ aspectRatio: '3/4' }}>
+                {photoBusy ? 'Uploading…' : '+ Photo'}
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
+          <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
+        </div>
+        <div className="mt-4">
           <label className={labCls}>Music</label>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={chipCls(f.music === '')} onClick={() => setF({ ...f, music: '' })}>Built-in music</button>
@@ -7223,13 +7307,40 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         </div>
       </section>
 
-      {link && (
+      {docId && (
         <section className={cardCls}>
-          <label className={labCls}>Your invite link{docId ? ` · ${opens} open${opens === 1 ? '' : 's'}` : ''}</label>
-          <p className="text-xs opacity-60 break-all">{link}</p>
+          <label className={labCls}>Your invitees</label>
+          <p className="text-xs opacity-60 mt-1 mb-3">Every invitee gets their own link. You see here when each one opens their card, and their reply the moment they send it.</p>
+          {guests === null ? (
+            <p className="text-xs opacity-60">Loading your invitees…</p>
+          ) : guests.length === 0 ? (
+            <p className="text-xs opacity-60">No invitees yet. Add one for each person you are inviting, then copy their link.</p>
+          ) : (
+            <div className="space-y-2">
+              {guests.map((g: any, i: number) => {
+                const gl = docId !== 'demo' ? guestLink(g.id) : previewUrl(tpl);
+                const openedAt = g.openedAt?.seconds ? new Date(g.openedAt.seconds * 1000) : (g.openedAt ? new Date(g.openedAt) : null);
+                const rep = g.reply || null;
+                return (
+                  <div key={g.id} className={`rounded-xl border p-3 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <b className="text-sm">{g.name || `Invitee ${i + 1}`}</b>
+                      <span className={`px-2 py-1 rounded-full text-[0.6rem] font-black uppercase tracking-widest ${rep ? 'bg-emerald-500/15 text-emerald-600' : openedAt ? 'bg-[var(--ann-accent)]/15 text-[var(--ann-accent)]' : isDarkMode ? 'bg-white/10 text-white/60' : 'bg-black/5 text-slate-500'}`}>{rep ? 'Replied' : openedAt ? 'Opened' : 'Not opened'}</span>
+                    </div>
+                    {openedAt && <p className="text-xs opacity-60 mt-1">Opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
+                    {rep && <p className="text-xs mt-1">{rep.attend === 'no' ? "Can't make it" : 'Coming'}{rep.note ? ` · ${rep.note}` : ''}</p>}
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
+                      <button type="button" onClick={() => copyText(guestMsg(gl), 'Message')} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.6rem] font-black uppercase tracking-widest">Copy message</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="flex gap-2 mt-3">
-            <button type="button" onClick={() => copyText(link, 'Link')} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Copy link</button>
-            <button type="button" onClick={() => copyText(`You are invited to the wedding of ${f.bride} & ${f.groom}${f.date ? ' — ' + fmtDate(f.date) : ''}${f.venue ? ', ' + f.venue : ''}. Open your invitation card: ${link}`, 'Message')} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.65rem] font-black uppercase tracking-widest">Copy message</button>
+            <input className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Their name (optional)" maxLength={40} />
+            <button type="button" onClick={addGuest} disabled={addingGuest} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-50 whitespace-nowrap">{addingGuest ? 'Adding…' : 'Add invitee'}</button>
           </div>
         </section>
       )}
