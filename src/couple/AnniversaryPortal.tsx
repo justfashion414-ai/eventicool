@@ -601,10 +601,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Giant footer look, chosen by the couple in the dashboard. A brand-new app
   // gets one of the two styles at random (stored once), so users do not all
   // land on the same look; a choice saved in the dashboard always wins.
-  const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee'>(() => {
+  const [footerStyle, setFooterStyle] = useState<'wall' | 'marquee' | 'tunnel' | 'globe'>(() => {
     try {
+      // ?fs=<style> (the admin console's giant footer Preview): forces the look
+      // for that visit, over the couple's saved choice.
+      const fsParam = new URLSearchParams(window.location.search).get('fs');
+      if (fsParam === 'wall' || fsParam === 'marquee' || fsParam === 'tunnel' || fsParam === 'globe') return fsParam;
       const saved = localStorage.getItem(lsKey('footer-style'));
-      if (saved === 'wall' || saved === 'marquee') return saved;
+      if (saved === 'wall' || saved === 'marquee' || saved === 'tunnel' || saved === 'globe') return saved;
       const pick = Math.random() < 0.5 ? 'wall' : 'marquee';
       localStorage.setItem(lsKey('footer-style'), pick);
       return pick;
@@ -1498,7 +1502,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             // Ignore storage quota error
           }
         }
-        if (data.footerStyle === 'wall' || data.footerStyle === 'marquee') {
+        if (!(() => { try { return new URLSearchParams(window.location.search).get('fs'); } catch { return null; } })() && (data.footerStyle === 'wall' || data.footerStyle === 'marquee' || data.footerStyle === 'tunnel' || data.footerStyle === 'globe')) {
           setFooterStyle(data.footerStyle);
           try { localStorage.setItem(lsKey('footer-style'), data.footerStyle); } catch {}
         }
@@ -2014,7 +2018,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
   // Giant footer style (dashboard setting; couples pick the look).
-  const updateFooterStyle = async (style: 'wall' | 'marquee', quiet = false) => {
+  const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false) => {
     setFooterStyle(style);
     try { localStorage.setItem(lsKey('footer-style'), style); } catch {}
     if (DEMO) { if (!quiet) showToast('Giant footer style saved for this preview.'); return; }
@@ -2954,6 +2958,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
                 <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
+              ) : footerStyle === 'tunnel' ? (
+                <GiantFooterTunnel images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
+              ) : footerStyle === 'globe' ? (
+                <GiantFooterGlobe images={footerPool} onTap={(src: string) => setFooterLightbox(src)} />
               ) : (
                 <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} onTap={(src: string) => setFooterLightbox(src)} />
               )}
@@ -5659,6 +5667,288 @@ function GiantFooterMarquee({ images = [], onTap }: { images?: string[]; isDarkM
   );
 }
 
+// Giant footer styles 3 & 4 (Nov 21 2026, replicated from the admin's
+// footer-styles file): the couple's photos moving in 3D. Both drift on their
+// own, respect reduced motion, steer by dragging, and open a photo on tap.
+// compact=true is the dashboard preview mockup's small version.
+const EVFW_CROP = [['cover', 'center'], ['210% auto', '50% 22%'], ['190% auto', '20% 40%'], ['190% auto', '80% 45%']];
+
+function GiantFooterNames({ bride, groom, wed, compact = false }: { bride: string; groom: string; wed: string; compact?: boolean }) {
+  return (
+    <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
+      <small>THANK YOU FOR CELEBRATING WITH US</small>
+      <h2>{bride} <i>&amp;</i> {groom}</h2>
+      <p>{wed}</p>
+    </div>
+  );
+}
+
+function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background, onTap, bride, groom, wed }: { compact?: boolean; worldRef: React.RefObject<HTMLDivElement>; stageRef: React.RefObject<HTMLDivElement>; vignette: string; background: string; onTap?: (src: string) => void; bride?: string; groom?: string; wed?: string }) {
+  return (
+    <section
+      ref={stageRef}
+      className={`ev-fw-stage relative overflow-hidden ${compact ? 'w-full h-[460px]' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] mt-12'}`}
+      style={{ background, touchAction: 'pan-y' }}
+    >
+      <div ref={worldRef} className="ev-fw-world" />
+      <div className="ev-fw-vig" style={{ background: vignette }} />
+      <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} compact={compact} />
+      {onTap ? <div className="ev-fw-hint">DRAG TO STEER · TAP A PHOTO</div> : null}
+    </section>
+  );
+}
+
+function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, onTap }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const [tick, setTick] = useState(0);
+  const imgRef = useRef<string[]>(images);
+  imgRef.current = images;
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+
+  useEffect(() => {
+    const stage = stageRef.current, world = worldRef.current;
+    if (!stage || !world) return;
+    const rm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    world.innerHTML = '';
+    const W = stage.clientWidth || (compact ? 340 : 390);
+    const H = stage.clientHeight || (compact ? 460 : 720);
+    const m = Math.min(W, H);
+    const R = m * 0.6, n = 10, tw = 2 * Math.PI * R / n * 0.94, dz = tw * 1.16, M = 9;
+    stage.style.perspective = (m * 0.95) + 'px';
+    const tiles: any[] = [];
+    for (let j = 0; j < M; j++) for (let k = 0; k < n; k++) {
+      const e = document.createElement('div');
+      e.className = 'ev-fw-3d-t';
+      e.style.width = tw + 'px';
+      e.style.height = dz * 0.94 + 'px';
+      e.style.marginLeft = (-tw / 2) + 'px';
+      e.style.marginTop = (-dz * 0.47) + 'px';
+      e._j = j; e._k = k; e._g = -1;
+      world.appendChild(e);
+      tiles.push(e);
+    }
+    const st = { off: 0, rot: 0, vrot: 0, vy: 0 };
+    let last = performance.now(), raf = 0;
+    const paint = (e: any, idx: number) => {
+      if (e._g === idx) return;
+      e._g = idx;
+      const P = pool();
+      const i = ((idx % P.length) + P.length) % P.length;
+      e.style.backgroundImage = `url("${P[i]}")`;
+      const v = Math.floor(idx / 6) % 4;
+      e.style.backgroundSize = EVFW_CROP[v][0];
+      e.style.backgroundPosition = EVFW_CROP[v][1];
+    };
+    const frame = (t: number) => {
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (!rm) {
+        st.off += (150 * (m / 390)) * dt + st.vy * dt;
+        st.rot += 5 * dt + st.vrot * dt;
+        st.vy *= Math.pow(0.05, dt);
+        st.vrot *= Math.pow(0.05, dt);
+      }
+      const o = ((st.off % dz) + dz) % dz, gb = Math.floor(st.off / dz);
+      tiles.forEach(e => {
+        const d = e._j * dz - o + R * 0.3, g = gb + e._j;
+        const N = Math.max(1, pool().length);
+        paint(e, ((g * n + e._k) % N + N) % N);
+        const th = e._k * 360 / n + st.rot + ((g % 2) * (180 / n));
+        e.style.transform = `translate3d(0,0,${-d}px) rotateZ(${th}deg) translateX(${R}px) rotateY(90deg) rotateZ(90deg) scaleX(-1)`;
+        e.style.opacity = String(Math.max(0, Math.min(1, Math.min((d - R * 0.05) / (R * 0.2), (R * 5.4 - d) / (R * 1.8)))));
+        e.style.filter = `brightness(${Math.max(0.3, Math.min(1.1, 1.2 - d / (R * 6)))})`;
+      });
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    let drag: any = null;
+    const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
+    const onDown = (ev: PointerEvent) => {
+      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), mv: 0 };
+      stage.classList.add('ev-fw-dg');
+      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.px, dy = ev.clientY - drag.py;
+      drag.mv = Math.max(drag.mv, Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y));
+      if (drag.mv > 6) {
+        st.rot += dx * 0.28; st.vrot = dx / dragDt() * 0.2;
+        st.off -= dy * 1.6 * (m / 390); st.vy = -dy / dragDt() * 1.2 * (m / 390);
+      }
+      drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
+    };
+    const onEnd = (ev: PointerEvent) => {
+      if (!drag) return;
+      const mv = drag.mv; drag = null;
+      stage.classList.remove('ev-fw-dg');
+      if (mv < 6 && onTapRef.current && typeof document.elementsFromPoint === 'function') {
+        const el = (document.elementsFromPoint(ev.clientX, ev.clientY) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+        if (el) {
+          const P = pool();
+          onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+        }
+      }
+    };
+    const onCancel = () => { drag = null; stage.classList.remove('ev-fw-dg'); };
+    const onResize = () => setTick(x => x + 1);
+    stage.addEventListener('pointerdown', onDown);
+    stage.addEventListener('pointermove', onMove);
+    stage.addEventListener('pointerup', onEnd);
+    stage.addEventListener('pointercancel', onCancel);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerup', onEnd);
+      stage.removeEventListener('pointercancel', onCancel);
+    };
+  }, [tick, compact]);
+
+  return (
+    <GiantFooter3dShell
+      compact={compact}
+      stageRef={stageRef}
+      worldRef={worldRef}
+      background="#030306"
+      vignette="radial-gradient(circle at 50% 50%, #000 0%, rgba(0,0,0,0.66) 14%, rgba(0,0,0,0) 42%, rgba(0,0,0,0) 70%, rgba(0,0,0,0.53) 100%)"
+      onTap={onTap}
+      bride={bride} groom={groom} wed={wed}
+    />
+  );
+}
+
+function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onTap }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void }) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const [tick, setTick] = useState(0);
+  const imgRef = useRef<string[]>(images);
+  imgRef.current = images;
+  const onTapRef = useRef(onTap);
+  onTapRef.current = onTap;
+  const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+  const imgKey = (images[0] || '') + '|' + images.length;
+
+  useEffect(() => {
+    const stage = stageRef.current, world = worldRef.current;
+    if (!stage || !world) return;
+    const rm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    world.innerHTML = '';
+    const W = stage.clientWidth || (compact ? 340 : 390);
+    const H = stage.clientHeight || (compact ? 460 : 720);
+    const m = Math.min(W, H);
+    const R = m * 0.62, cols = 14, rows = 5, sg = 28;
+    stage.style.perspective = (m * 1.6) + 'px';
+    const tiles: any[] = [];
+    const P0 = pool();
+    for (let r = 0; r < rows; r++) {
+      const phi = (r - (rows - 1) / 2) * sg;
+      const cw = Math.cos(phi * Math.PI / 180) * 2 * Math.PI * R / cols * 0.9;
+      const ch = R * sg * Math.PI / 180 * 0.9;
+      for (let c = 0; c < cols; c++) {
+        const th = c * 360 / cols + (r % 2) * (180 / cols);
+        const e = document.createElement('div');
+        e.className = 'ev-fw-3d-t';
+        e.style.backfaceVisibility = 'hidden';
+        e.style.width = cw + 'px';
+        e.style.height = ch + 'px';
+        e.style.marginLeft = (-cw / 2) + 'px';
+        e.style.marginTop = (-ch / 2) + 'px';
+        e.style.transform = `rotateY(${th}deg) rotateX(${-phi}deg) translateZ(${R}px)`;
+        const N = Math.max(1, P0.length);
+        const idx = ((r * cols + c) % N + N) % N;
+        e._g = idx;
+        e.style.backgroundImage = `url("${P0[idx]}")`;
+        const v = Math.floor(idx / 6) % 4;
+        e.style.backgroundSize = EVFW_CROP[v][0];
+        e.style.backgroundPosition = EVFW_CROP[v][1];
+        world.appendChild(e);
+        tiles.push(e);
+      }
+    }
+    const st = { ry: 0, vry: 0, tilt: 0, vt: 0 };
+    let T = 0, last = performance.now(), raf = 0;
+    const applyTransform = () => {
+      const tl = -8 + Math.sin(T * 0.35) * 6 + st.tilt;
+      world.style.transform = `translateZ(${-R * 0.55}px) rotateX(${tl}deg) rotateY(${st.ry}deg)`;
+    };
+    applyTransform();
+    const frame = (t: number) => {
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (!rm) {
+        T += dt;
+        st.ry += 11 * dt + st.vry * dt;
+        st.vry *= Math.pow(0.06, dt);
+        st.tilt = Math.max(-40, Math.min(40, st.tilt + st.vt * dt));
+        st.vt *= Math.pow(0.06, dt);
+      }
+      applyTransform();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    let drag: any = null;
+    const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
+    const onDown = (ev: PointerEvent) => {
+      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), mv: 0 };
+      stage.classList.add('ev-fw-dg');
+      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (!drag) return;
+      const dx = ev.clientX - drag.px, dy = ev.clientY - drag.py;
+      drag.mv = Math.max(drag.mv, Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y));
+      if (drag.mv > 6) {
+        st.ry += dx * 0.4; st.vry = dx / dragDt() * 0.3;
+        st.tilt = Math.max(-40, Math.min(40, st.tilt - dy * 0.25));
+      }
+      drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
+    };
+    const onEnd = (ev: PointerEvent) => {
+      if (!drag) return;
+      const mv = drag.mv; drag = null;
+      stage.classList.remove('ev-fw-dg');
+      if (mv < 6 && onTapRef.current && typeof document.elementsFromPoint === 'function') {
+        const el = (document.elementsFromPoint(ev.clientX, ev.clientY) as any[]).find(x => x && x._g !== undefined && x.classList && x.classList.contains('ev-fw-3d-t'));
+        if (el) {
+          const P = pool();
+          onTapRef.current(P[((el._g % P.length) + P.length) % P.length]);
+        }
+      }
+    };
+    const onCancel = () => { drag = null; stage.classList.remove('ev-fw-dg'); };
+    const onResize = () => setTick(x => x + 1);
+    stage.addEventListener('pointerdown', onDown);
+    stage.addEventListener('pointermove', onMove);
+    stage.addEventListener('pointerup', onEnd);
+    stage.addEventListener('pointercancel', onCancel);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerup', onEnd);
+      stage.removeEventListener('pointercancel', onCancel);
+    };
+  }, [tick, compact, imgKey]);
+
+  return (
+    <GiantFooter3dShell
+      compact={compact}
+      stageRef={stageRef}
+      worldRef={worldRef}
+      background="#000"
+      vignette="radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.87) 78%, #000 96%)"
+      onTap={onTap}
+      bride={bride} groom={groom} wed={wed}
+    />
+  );
+}
+
 function GridScanner({ isDarkMode, images = [], onTap }: { isDarkMode: boolean; images?: string[]; onTap?: (src: string) => void }) {
   const [activeRow, setActiveRow] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -6619,6 +6909,12 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           <div className="absolute inset-0 z-[1] pointer-events-none bg-white/20" />
           {wallNames}
         </section>
+      ) : wallMode === 'tunnel' || wallMode === 'globe' ? (
+        <div className="relative w-full overflow-hidden bg-[#030306] mt-8" style={{ height: 460 }}>
+          {wallMode === 'tunnel'
+            ? <GiantFooterTunnel images={pool} compact bride={bride} groom={groom} wed={wedDot} />
+            : <GiantFooterGlobe images={pool} compact bride={bride} groom={groom} wed={wedDot} />}
+        </div>
       ) : (
         <section className="relative overflow-hidden w-full bg-[#070716] mt-8">
           <div className="h-[8px] bg-[var(--ann-accent)]" />
@@ -7347,7 +7643,7 @@ function AdminDashboardModal({
   }, [heroImages.join('|')]);
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
   const [heroTplDraft, setHeroTplDraft] = useState<'classic' | 'halo' | 'hero' | 'book'>(heroTpl);
-  const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee'>(footerStyle);
+  const [footerStyleDraft, setFooterStyleDraft] = useState<'wall' | 'marquee' | 'tunnel' | 'globe'>(footerStyle);
   // Gifts & support draft (Events & photos): initializes straight from the
   // saved details, so the page's single Save bar owns it from the first render.
   const [giftDraft, setGiftDraft] = useState<any>(() => {
@@ -8654,15 +8950,15 @@ function AdminDashboardModal({
 {adminPermissions?.canUploadImages && (
                     <section>
                       <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
-                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. More styles are coming.</p>
+                      <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. Tap a style, then the round eye button on the right to watch it.</p>
                       <div className="flex gap-2 flex-wrap">
-                        {(['wall', 'marquee'] as const).map((st) => (
+                        {(['wall', 'marquee', 'tunnel', 'globe'] as const).map((st) => (
                           <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
-                            {st === 'wall' ? 'Style 1 · Photo wall' : 'Style 2 · Marquee'}
+                            {st === 'wall' ? 'Style 1 · Photo wall' : st === 'marquee' ? 'Style 2 · Marquee' : st === 'tunnel' ? 'Style 3 · Photo tunnel' : 'Style 4 · Photo globe'}
                           </button>
                         ))}
                       </div>
-                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows</p>
+                      <p className="text-[0.7rem] opacity-50 mt-2">Style 1 · grey photo grid with a light scan · Style 2 · dark wall with rounded rows · Style 3 · travel down a 3D tunnel of photos (drag to spin, drag up/down for speed) · Style 4 · photos wrap a ball that turns slowly (drag to spin it)</p>
                       <p className="text-[0.75rem] opacity-60 italic mt-3">Nobody uploads the giant footer photos: it starts as placeholders of the hero images, and every photo posted to the feed replaces a tile, newest first, until all 40 tiles come from the feed.</p>
                     </section>
                   )}

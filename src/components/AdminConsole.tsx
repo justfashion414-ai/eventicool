@@ -39,6 +39,12 @@ const tsMs = (v: any): number => {
 }
 
 const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+const EV_FOOTER_STYLES = [
+  { id: 'wall', n: 'Style 1 · Photo wall', d: 'Grey photo grid with a light scan sweeping the rows' },
+  { id: 'marquee', n: 'Style 2 · Marquee', d: 'Dark wall with rounded photo rows drifting past' },
+  { id: 'tunnel', n: 'Style 3 · Photo tunnel', d: 'Travel down a tube lined with photos; drag to spin, drag up/down for speed' },
+  { id: 'globe', n: 'Style 4 · Photo globe', d: 'Photos wrap a ball that turns slowly; drag to spin it any way' }
+]
 // Inbox invite card designs, each its own standalone invitation page style.
 const IVTPL: Record<string, { name: string }> = {
   palms: { name: 'Palms & sky' },
@@ -1085,6 +1091,21 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <div><b>Birthdays and anniversaries</b><small>Shown as “soon” on the landing page</small></div>
             <span className="pl">Soon</span>
           </div>
+        </div>
+        <div className="card">
+          <h3>Giant footer styles</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The big photo wall at the bottom of every app. Preview opens a sample app showing that footer style.</p>
+          {EV_FOOTER_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => { let t = 'halo'; try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${t}&fs=${s.id}`, '_blank') }}>Preview</button>
+              </div>
+            </div>
+          ))}
         </div>
       </>
     )
