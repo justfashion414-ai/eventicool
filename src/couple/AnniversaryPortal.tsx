@@ -10300,6 +10300,17 @@ function FloatingHeroSection({ isDarkMode, images, eventNames, compact = false }
       </div>
 
       <div className="absolute inset-0 overflow-hidden">
+        {!cardsReady && (
+          <div className="absolute inset-0 grid grid-cols-2 gap-[6%] px-[9%] py-[7%] pointer-events-none ev-hero-skel" aria-hidden="true">
+            {[0, 1].map((c) => (
+              <div key={c} className={`flex flex-col gap-[7%] ${c === 0 ? 'items-start -rotate-6 translate-y-3' : 'items-end rotate-6'}`}>
+                {[0, 1, 2].map((r) => (
+                  <div key={r} className={`ev-hero-skel-card w-[64%] ${r === 1 ? 'self-stretch' : ''} ${r === 2 ? 'w-[52%]' : ''}`} style={{ height: r === 1 ? '34%' : '30%' }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
         {cardsReady && [0, 1].map((column) =>
           [0, 1, 2, 3].map((slot) => (
             <FloatingPhotoCard

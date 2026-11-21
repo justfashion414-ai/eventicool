@@ -46,10 +46,18 @@ const EV_FOOTER_STYLES = [
   { id: 'globe', n: 'Style 4 · Photo globe', d: 'Photos wrap a ball that turns slowly; drag to spin it any way' }
 ]
 // Inbox invite card designs, each its own standalone invitation page style.
+const IV_IV_STYLES = [
+  { id: 'envelope', n: 'Gold envelope', d: 'A burgundy and gold-foil envelope opens in 3D onto a watercolour cover card' },
+  { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors onto the cover card' },
+  { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D onto the cover card' }
+]
 const IVTPL: Record<string, { name: string }> = {
   palms: { name: 'Palms & sky' },
   royal: { name: 'Royal court' },
   seal: { name: 'Gold seal' },
+  envelope: { name: 'Gold envelope' },
+  ribbon: { name: 'Ribbon & scissors' },
+  doors: { name: 'Palace doors' },
 }
 const CHANNELS = ['Email', 'Push', 'WhatsApp']
 const STG = ['New previews', 'Contacted', 'Quoted', 'Paid']
@@ -1107,6 +1115,24 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </div>
           ))}
         </div>
+        <div className="card">
+          <h3>Inbox invite styles</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The invitation cards couples send their guests from the app's Inbox invite section. Preview opens the full card, opening animation included.</p>
+          {IV_IV_STYLES.map((s) => (
+            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+              </div>
+              <div className="row">
+                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
+                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+                }}>Preview</button>
+              </div>
+            </div>
+          ))}
+        </div>
       </>
     )
   }
@@ -1305,7 +1331,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   /* ---- inbox invite: standalone invitation cards ---- */
-  const inviteLink = (v: InviteDoc) => `${window.location.origin}/invite.html?i=${v.id}`
+  const inviteLink = (v: InviteDoc) => v.tpl && IVTPL[v.tpl] && ['envelope', 'ribbon', 'doors'].includes(v.tpl) ? `${window.location.origin}/iv/iv-${v.tpl}.html?i=${v.id}` : `${window.location.origin}/invite.html?i=${v.id}`
   function inviteMsg(v: InviteDoc) {
     const when = v.wedDate ? new Date(v.wedDate + 'T00:00:00') : null
     const d = when && !isNaN(when.getTime()) ? when.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''
