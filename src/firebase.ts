@@ -24,7 +24,9 @@ export const db = getFirestore(app)
 // Helper for the Firestore proxy (server-side service account, no client keys).
 export async function proxyCall(op, payload = {}, authInstance?) {
   const { getAuth } = await import('firebase/auth')
-  const user = getAuth(authInstance || app).currentUser
+  // authInstance is already an Auth instance (the console's own session), so it
+  // is used as-is; feeding it back into getAuth throws and every call failed.
+  const user = (authInstance || getAuth(app)).currentUser
   if (!user) throw new Error('Not signed in')
   const token = await user.getIdToken()
   const res = await fetch('/api/proxy', {
