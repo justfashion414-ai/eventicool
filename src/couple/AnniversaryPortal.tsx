@@ -2887,34 +2887,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
               )}
 
-              {/* OUR PARTNERS — set in the dashboard's Partners tab */}
-              {(partners || []).length > 0 && (
-              <section className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our partners</h2>
-                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
-                <div className="flex flex-col gap-3">
-                  {(partners || []).map((p: any) => {
-                    const wa = String(p.whatsapp || '').replace(/[^0-9]/g, '');
-                    const ig = String(p.instagram || '').replace(/^@/, '');
-                    const link = p.website || (ig ? `https://instagram.com/${ig}` : '') || (wa ? `https://wa.me/${wa}` : '');
-                    const cardCls = `flex items-center gap-3 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
-                    return (
-                      <div key={p.id || p.name} className={cardCls}>
-                        {p.photo
-                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
-                          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
-                        <div className="min-w-0 flex-1">
-                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
-                          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
-                          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
-                        </div>
-                        {link ? <a href={link} target="_blank" rel="noreferrer" className="shrink-0" aria-label={`Open ${p.name || 'partner'}`}><ExternalLink className="w-4 h-4 opacity-40" /></a> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-              )}
+              
 
               {/* CTA */}
               <section className="mt-8 mb-2">
@@ -2963,6 +2936,35 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     </div>
                   </div>
                 </section>
+              )}
+
+{/* OUR PARTNERS — set in Events & photos, under Gifts & support; the eye toggle hides it */}
+              {(partners || []).length > 0 && !HIDDEN_SECTIONS.includes('partners') && (
+              <section className="mt-8">
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">Our partners</h2>
+                <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
+                <div className="flex flex-col gap-3">
+                  {(partners || []).map((p: any) => {
+                    const wa = String(p.whatsapp || '').replace(/[^0-9]/g, '');
+                    const ig = String(p.instagram || '').replace(/^@/, '');
+                    const link = p.website || (ig ? `https://instagram.com/${ig}` : '') || (wa ? `https://wa.me/${wa}` : '');
+                    const cardCls = `flex items-center gap-3 p-[14px_16px] rounded-[18px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
+                    return (
+                      <div key={p.id || p.name} className={cardCls}>
+                        {p.photo
+                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-12 h-12 rounded-full object-cover shrink-0" />
+                          : <span className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white font-black text-lg" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+                        <div className="min-w-0 flex-1">
+                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+                          {p.category ? <span className={`block text-[0.7rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{p.category}</span> : null}
+                          {p.description ? <p className={`m-0 text-[0.78rem] mt-1 leading-snug ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any, overflow: 'hidden' }}>{p.description}</p> : null}
+                        </div>
+                        {link ? <a href={link} target="_blank" rel="noreferrer" className="shrink-0" aria-label={`Open ${p.name || 'partner'}`}><ExternalLink className="w-4 h-4 opacity-40" /></a> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
               )}
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
@@ -3183,7 +3185,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
                     if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
                       feedElements.push(
-                        <button key="feed-next-page" onClick={() => setFeedPage((v: number) => v + 1)} className="mx-auto my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
+                        <div key="feed-next-page" className="flex w-full justify-center">
+                          <button onClick={() => setFeedPage((v: number) => v + 1)} className="my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
+                        </div>
                       );
                     }
                     return feedElements;
@@ -4381,12 +4385,6 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
     <div className="fixed inset-0 z-[250] bg-black flex flex-col items-center justify-center">
       <div className="absolute top-0 w-full p-4 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="p-2 text-white/60 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-          <span className="text-white text-sm font-bold">{index + 1} / {media.length}</span>
-        </div>
-        <div className="flex items-center gap-2">
           {!isVideo && (
             <button
               onClick={handleDownload}
@@ -4397,6 +4395,12 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
               <Download className="w-5 h-5" />
             </button>
           )}
+          <span className="text-white text-sm font-bold">{index + 1} / {media.length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="p-2 text-white/60 hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
         </div>
       </div>
 
@@ -6432,26 +6436,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         </div>
       </section>
       )}
-      {/* Our partners — whatever the dashboard's Partners tab holds */}
-      {(partners || []).length > 0 && (
-      <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our partners</h2>
-        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">The people and brands behind this celebration.</p>
-        <div className="flex flex-col gap-2">
-          {(partners || []).map((p: any) => (
-            <div key={p.id || p.name} className="flex items-center gap-3 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
-              {p.photo
-                ? <img src={p.photo} alt={p.name || 'Partner'} className="w-9 h-9 rounded-full object-cover shrink-0" />
-                : <span className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-black text-[0.8rem]" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
-              <div className="min-w-0 flex-1">
-                <b className="block text-[0.8rem] font-serif-display">{p.name}</b>
-                {p.category ? <span className="block text-[0.65rem] text-[#5A6970]">{p.category}</span> : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-      )}
+      
       {/* Feed CTA */}
       <section className="px-5 pt-7">
         <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
@@ -6493,6 +6478,26 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
             </div>
           </div>
         </section>
+      )}
+      {/* Our partners — Events & photos, under Gifts & support */}
+      {(partners || []).length > 0 && !mockHidden.includes('partners') && (
+      <section className="px-5 pt-7">
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Our partners</h2>
+        <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">The people and brands behind this celebration.</p>
+        <div className="flex flex-col gap-2">
+          {(partners || []).map((p: any) => (
+            <div key={p.id || p.name} className="flex items-center gap-3 p-[10px_12px] rounded-[14px] border bg-white border-[#DAD8E3]">
+              {p.photo
+                ? <img src={p.photo} alt={p.name || 'Partner'} className="w-9 h-9 rounded-full object-cover shrink-0" />
+                : <span className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white font-black text-[0.8rem]" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+              <div className="min-w-0 flex-1">
+                <b className="block text-[0.8rem] font-serif-display">{p.name}</b>
+                {p.category ? <span className="block text-[0.65rem] text-[#5A6970]">{p.category}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
       )}
       {/* Giant footer: the real wall, in the style the admin picked */}
       {wallMode === 'wall' ? (
@@ -6631,7 +6636,7 @@ function AdminDashboardModal({
       const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       // Nov 20 2026: the Hero photos tab merged into Events & photos.
       const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'partners', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      return storedTab && ['overview', 'moderation', 'posts', 'events', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
@@ -7802,9 +7807,7 @@ function AdminDashboardModal({
                           { id: 'events', label: 'Events & photos', icon: Calendar },
                           { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
-                    { id: 'partners', label: 'Partners', icon: Handshake },
-                          { id: 'partners', label: 'Partners', icon: Handshake },
-                          { id: 'security', label: 'Security', icon: Lock },
+                                                                        { id: 'security', label: 'Security', icon: Lock },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
                             key={tab.id}
@@ -8421,6 +8424,111 @@ function AdminDashboardModal({
                     </div>
                   </section>
 
+                  {/* Partners — under Gifts & support (user direction Nov 21 2026): one card in
+                      Events & photos, with its own hide/unhide eye like the other sections. */}
+                  <section>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-black font-display text-lg mb-1">Partners</h3>
+                        <p className="text-sm opacity-60">The people, brands and businesses you want your guests to know: photographers, planners, aso-ebi sellers, anyone behind your occasion. Whatever you save here shows on the app's home page under Our partners, right after Gifts &amp; support. Tap hide and nobody sees it until you bring it back.</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-4">
+    <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                      <h3 className="font-black font-display text-lg mb-1">{partnerEditing ? `Edit ${partnerEditing.name || 'partner'}` : 'Add a partner'}</h3>
+                      <p className="text-sm opacity-60 mb-4">{partnerEditing ? 'Change anything and save. Updates show on the app straight away.' : 'Name is the only required field; everything else makes the card richer.'}</p>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Name</span>
+                            <input type="text" value={partnerForm.name} onChange={(e) => setPartnerForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Lens & Light Studio" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">What they do</span>
+                            <input type="text" value={partnerForm.category} onChange={(e) => setPartnerForm((f: any) => ({ ...f, category: e.target.value }))} placeholder="e.g. Photography, Catering, Aso-ebi" className={inputCls} />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Description</span>
+                          <textarea value={partnerForm.description} onChange={(e) => setPartnerForm((f: any) => ({ ...f, description: e.target.value }))} rows={3} placeholder="A line or two your guests will read about them." className={`${inputCls} resize-none`} />
+                        </div>
+                        <div>
+                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Logo</span>
+                          {partnerForm.photo ? (
+                            <div className="flex items-center gap-3">
+                              <img src={partnerForm.photo} alt="Partner logo" className="w-14 h-14 rounded-full object-cover border border-[#DAD8E3] dark:border-[#22363E]" />
+                              <button type="button" onClick={() => setPartnerForm((f: any) => ({ ...f, photo: '' }))} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Remove</button>
+                            </div>
+                          ) : (
+                            <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer ${partnerLogoBusy ? 'opacity-50 pointer-events-none' : ''} ${isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]'}`}>
+                              <Camera className="w-4 h-4" />
+                              {partnerLogoBusy ? 'Uploading…' : 'Upload a logo'}
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPartnerLogo(f); e.currentTarget.value = ''; }} />
+                            </label>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">WhatsApp / phone</span>
+                            <input type="text" value={partnerForm.whatsapp} onChange={(e) => setPartnerForm((f: any) => ({ ...f, whatsapp: e.target.value }))} placeholder="e.g. 2348012345678" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Instagram</span>
+                            <input type="text" value={partnerForm.instagram} onChange={(e) => setPartnerForm((f: any) => ({ ...f, instagram: e.target.value }))} placeholder="@handle" className={inputCls} />
+                          </div>
+                          <div>
+                            <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Website</span>
+                            <input type="text" value={partnerForm.website} onChange={(e) => setPartnerForm((f: any) => ({ ...f, website: e.target.value }))} placeholder="https://…" className={inputCls} />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap pt-1">
+                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
+                          {partnerEditing && (
+                            <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {partnersList.length === 0 ? (
+                        <p className="text-sm opacity-60">No partners yet. Add the first one above and it appears on the app's home page immediately.</p>
+                      ) : partnersList.map((p: any) => (
+                        <div key={p.id || p.name} className={`rounded-[20px] p-5 border flex items-start gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                          {p.photo
+                            ? <img src={p.photo} alt={p.name || 'Partner'} className="w-11 h-11 rounded-full object-cover shrink-0" />
+                            : <span className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white font-black" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
+                          <div className="min-w-0 flex-1">
+                            <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
+                            {p.category ? <span className="block text-[0.7rem] opacity-60">{p.category}</span> : null}
+                            {p.description ? <p className="m-0 text-[0.8rem] opacity-70 mt-1">{p.description}</p> : null}
+                            <div className="flex gap-3 flex-wrap mt-1.5 text-[0.7rem] opacity-70">
+                              {p.whatsapp ? <span>WhatsApp {p.whatsapp}</span> : null}
+                              {p.instagram ? <span>Instagram {p.instagram}</span> : null}
+                              {p.website ? <span className="truncate max-w-[200px]">{p.website}</span> : null}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 shrink-0">
+                            <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '' }); try { document.querySelector('.font-black.font-display.text-lg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
+                            <button type="button" onClick={() => setPartnerDelete(p)} className="px-4 py-2 rounded-full border border-red-400 text-red-500 text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <DeleteConfirmationModal
+                      isOpen={!!partnerDelete}
+                      onClose={() => setPartnerDelete(null)}
+                      onConfirm={removePartner}
+                      isDarkMode={isDarkMode}
+                      title="Remove partner?"
+                      message={`${partnerDelete?.name || 'This partner'} will stop showing on the app's home page right away.`}
+                      confirmLabel="Remove partner"
+                    />
+                    </div>
+                    <div className="mt-3">
+                      <SectionEyeBtn hidden={(detDraft?.hiddenSections || []).includes('partners')} onClick={() => toggleSectionHidden('partners')} isDarkMode={isDarkMode} />
+                    </div>
+                  </section>
+
 {adminPermissions?.canUploadImages && (
                     <section>
                       <h3 className="font-black font-display text-lg mb-1">Giant footer style</h3>
@@ -8939,100 +9047,7 @@ function AdminDashboardModal({
                   )}
                 </div>
               )}
-              {activeAdminTab === 'partners' && (
-                <div className="space-y-6">
-                  <p className="text-sm opacity-60 -mt-2">The people, brands and businesses you want your guests to know: photographers, planners, aso-ebi sellers, anyone behind your occasion. Whatever you save here is what shows on the app's home page under Our partners.</p>
-                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                    <h3 className="font-black font-display text-lg mb-1">{partnerEditing ? `Edit ${partnerEditing.name || 'partner'}` : 'Add a partner'}</h3>
-                    <p className="text-sm opacity-60 mb-4">{partnerEditing ? 'Change anything and save. Updates show on the app straight away.' : 'Name is the only required field; everything else makes the card richer.'}</p>
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Name</span>
-                          <input type="text" value={partnerForm.name} onChange={(e) => setPartnerForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="e.g. Lens & Light Studio" className={inputCls} />
-                        </div>
-                        <div>
-                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">What they do</span>
-                          <input type="text" value={partnerForm.category} onChange={(e) => setPartnerForm((f: any) => ({ ...f, category: e.target.value }))} placeholder="e.g. Photography, Catering, Aso-ebi" className={inputCls} />
-                        </div>
-                      </div>
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Description</span>
-                        <textarea value={partnerForm.description} onChange={(e) => setPartnerForm((f: any) => ({ ...f, description: e.target.value }))} rows={3} placeholder="A line or two your guests will read about them." className={`${inputCls} resize-none`} />
-                      </div>
-                      <div>
-                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Logo</span>
-                        {partnerForm.photo ? (
-                          <div className="flex items-center gap-3">
-                            <img src={partnerForm.photo} alt="Partner logo" className="w-14 h-14 rounded-full object-cover border border-[#DAD8E3] dark:border-[#22363E]" />
-                            <button type="button" onClick={() => setPartnerForm((f: any) => ({ ...f, photo: '' }))} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Remove</button>
-                          </div>
-                        ) : (
-                          <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer ${partnerLogoBusy ? 'opacity-50 pointer-events-none' : ''} ${isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]'}`}>
-                            <Camera className="w-4 h-4" />
-                            {partnerLogoBusy ? 'Uploading…' : 'Upload a logo'}
-                            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPartnerLogo(f); e.currentTarget.value = ''; }} />
-                          </label>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">WhatsApp / phone</span>
-                          <input type="text" value={partnerForm.whatsapp} onChange={(e) => setPartnerForm((f: any) => ({ ...f, whatsapp: e.target.value }))} placeholder="e.g. 2348012345678" className={inputCls} />
-                        </div>
-                        <div>
-                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Instagram</span>
-                          <input type="text" value={partnerForm.instagram} onChange={(e) => setPartnerForm((f: any) => ({ ...f, instagram: e.target.value }))} placeholder="@handle" className={inputCls} />
-                        </div>
-                        <div>
-                          <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Website</span>
-                          <input type="text" value={partnerForm.website} onChange={(e) => setPartnerForm((f: any) => ({ ...f, website: e.target.value }))} placeholder="https://…" className={inputCls} />
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-wrap pt-1">
-                        <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
-                        {partnerEditing && (
-                          <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {partnersList.length === 0 ? (
-                      <p className="text-sm opacity-60">No partners yet. Add the first one above and it appears on the app's home page immediately.</p>
-                    ) : partnersList.map((p: any) => (
-                      <div key={p.id || p.name} className={`rounded-[20px] p-5 border flex items-start gap-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                        {p.photo
-                          ? <img src={p.photo} alt={p.name || 'Partner'} className="w-11 h-11 rounded-full object-cover shrink-0" />
-                          : <span className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white font-black" style={{ background: 'var(--ann-accent)' }}>{(p.name || '?').slice(0, 1).toUpperCase()}</span>}
-                        <div className="min-w-0 flex-1">
-                          <b className="block text-[0.95rem] font-serif-display">{p.name}</b>
-                          {p.category ? <span className="block text-[0.7rem] opacity-60">{p.category}</span> : null}
-                          {p.description ? <p className="m-0 text-[0.8rem] opacity-70 mt-1">{p.description}</p> : null}
-                          <div className="flex gap-3 flex-wrap mt-1.5 text-[0.7rem] opacity-70">
-                            {p.whatsapp ? <span>WhatsApp {p.whatsapp}</span> : null}
-                            {p.instagram ? <span>Instagram {p.instagram}</span> : null}
-                            {p.website ? <span className="truncate max-w-[200px]">{p.website}</span> : null}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2 shrink-0">
-                          <button type="button" onClick={() => { setPartnerEditing(p); setPartnerForm({ name: p.name || '', category: p.category || '', description: p.description || '', photo: p.photo || '', whatsapp: p.whatsapp || '', instagram: p.instagram || '', website: p.website || '' }); try { document.querySelector('.font-black.font-display.text-lg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }} className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.65rem] font-black uppercase tracking-widest">Edit</button>
-                          <button type="button" onClick={() => setPartnerDelete(p)} className="px-4 py-2 rounded-full border border-red-400 text-red-500 text-[0.65rem] font-black uppercase tracking-widest">Delete</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <DeleteConfirmationModal
-                    isOpen={!!partnerDelete}
-                    onClose={() => setPartnerDelete(null)}
-                    onConfirm={removePartner}
-                    isDarkMode={isDarkMode}
-                    title="Remove partner?"
-                    message={`${partnerDelete?.name || 'This partner'} will stop showing on the app's home page right away.`}
-                    confirmLabel="Remove partner"
-                  />
-                </div>
-              )}
+              
               {activeAdminTab === 'settings' && (
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>

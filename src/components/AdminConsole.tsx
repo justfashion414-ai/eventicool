@@ -817,10 +817,34 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     // A couple's app link binds to their own events doc, so it opens with
     // their names, chosen wedding date and city, not the generic demo.
     const appLink = (s: Site) => `${window.location.origin}/app?tpl=${s.tpl || 'classic'}&acc=${DEF_ACC[(s.tpl || 'classic') as keyof typeof DEF_ACC] || 'midnight'}&site=${s.id}`
-    const L = sites.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
+    // Paid trial apps live here too (user direction Nov 21 2026): a customer
+    // whose account was marked paid graduates out of Free trial apps and into
+    // this table. Their app link stays their own ?lead= link; Manage opens the
+    // same per-customer dialog (extend, suspend, delete).
+    const leadAppLink = (l: LeadDoc) => {
+      const t = l.template || 'classic'
+      const a = l.accent || DEF_ACC[t as keyof typeof DEF_ACC] || 'midnight'
+      return `${window.location.origin}/app?tpl=${t}&acc=${a}&lead=${l.id}`
+    }
+    const leadSites: (Site & { _lead: LeadDoc })[] = (leads || [])
+      .filter((l) => l.activatedAt && (!!l.email || l.source === 'landing'))
+      .map((l) => ({
+        id: l.id,
+        couple: [l.bride, l.groom].filter(Boolean).join(' & ') || l.id,
+        slug: '',
+        plan: l.plan,
+        status: l.status === 'suspended' ? 'suspended' : l.status === 'deleted' ? 'revoked' : 'live',
+        tpl: l.template,
+        since: new Date(l.activatedAt as number).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        contact: l.email || '',
+        city: l.city || '',
+        _lead: l,
+      }))
+    const allRows: (Site & { _lead?: LeadDoc })[] = [...sites, ...leadSites]
+    const L = allRows.filter((s) => (sf === 'all' || s.status === sf) && `${s.couple} ${s.slug} ${s.contact || ''}`.toLowerCase().includes(sq.toLowerCase()))
     return (
       <>
-        {head('Premium apps', `${sites.length} couples’ apps. Open one to manage billing, storage and access.`)}
+        {head('Premium apps', `${allRows.length} couples’ apps. Open one to manage billing, storage and access. Trial apps that paid appear here too.`)}
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             {(['all', 'live', 'draft', 'suspended'] as const).map((k) => (
@@ -839,7 +863,24 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 ) : L.length === 0 ? (
                   <tr><td colSpan={9}>No apps match.</td></tr>
                 ) : (
-                  L.map((s) => (
+                  L.map((s) => s._lead ? (
+                    <tr key={s.id}>
+                      <td><b>{s.couple}</b><small>{s.status === 'live' ? 'Paid app' : s.status === 'suspended' ? 'Paid app · suspended' : 'Paid app · revoked'}{s.city ? ` · ${s.city}` : ''}</small></td>
+                      <td><small>{s.contact || '—'}</small></td>
+                      <td><small>{s.city || '—'}</small></td>
+                      <td>{s.plan ? PL[s.plan]?.name || s.plan : '—'}</td>
+                      <td>{s.status === 'live' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(31,138,91,.16)', color: '#1f8a5b' }}>{`Active · renews ${new Date(s._lead!.renewsAt || (s._lead!.activatedAt as number) + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}</span> : s.status === 'suspended' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(214,140,0,.16)', color: '#a36a00' }}>Suspended</span> : <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(0,0,0,.08)', color: 'var(--mut)' }}>Revoked</span>}</td>
+                      <td>{s.tpl ? TP[s.tpl]?.name || s.tpl : '—'}</td>
+                      <td>{s.since}</td>
+                      <td>
+                        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                          <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(leadAppLink(s._lead!)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
+                          <button className="chip" onClick={() => window.open(leadAppLink(s._lead!), '_blank')}>Open</button>
+                        </div>
+                      </td>
+                      <td><button className="btn g s" onClick={() => setManage(s._lead!)}>Manage</button></td>
+                    </tr>
+                  ) : (
                     <tr key={s.id}>
                       <td><b>{s.couple}</b><small>{s.slug}.eventicor.com</small></td>
                       <td><small>{s.contact || '—'}</small></td>
@@ -1093,7 +1134,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const now = Date.now()
     // Customers only: couples who created their app on the landing page (a
     // 24-hour trial). Admin sample leads carry no email and stay in Leads.
-    const mine = (leads || []).filter((l) => !!l.email || l.source === 'landing')
+    // Once a customer pays (activatedAt set) their app graduates to the
+    // Premium apps section (user direction Nov 21 2026), so it leaves here.
+    const mine = (leads || []).filter((l) => (!!l.email || l.source === 'landing') && !l.activatedAt)
     const demo = user?.uid === 'demo' && mine.length === 0
       ? ([
           { id: 'demo-cust-1', bride: 'Ada', groom: 'Obinna', email: 'ada.obinna@example.com', city: 'Lagos', template: 'halo', accent: 'blush', plan: 'Complete', status: 'trial', createdAt: now - 8 * 3600e3, expiresAt: now + 16 * 3600e3 },
@@ -1134,7 +1177,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const shown = rows.filter((l) => custBucket(l) === custTab)
     return (
       <>
-        {head('Free trial apps', 'Couples who created their app on the landing page. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
+        {head('Free trial apps', 'Couples still on their 24-hour trial. Each carries their email, city, the plan they picked and their trial status; sample leads never appear here. A customer who pays moves up to Premium apps.', undefined, <span style={{ width: 46, height: 46, borderRadius: 14, background: 'rgba(216,176,106,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#a8842f" strokeWidth="2" strokeLinecap="round"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/></svg></span>)}
         {rows.length === 0 ? (
           <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>No customers yet. Every couple who creates an app on the landing page appears here automatically, nothing to add by hand.</p></div>
         ) : (

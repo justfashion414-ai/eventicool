@@ -165,7 +165,7 @@ function SampleChip({ exp, trial }: { exp: number; trial?: boolean }) {
 const SAMPLE_SITE_URL = 'https://eventicor.name.ng';
 const SAMPLE_COMMUNITY_URL = 'https://chat.whatsapp.com/KfSanIyOEU75q1bBvpqH31?s=sh&p=a&iam=2';
 
-function SampleInfoButton({ accent, selfServe, active }: { accent: string; selfServe?: boolean; active?: boolean }) {
+function SampleInfoButton({ accent, selfServe, active, onPay }: { accent: string; selfServe?: boolean; active?: boolean; onPay?: () => void }) {
   // Hidden in the dashboard's preview mockup (?nochrome=1): the mockup shows
   // the home page only, with no floating buttons.
   if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('nochrome')) return null;
@@ -207,10 +207,27 @@ function SampleInfoButton({ accent, selfServe, active }: { accent: string; selfS
         </p>
         <p style={{ color: '#3d4a50', fontSize: 13.5, lineHeight: 1.55, margin: '8px 0 16px' }}>
           {selfServe
-            ? 'Join the Eventicor community on WhatsApp and request the live webinar: our team walks you through managing your app for your event.'
+            ? 'Pay now to keep your app online, or join the Eventicor community on WhatsApp and request the live webinar: our team walks you through managing your app for your event.'
             : 'Want it with your own names, photos and events? Create your own app on the Eventicor website in seconds.'}
         </p>
-        {selfServe ? (
+        {selfServe && onPay ? (
+          <>
+            <button
+              onClick={() => { setOpen(false); onPay(); }}
+              style={{ display: 'block', width: '100%', background: accent, color: '#fff', textDecoration: 'none', padding: '13px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.06em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              MAKE PAYMENT
+            </button>
+            <a
+              href={SAMPLE_COMMUNITY_URL}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'block', marginTop: 10, padding: '12px 20px', borderRadius: 999, fontWeight: 700, fontSize: 13, letterSpacing: '.04em', color: accent, border: `1.5px solid ${accent}`, textDecoration: 'none' }}
+            >
+              JOIN THE EVENTICOR COMMUNITY
+            </a>
+          </>
+        ) : selfServe ? (
           <a
             href={SAMPLE_COMMUNITY_URL}
             target="_blank"
@@ -276,6 +293,10 @@ export default function CoupleApp() {
   // (offline, or a lead id we cannot read) falls back to the generic demo.
   const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId ? undefined : null));
   const [leadExpired, setLeadExpired] = useState(false);
+  // The floating i popup on a trial app carries a payment button (user
+  // direction Nov 21 2026): a couple who wants to pay before their trial ends
+  // opens the same plan -> transfer -> receipt flow the expiry screen uses.
+  const [infoPayOpen, setInfoPayOpen] = useState(false);
   // An expired trial shows the entry banner first (the couple sees the app is
   // theirs), and only the tap opens the payment flow (user direction Nov 20 2026).
   const [paywallEntered, setPaywallEntered] = useState(false);
@@ -358,7 +379,29 @@ export default function CoupleApp() {
       {isSample && expRaw > 0 && !!lead && !landingLead && !(lead as any).activatedAt && <SampleChip exp={expRaw} trial={false} />}
       {/* A customer's own app on its 24-hour free trial shows the same floating countdown (user report Nov 20 2026). */}
       {isSample && landingLead && !!lead && !activatedAt && !leadExpired && (lead as any).expiresAt && <SampleChip exp={(lead as any).expiresAt} trial />}
-      {isSample && !!lead && !(lead as any).activatedAt && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} />}
+      {isSample && !!lead && !(lead as any).activatedAt && <SampleInfoButton accent={acc.accent} selfServe={lead?.source === 'landing'} active={!!(lead as any).activatedAt} onPay={lead?.source === 'landing' ? () => setInfoPayOpen(true) : undefined} />}
+      {isSample && infoPayOpen && lead && lead.source === 'landing' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 400, background: '#faf7f0', overflowY: 'auto' }}>
+          <button
+            onClick={() => setInfoPayOpen(false)}
+            aria-label="Close payment"
+            style={{ position: 'fixed', top: 14, right: 14, zIndex: 5, width: 40, height: 40, borderRadius: 999, border: '1.5px solid rgba(6,6,14,.14)', background: '#fff', color: '#5a6970', fontSize: 18, fontWeight: 700, cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 4px 14px rgba(6,6,14,.14)' }}
+          >
+            ×
+          </button>
+          <div style={{ maxWidth: 560, margin: '46px auto 60px', padding: '0 18px', fontFamily: "'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+            <PaymentFlow
+              accent={acc.accent}
+              appName={`${lead.bride || 'Bride'} & ${lead.groom || 'Groom'}`}
+              email={lead.email || ''}
+              appId={leadId}
+              titles={['Pick your plan', 'Make your transfer', 'Almost there']}
+              intro={'Your free trial is running. Choosing a plan now keeps your app online for your wedding and your guests with no interruption.'}
+              note={'After your payment is confirmed, your app stays online for one year.'}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
