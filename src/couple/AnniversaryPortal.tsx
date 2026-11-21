@@ -647,7 +647,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   });
   const [videoOrientations, setVideoOrientations] = useState<Record<string, 'portrait' | 'landscape'>>({});
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
-  const [fontSize, setFontSize] = useState<'m' | 'l' | 'xl'>('m');
+  const [fontSize, setFontSize] = useState<'m' | 'l' | 'xl'>('l');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [footerImages, setFooterImages] = useState<string[]>(() => {
     try {
@@ -810,6 +810,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [vendors, setVendors] = useState<any[]>([]);
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
+  const [feedPageSize, setFeedPageSize] = useState(0); // 0 = show every post (no pagination)
+  const [feedPage, setFeedPage] = useState(1);
   const [pushEnabled, setPushEnabled] = useState<boolean>(true);
   // Feed action button mode: 'share' opens the share sheet, 'download' saves the
   // media straight to the guest's device. Chosen by the admin in the console
@@ -1547,6 +1549,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (Array.isArray(data.blockedUids)) setBlockedUids(data.blockedUids);
         if (Array.isArray(data.vendors)) setVendors(data.vendors);
         if (typeof data.approveGuestPosts === 'boolean') setApproveGuestPosts(data.approveGuestPosts);
+        const fpsRaw = Number(data.feedPageSize);
+        setFeedPageSize(Number.isFinite(fpsRaw) && fpsRaw > 0 ? Math.floor(fpsRaw) : 0);
         if (data.feedActionMode === 'download' || data.feedActionMode === 'share') setFeedActionMode(data.feedActionMode);
         if (typeof data.pushEnabled === 'boolean') setPushEnabled(data.pushEnabled);
         if (Array.isArray(data.postAds)) {
@@ -2500,6 +2504,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       root.style.fontSize = '100%';
     }
   }, [fontSize]);
+  // Feed pagination: changing the page size sends every visitor back to the
+  // first page so nobody lands mid-list on a size they didn't pick.
+  useEffect(() => { setFeedPage(1); }, [feedPageSize]);
 
   useEffect(() => {
     localStorage.setItem(lsKey('bookmarks'), JSON.stringify(bookmarks));
@@ -2985,10 +2992,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       );
                     }
 
+                    const pagedPosts = feedPageSize > 0 ? regularPosts.slice(0, feedPage * feedPageSize) : regularPosts;
                     const activePostAds = shuffledPostAds.length > 0 ? shuffledPostAds : postAds;
                     const feedElements: React.ReactNode[] = [];
 
-                    regularPosts.forEach((p, idx) => {
+                    pagedPosts.forEach((p, idx) => {
                       const formattedDate = p.timestamp?.toDate
                         ? new Intl.DateTimeFormat('en-GB', {
                             day: 'numeric',
@@ -3045,6 +3053,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       }
                     });
 
+                    if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
+                      feedElements.push(
+                        <button key="feed-next-page" onClick={() => setFeedPage((v: number) => v + 1)} className="mx-auto my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Next page · older posts</button>
+                      );
+                    }
                     return feedElements;
                   })()}
                 </div>
@@ -3345,6 +3358,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         pushEnabled={pushEnabled}
         archiveMode={archiveMode}
         feedActionMode={feedActionMode}
+        feedPageSize={feedPageSize}
         onUpdateAppFlags={updateAppConfigFlags}
         onDownloadEverything={downloadEverything}
         onCreateMemoryBook={createMemoryBook}
@@ -6428,6 +6442,7 @@ function AdminDashboardModal({
   pushEnabled,
   archiveMode,
   feedActionMode,
+  feedPageSize = 0,
   onUpdateAppFlags,
   onDownloadEverything,
   onCreateMemoryBook,
@@ -6443,6 +6458,7 @@ function AdminDashboardModal({
   onAdminDemoPost
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
+  const [customPageSize, setCustomPageSize] = useState('');
   const [isDirty, setIsDirty] = useState(false);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [activeAdminTab, setActiveAdminTab] = useState<string>(() => {
@@ -7482,7 +7498,6 @@ function AdminDashboardModal({
                             <tab.icon className="w-[18px] h-[18px] shrink-0" />
                             <span>{tab.label}</span>
                       {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
-                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
                           </button>
                         ))}
                       </nav>
@@ -7501,7 +7516,6 @@ function AdminDashboardModal({
                             <tab.icon className="w-[18px] h-[18px] shrink-0" />
                             <span>{tab.label}</span>
                       {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
-                            {(tab as any).badge ? (<span className="ml-auto px-2 py-0.5 rounded-full bg-[#C8932A] text-white text-[0.6rem] font-black">{(tab as any).badge}</span>) : null}
                           </button>
                         ))}
                       </nav>
@@ -7609,7 +7623,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-3">Needs your attention</h3>
                     <div className="space-y-3">
-                      {([['pending', pendCount, 'post waiting for approval', 'posts waiting for approval'], ['reports', reportCount, 'reported item', 'reported items'], ['vendors', vendorRequests.length, 'vendor request', 'vendor requests']] as [string, number, string, string][]).map(([q, n, one, many]) => (
+                      {([['pending', pendCount, 'post waiting for approval', 'posts waiting for approval'], ['reports', reportCount, 'reported item', 'reported items']] as [string, number, string, string][]).map(([q, n, one, many]) => (
                         <div key={q} className="flex items-center justify-between gap-3">
                           <div><b>{n}</b> {n === 1 ? one : many}</div>
                           <button onClick={() => { setActiveAdminTab('moderation'); setModQueue(q as 'pending' | 'reports' | 'vendors'); }} className={`px-4 py-2 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${n ? 'bg-[var(--ann-accent)] text-white' : 'border border-[#DAD8E3] opacity-60'}`}>{n ? 'Review' : 'All clear'}</button>
@@ -8670,6 +8684,22 @@ function AdminDashboardModal({
                       {([['share', 'Share button'], ['download', 'Download button']] as [string, string][]).map(([val, label]) => (
                         <button key={val} type="button" onClick={() => { if (feedActionMode !== val) onUpdateAppFlags({ feedActionMode: val }, `Post action button: ${label}.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedActionMode === val ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{label}</button>
                       ))}
+                    </div>
+                  </div>
+                  {/* Feed pagination: the admin picks how many posts the app's
+                      feed shows at a time; a Next page button loads older ones
+                      (app_config/main.feedPageSize, enforced on every app). */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Feed pagination</h3>
+                    <p className="text-sm opacity-60 mb-4">How many posts show in the feed before guests tap Next page to see older ones.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {[0, 10, 20, 30, 50].map((n) => (
+                        <button key={n} type="button" onClick={() => { if (feedPageSize !== n) onUpdateAppFlags({ feedPageSize: n }, n === 0 ? 'Feed pagination: all posts show.' : `Feed pagination: ${n} posts per page.`); }} className={`px-5 py-3 rounded-xl text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${feedPageSize === n ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{n === 0 ? 'Show all' : n}</button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 flex-wrap">
+                      <input type="number" min="1" max="500" value={customPageSize} onChange={(e) => setCustomPageSize(e.target.value)} placeholder="Any number" className={`w-40 px-4 py-2.5 rounded-xl border text-sm outline-none ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] border-[#DAD8E3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                      <button type="button" onClick={() => { const n = Math.floor(Number(customPageSize)); if (Number.isFinite(n) && n >= 1 && n <= 500) { onUpdateAppFlags({ feedPageSize: n }, `Feed pagination: ${n} posts per page.`); setCustomPageSize(''); } else showToast('Enter a number between 1 and 500.', 'error'); }} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Apply</button>
                     </div>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
