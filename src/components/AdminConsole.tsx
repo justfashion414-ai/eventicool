@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LogOut, LoaderCircle, Menu } from 'lucide-react'
+import { LogOut, LoaderCircle, Menu, Play, Square } from 'lucide-react'
 import '../admin.css'
 import { consoleAuth, consoleAuthReady, signOutEverywhere, type User } from '../auth'
 // Every console call rides the console's OWN auth session, never the couple
@@ -247,7 +247,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [musicLink, setMusicLink] = useState('')
   const [musicUploading, setMusicUploading] = useState(false)
   const [delMusicId, setDelMusicId] = useState('')
+  const [musicPlaying, setMusicPlaying] = useState('')
+  const [musicPct, setMusicPct] = useState(0)
   const musicFileRef = useRef<HTMLInputElement | null>(null)
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const sites: Site[] = useMemo(
     () =>
@@ -1342,17 +1345,68 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     } catch { say('Could not add the track. Try again') }
     setBusy(false)
   }
+  // Inline preview: the track plays right here in the console, never a Cloudinary tab.
+  function toggleMusicPlay(url: string) {
+    if (musicPlaying === url) { stopMusicPlay(); return }
+    stopMusicPlay()
+    const a = new Audio(url)
+    musicAudioRef.current = a
+    a.onended = () => setMusicPlaying('')
+    a.onerror = () => { setMusicPlaying(''); say("Couldn't play that track") }
+    a.play().catch(() => setMusicPlaying(''))
+    setMusicPlaying(url)
+  }
+  function stopMusicPlay() {
+    try { musicAudioRef.current?.pause() } catch { /* already stopped */ }
+    musicAudioRef.current = null
+    setMusicPlaying('')
+  }
+  // Direct signed Cloudinary upload with live progress (XHR gives upload %; fetch cannot).
+  async function uploadMusicFile(file: File): Promise<string> {
+    const fld = 'eventicor-music'
+    for (const ep of [`/api/upload-signature?folder=${encodeURIComponent(fld)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(fld)}`]) {
+      try {
+        const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
+        if (!res.ok) continue
+        const sig = await res.json()
+        if (!sig?.signature || !sig?.cloudName || !sig?.apiKey) continue
+        const form = new FormData()
+        form.append('file', file, file.name)
+        form.append('api_key', sig.apiKey)
+        form.append('timestamp', String(sig.timestamp))
+        form.append('signature', sig.signature)
+        form.append('folder', sig.folder || fld)
+        const url = await new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('POST', `https://api.cloudinary.com/v1_1/${sig.cloudName}/video/upload`)
+          xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setMusicPct(Math.min(99, Math.round((ev.loaded / ev.total) * 100))) }
+          xhr.onload = () => {
+            try {
+              const j = JSON.parse(xhr.responseText)
+              if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) { setMusicPct(100); resolve(j.secure_url as string) } else reject(new Error('upload failed'))
+            } catch { reject(new Error('upload failed')) }
+          }
+          xhr.onerror = () => reject(new Error('upload failed'))
+          xhr.send(form)
+        })
+        return url
+      } catch { /* try the next endpoint */ }
+    }
+    return await uploadOneLead(file, 'track', fld)
+  }
   async function onMusicFile(e: any) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
     if (!musicName.trim()) { say('Name the track first, then upload the file'); return }
     setMusicUploading(true)
+    setMusicPct(0)
     try {
-      const url = await uploadOneLead(file, 'track', 'eventicor-music')
+      const url = await uploadMusicFile(file)
       await addMusicTrack(url)
     } catch { say('The upload failed. Try again') }
     setMusicUploading(false)
+    setMusicPct(0)
   }
   async function deleteMusicTrack(id: string) {
     if (delMusicId !== id) { setDelMusicId(id); say('Tap again to remove this track'); return }
@@ -1405,6 +1459,14 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <input ref={musicFileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onMusicFile} />
             <button className="btn g" onClick={() => musicFileRef.current?.click()} disabled={musicUploading}>{musicUploading ? 'Uploading...' : 'Upload mp3'}</button>
             <button className="btn" onClick={() => addMusicTrack(musicLink.trim())} disabled={busy}>Add track</button>
+            {musicUploading && (
+              <div style={{ flex: '1 1 200px', minWidth: 180 }}>
+                <div style={{ height: 8, borderRadius: 99, background: 'var(--soft)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${musicPct}%`, background: 'var(--acc)', transition: 'width .2s ease' }} />
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--mut)', marginTop: 4 }}>{musicPct}%{musicName.trim() ? ` · ${musicName.trim()}` : ''}</div>
+              </div>
+            )}
           </div>
           <div style={{ marginTop: 12 }}>
             {musicLib === null ? (
@@ -1416,7 +1478,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                 <div className="att" key={t.id} style={{ flexWrap: 'wrap' }}>
                   <span><b>{t.name}</b></span>
                   <span className="row" style={{ gap: 6 }}>
-                    <a className="btn g s" href={t.url} target="_blank" rel="noreferrer">Listen</a>
+                    <button className="btn g s" onClick={() => toggleMusicPlay(t.url)}>{musicPlaying === t.url ? 'Stop' : 'Play'}</button>
                     <button className="btn g s" onClick={() => deleteMusicTrack(t.id)}>{delMusicId === t.id ? 'Sure?' : 'Remove'}</button>
                   </span>
                 </div>

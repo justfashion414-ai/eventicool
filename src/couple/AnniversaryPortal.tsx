@@ -22,6 +22,7 @@ import {
   Volume2,
   VolumeX,
   Play,
+  Square,
   Pause,
   ChevronLeft,
   Menu,
@@ -7121,6 +7122,20 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [saving, setSaving] = useState(false);
   const [previewTpl, setPreviewTpl] = useState<string | null>(null);
   const [musicOpen, setMusicOpen] = useState(false);
+  const [invitePlaying, setInvitePlaying] = useState('');
+  const inviteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stopInvitePreview = () => { try { inviteAudioRef.current?.pause() } catch { /* already stopped */ } inviteAudioRef.current = null; setInvitePlaying('') };
+  const toggleInvitePreview = (url: string) => {
+    if (invitePlaying === url) { stopInvitePreview(); return }
+    stopInvitePreview()
+    const a = new Audio(url)
+    inviteAudioRef.current = a
+    a.onended = stopInvitePreview
+    a.onerror = () => { stopInvitePreview(); showToast("Couldn't play that track") }
+    a.play().catch(() => stopInvitePreview())
+    setInvitePlaying(url)
+  };
+  const closeMusicDropdown = () => { setMusicOpen(false); stopInvitePreview() };
 
   // Load the couple's saved card, if one exists, so the form reopens with it.
   useEffect(() => {
@@ -7424,8 +7439,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             </InvSec>
             <InvSec id="music" title="Music">
               <div className="relative">
-                {musicOpen && <div className="fixed inset-0 z-20" onClick={() => setMusicOpen(false)} />}
-                <button type="button" onClick={() => setMusicOpen(!musicOpen)} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
+                {musicOpen && <div className="fixed inset-0 z-20" onClick={closeMusicDropdown} />}
+                <button type="button" onClick={() => { if (musicOpen) stopInvitePreview(); setMusicOpen(!musicOpen) }} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
                   <span className="truncate">{f.music === '' ? 'Built-in music' : f.music === 'none' ? 'No music' : ((musicLib.find((tr) => tr.url === f.music) || {}).name || 'Selected track')}</span>
                   <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${musicOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -7436,10 +7451,17 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       { id: 'none', name: 'No music', v: 'none' },
                       ...musicLib.map((tr) => ({ id: tr.id, name: tr.name, v: tr.url })),
                     ].map((o) => (
-                      <button key={o.id} type="button" onClick={() => { setF({ ...f, music: o.v }); setMusicOpen(false); }} className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm hover:bg-[var(--ann-accent)]/5">
-                        <span className="truncate">{o.name}</span>
-                        {f.music === o.v && <Check className="w-4 h-4 text-[var(--ann-accent)] shrink-0" />}
-                      </button>
+                      <div key={o.id} className="w-full flex items-center gap-1 pr-2 hover:bg-[var(--ann-accent)]/5">
+                        <button type="button" onClick={() => { setF({ ...f, music: o.v }); closeMusicDropdown(); }} className="flex-1 min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm">
+                          <span className="truncate">{o.name}</span>
+                          {f.music === o.v && <Check className="w-4 h-4 text-[var(--ann-accent)] shrink-0" />}
+                        </button>
+                        {o.v !== '' && o.v !== 'none' && (
+                          <button type="button" aria-label={`Listen to ${o.name}`} onClick={() => toggleInvitePreview(o.v)} className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:scale-95 ${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-slate-700'}`}>
+                            {invitePlaying === o.v ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
