@@ -3253,6 +3253,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
       {/* Admin dashboard page (/admin) - separate page, not an overlay on the landing */}
       {isAdminModalOpen && adminGateOk && (
+      <TabErrorBoundary label="Admin dashboard" isDarkMode={isDarkMode}>
       <AdminDashboardModal 
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
@@ -3280,7 +3281,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onCreateMemoryBook={createMemoryBook}
         onDeleteAllGuestData={deleteAllGuestData}
         onDeletePost={(id: string) => {
-          setIsAdminDashboardOpen(false);
+          // Keep the dashboard open behind the confirm modal (the confirm modal
+          // sits at z-801, above the dashboard's z-111), so rejecting a post
+          // never kicks the admin out of moderation.
           setPostToDelete(id);
         }}
         onAdminDemoPost={(p: any) => setPosts((prev: any[]) => [p, ...prev])}
@@ -3371,6 +3374,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           }
         }}
       />
+      </TabErrorBoundary>
       )}
 
       {/* /admin sign-in screen for signed-out visitors. While the auth
@@ -8964,12 +8968,14 @@ function AdminDashboardModal({
                     </div>
                   )}
 
-                  {deletedPosts.map((dp) => (
+                  {deletedPosts.map((dp) => {
+                    const d: any = dp.postData || dp;
+                    return (
                     <div key={dp.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold truncate mb-1">By {dp.postData.authorName}</p>
-                          <p className="text-[10px] opacity-40 line-clamp-2">{dp.postData.text}</p>
+                          <p className="text-xs font-bold truncate mb-1">By {d.authorName || 'a guest'}</p>
+                          <p className="text-[10px] opacity-40 line-clamp-2">{d.text || d.caption || ''}</p>
                         </div>
                         <div className="flex flex-col gap-2 shrink-0">
                           <button 
@@ -8991,10 +8997,11 @@ function AdminDashboardModal({
                       <div className="flex items-center gap-2 opacity-30 text-[9px] font-black uppercase tracking-widest pt-2 border-t border-black/5">
                         <span>Deleted {new Date(dp.deletedAt?.toDate?.() || Date.now()).toLocaleDateString()}</span>
                         <span>•</span>
-                        <span>By {dp.deletedBy}</span>
+                        <span>By {dp.deletedBy || 'admin'}</span>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
