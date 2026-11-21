@@ -33,6 +33,10 @@
 .evad .two{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
 .evad .att{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .evad .att:last-child{border:0}
+.evad .att.playing{background:color-mix(in srgb,var(--acc) 9%,transparent);border-radius:10px;border-bottom-color:transparent;margin:0 -12px;padding:11px 12px;box-shadow:inset 3px 0 0 var(--acc)}
+.evad .att.playing b{color:var(--acc)}
+.evad .eqbars{color:var(--acc)}
+
 .evad .av{font-size:13px;font-weight:700;margin-top:4px}
 .evad .av.ok{color:var(--ok)}
 .evad .av.no{color:var(--bad)}

@@ -1475,8 +1475,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               <p style={{ color: 'var(--mut)', fontSize: 14, margin: 0 }}>No tracks yet. Every card still carries its own built-in music until you add some.</p>
             ) : (
               musicLib.map((t) => (
-                <div className="att" key={t.id} style={{ flexWrap: 'wrap' }}>
-                  <span><b>{t.name}</b></span>
+                <div className={`att${musicPlaying === t.url ? ' playing' : ''}`} key={t.id} style={{ flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {musicPlaying === t.url && <span className="eqbars" aria-hidden="true"><i /><i /><i /></span>}
+                    <b>{t.name}</b>
+                  </span>
                   <span className="row" style={{ gap: 6 }}>
                     <button className="btn g s" onClick={() => toggleMusicPlay(t.url)}>{musicPlaying === t.url ? 'Stop' : 'Play'}</button>
                     <button className="btn g s" onClick={() => deleteMusicTrack(t.id)}>{delMusicId === t.id ? 'Sure?' : 'Remove'}</button>

@@ -7450,10 +7450,15 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       { id: 'builtin', name: 'Built-in music', v: '' },
                       { id: 'none', name: 'No music', v: 'none' },
                       ...musicLib.map((tr) => ({ id: tr.id, name: tr.name, v: tr.url })),
-                    ].map((o) => (
-                      <div key={o.id} className="w-full flex items-center gap-1 pr-2 hover:bg-[var(--ann-accent)]/5">
+                    ].map((o) => {
+                      const playing = invitePlaying === o.v;
+                      return (
+                      <div key={o.id} className={`w-full flex items-center gap-1 pr-2 ${playing ? 'mus-playing' : 'hover:bg-[var(--ann-accent)]/5'}`}>
                         <button type="button" onClick={() => { setF({ ...f, music: o.v }); closeMusicDropdown(); }} className="flex-1 min-w-0 flex items-center justify-between gap-2 px-3.5 py-2.5 text-left text-sm">
-                          <span className="truncate">{o.name}</span>
+                          <span className="flex min-w-0 items-center gap-2">
+                            {playing && <span className="eqbars text-[var(--ann-accent)]" aria-hidden="true"><i /><i /><i /></span>}
+                            <span className={`truncate ${playing ? 'font-semibold text-[var(--ann-accent)]' : ''}`}>{o.name}</span>
+                          </span>
                           {f.music === o.v && <Check className="w-4 h-4 text-[var(--ann-accent)] shrink-0" />}
                         </button>
                         {o.v !== '' && o.v !== 'none' && (
@@ -7462,7 +7467,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                           </button>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
