@@ -9031,13 +9031,13 @@ function AdminDashboardModal({
                     </button>
                   </div>
 
-                  {/* Back to top (user direction Nov 21 2026): bottom-left arrow on
+                  {/* Back to top (user direction Nov 21 2026, moved bottom-right same day): arrow on
                       Events & photos; one tap takes the page back to the top. */}
                   <button
                     onClick={() => { try { document.getElementById('admin-dash-scroll')?.scrollTo({ top: 0, behavior: 'smooth' }); } catch { document.getElementById('admin-dash-scroll')?.scrollTo(0, 0); } }}
                     title="Back to top"
                     aria-label="Back to top"
-                    className="fixed left-4 bottom-6 z-[130] w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform"
+                    className="fixed right-4 bottom-6 z-[130] w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center shadow-2xl active:scale-95 transition-transform"
                   >
                     <ArrowUp className="w-6 h-6" />
                   </button>
