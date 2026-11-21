@@ -3548,6 +3548,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         feedActionMode={feedActionMode}
         feedPageSize={feedPageSize}
         onUpdateAppFlags={updateAppConfigFlags}
+        feedPrivate={feedPrivate}
+        feedGateCode={feedGateCode}
+        feedGatePrev={feedGatePrev}
+        gateNewCode={gateNewCode}
+        setGateNewCode={setGateNewCode}
+        updateFeedPrivacy={updateFeedPrivacy}
+        revokeGateCode={revokeGateCode}
+        saveGateCode={saveGateCode}
         onDownloadEverything={downloadEverything}
         onCreateMemoryBook={createMemoryBook}
         onDeleteAllGuestData={deleteAllGuestData}
@@ -6632,6 +6640,14 @@ function AdminDashboardModal({
   feedActionMode,
   feedPageSize = 0,
   onUpdateAppFlags,
+  feedPrivate,
+  feedGateCode,
+  feedGatePrev,
+  gateNewCode,
+  setGateNewCode,
+  updateFeedPrivacy,
+  revokeGateCode,
+  saveGateCode,
   onDownloadEverything,
   onCreateMemoryBook,
   onDeleteAllGuestData,
