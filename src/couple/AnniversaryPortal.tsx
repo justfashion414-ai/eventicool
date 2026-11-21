@@ -985,9 +985,21 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const wasAdminOpenOnLoadRef = useRef((() => { try { const s = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null'); return !!(s && s.open); } catch { return false; } })());
   const adminRetryCountRef = useRef(0);
   const [adminRetryNonce, setAdminRetryNonce] = useState(0);
+  // Bounded boot gate: the "Opening your dashboard" loader must never hold
+  // forever. On a very slow or offline network the auth session or the admins
+  // lookup can hang without erroring, which used to leave a spinner until the
+  // admin refreshed by hand. After 12 seconds the gate releases itself; the
+  // dashboard-reopen effect still opens the dashboard the moment the role
+  // actually confirms.
+  const [bootGateTimedOut, setBootGateTimedOut] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setBootGateTimedOut(true), 12000);
+    return () => window.clearTimeout(t);
+  }, []);
   const adminLookupErrored = adminSync.startsWith('err:');
   const adminRestorePending = !noChrome && adminMode === 'real'
     && wasAdminOpenOnLoadRef.current
+    && !bootGateTimedOut
     && !(
       authChecked && (
         (user && !user.isAnonymous && isAdmin && isAdminModalOpen) ||
@@ -3264,7 +3276,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           listener is still restoring the session after a refresh, show a boot
           loader instead, never the sign-in screen. */}
       {route === '/admin' && adminMode === 'real' && !adminGateOk && (
-        (authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending && !authTransient) ? (
+        ((authChecked && !(user && !user.isAnonymous && !adminStatusChecked) && !adminRestorePending && !authTransient) || bootGateTimedOut) ? (
           <AuthScreen
             screen={authScreen ?? 'signin'}
             setScreen={setAuthScreen}

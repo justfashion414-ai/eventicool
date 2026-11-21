@@ -15,6 +15,33 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+    // BOOT WATCHDOG: if the app has not painted anything after 8 seconds, or
+    // the module bundle itself fails to load (a cached page pointing at a
+    // bundle a new deploy replaced), reload once with a cache-buster instead
+    // of leaving the visitor on the splash until they refresh by hand.
+    (function () {
+      var retried = false;
+      try { retried = !!sessionStorage.getItem('ev-boot-retry'); } catch (e) {}
+      if (retried) return;
+      var forceReload = function () {
+        if (retried) return;
+        retried = true;
+        try { sessionStorage.setItem('ev-boot-retry', '1'); } catch (e) {}
+        var q = location.search;
+        q += (q ? '&' : '?') + 'cb=' + Date.now();
+        location.replace(location.pathname + q + location.hash);
+      };
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'SCRIPT' && (t.getAttribute('type') === 'module' || (t.src || '').indexOf('/assets/') > -1)) forceReload();
+      }, true);
+      setTimeout(function () {
+        var r = document.getElementById('root');
+        if (!r || !r.hasChildNodes()) forceReload();
+      }, 8000);
+    })();
+    </script>
     <!-- Branded boot splash: paints before any JavaScript loads, so the app never opens on a blank white screen -->
     <div id="boot-splash" style="position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#0a0917;">
       <div style="display:grid;place-items:center;gap:18px;">

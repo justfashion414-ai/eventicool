@@ -14,11 +14,29 @@ createRoot(document.getElementById('root')!).render(
 // screen or the page itself), then hands the screen over; the timeout is a
 // safety net so a crashed bundle can never trap the user on the splash.
 const dropSplash = () => {
-  if (document.getElementById('root')?.hasChildNodes()) { document.getElementById('boot-splash')?.remove(); return }
+  if (document.getElementById('root')?.hasChildNodes()) {
+    document.getElementById('boot-splash')?.remove()
+    // The app painted: clear the one-shot boot retry guards so a much later
+    // failure (a new deploy, a flaky network) can save itself again.
+    try { sessionStorage.removeItem('ev-boot-retry'); sessionStorage.removeItem('ev-preload-retry') } catch { /* private mode */ }
+    return
+  }
   requestAnimationFrame(dropSplash)
 }
 requestAnimationFrame(dropSplash)
 setTimeout(() => document.getElementById('boot-splash')?.remove(), 6000)
+
+// A failed lazy chunk (flaky network, or a chunk a new deploy replaced while
+// this page was open) used to leave the app on its loader forever. Reload
+// once; the retry guard keeps it from ever looping.
+window.addEventListener('vite:preloadError', (e) => {
+  e.preventDefault();
+  let retried = false;
+  try { retried = !!sessionStorage.getItem('ev-preload-retry') } catch { /* private mode */ }
+  if (retried) return;
+  try { sessionStorage.setItem('ev-preload-retry', '1') } catch { /* private mode */ }
+  window.location.reload();
+})
 
 // AUTO-REFRESH: when the app has sat open for a while (a phone left
 // overnight, a tab left in the background), the next time it is seen it
@@ -58,4 +76,10 @@ document.addEventListener('visibilitychange', () => {
   hiddenAt = 0;
 });
 window.addEventListener('focus', () => { if (hiddenAt && Date.now() - hiddenAt > 60_000) checkDeployChanged(); hiddenAt = 0; });
+// A back/forward restore or a page the browser kept while it was closed comes
+// back on its own the same way: check the served bundle the moment it shows.
+window.addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) checkDeployChanged(); });
+// And check once shortly after every open, so an app opened straight onto a
+// deploy that replaced its bundle brings itself up to date without a tap.
+setTimeout(checkDeployChanged, 4000);
 
