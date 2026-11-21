@@ -349,6 +349,11 @@ const demoImageDataUrl = (file: File): Promise<string> => new Promise((resolve, 
 // Helper for centralized file uploads (Direct signed Cloudinary upload + Server proxy + Fallback)
 // Same signed Cloudinary upload as uploadToCloudinary, but reports live
 // progress (0-100) through onProgress so the feed card can show a percentage.
+// Big files go up in chunks (Cloudinary's chunked-upload protocol), so a
+// 200MB or 500MB video neither trips a single-request size cap nor leaves
+// the bar frozen while the connection or the server takes its time.
+const CLOUDINARY_CHUNK_BYTES = 10 * 1024 * 1024;
+
 const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
@@ -359,6 +364,7 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
     `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
   ];
 
+  let sigData: any = null;
   for (const sigEndpoint of signatureEndpoints) {
     try {
       const sigRes = await fetch(sigEndpoint, {
@@ -369,47 +375,106 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
           ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
         }
       });
-
       if (sigRes.ok) {
-        const sigData = await sigRes.json().catch(() => null);
-        if (sigData && sigData.signature && sigData.cloudName && sigData.apiKey) {
-          const result = await new Promise<string>((resolve, reject) => {
-            const form = new FormData();
-            form.append('file', file, fileName);
-            form.append('api_key', sigData.apiKey);
-            form.append('timestamp', String(sigData.timestamp));
-            form.append('signature', sigData.signature);
-            form.append('folder', sigData.folder || folder);
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${isVideo ? 'video' : 'auto'}/upload`);
-            xhr.upload.onprogress = (e) => {
-              if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
-            };
-            xhr.onload = () => {
-              try {
-                const j = JSON.parse(xhr.responseText);
-                if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) resolve(j.secure_url);
-                else reject(new Error('Cloudinary upload failed'));
-              } catch {
-                reject(new Error('Bad upload response'));
-              }
-            };
-            xhr.onerror = () => reject(new Error('Network error during upload'));
-            xhr.send(form);
-          });
-          onProgress(100);
-          return result;
-        }
+        const sigJson = await sigRes.json().catch(() => null);
+        if (sigJson && sigJson.signature && sigJson.cloudName && sigJson.apiKey) { sigData = sigJson; break; }
       }
-    } catch (directErr) {
-      console.warn(`Progress upload via ${sigEndpoint} failed:`, directErr);
+    } catch { /* try the next signature endpoint */ }
+  }
+
+  if (!sigData) {
+    onProgress(99);
+    return await uploadToCloudinary(file, folder);
+  }
+
+  const resourceType = isVideo ? 'video' : 'auto';
+  const endpoint = `https://api.cloudinary.com/v1_1/${sigData.cloudName}/${resourceType}/upload`;
+  const report = (doneBytes: number) => {
+    // 99 is the top while bytes are still moving; 100 only when the asset
+    // is actually accepted, so the wait after the last byte never reads as
+    // a stuck bar.
+    if (onProgress && file.size > 0) onProgress(Math.min(99, Math.round((doneBytes / file.size) * 100)));
+  };
+
+  if (file.size > CLOUDINARY_CHUNK_BYTES) {
+    try {
+      const uniqueId = `evc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      let offset = 0;
+      let lastJson: any = null;
+      while (offset < file.size) {
+        const end = Math.min(offset + CLOUDINARY_CHUNK_BYTES, file.size);
+        let attempt = 0;
+        for (;;) {
+          attempt += 1;
+          try {
+            const form = new FormData();
+            form.append('file', file.slice(offset, end), fileName);
+            if (offset === 0) {
+              form.append('api_key', sigData.apiKey);
+              form.append('timestamp', String(sigData.timestamp));
+              form.append('signature', sigData.signature);
+              form.append('folder', sigData.folder || folder);
+            }
+            const chunkJson: any = await new Promise<any>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', endpoint);
+              xhr.setRequestHeader('X-Unique-Upload-Id', uniqueId);
+              xhr.setRequestHeader('Content-Range', `bytes ${offset}-${end - 1}/${file.size}`);
+              xhr.upload.onprogress = (e) => { if (e.lengthComputable) report(offset + e.loaded); };
+              xhr.onload = () => {
+                try {
+                  const j = JSON.parse(xhr.responseText);
+                  if (xhr.status >= 200 && xhr.status < 300) resolve(j);
+                  else reject(new Error(`Cloudinary chunk failed (${xhr.status})`));
+                } catch { reject(new Error('Bad chunk response')); }
+              };
+              xhr.onerror = () => reject(new Error('Network error during chunk upload'));
+              xhr.send(form);
+            });
+            report(end);
+            lastJson = chunkJson;
+            break;
+          } catch (chunkErr) {
+            // A dropped chunk retries twice more before the whole upload
+            // falls back, so a flaky mobile connection does not throw away
+            // everything already on the server.
+            if (attempt >= 3) throw chunkErr;
+            await new Promise((r) => setTimeout(r, 800 * attempt));
+          }
+        }
+        if (lastJson?.secure_url) { onProgress(100); return lastJson.secure_url; }
+        offset = end;
+      }
+      if (lastJson?.secure_url) { onProgress(100); return lastJson.secure_url; }
+      throw new Error('Chunked upload finished without a URL');
+    } catch (chunkedErr) {
+      console.warn('Chunked upload failed, falling back to a single request:', chunkedErr);
     }
   }
 
-  // Fallback with no live progress.
-  onProgress(99);
-  return await uploadToCloudinary(file, folder);
+  const result = await new Promise<string>((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file, fileName);
+    form.append('api_key', sigData.apiKey);
+    form.append('timestamp', String(sigData.timestamp));
+    form.append('signature', sigData.signature);
+    form.append('folder', sigData.folder || folder);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100))); };
+    xhr.onload = () => {
+      try {
+        const j = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) resolve(j.secure_url);
+        else reject(new Error('Cloudinary upload failed'));
+      } catch { reject(new Error('Bad upload response')); }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(form);
+  });
+  onProgress(100);
+  return result;
 };
 
 // A video is known by its MIME type, or by its extension when the phone's
@@ -3105,6 +3170,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setIsAdminDashboardOpen(false);
           setPostToDelete(id);
         }}
+        onAdminDemoPost={(p: any) => setPosts((prev: any[]) => [p, ...prev])}
         isDarkMode={isDarkMode}
         heroImages={heroImages}
         heroImageLabels={heroImageLabels}
@@ -4541,13 +4607,9 @@ function ReelCard({
     <div
       className="snap-start snap-always w-full h-full rounded-[20px] relative bg-black flex items-center justify-center overflow-hidden select-none shadow-2xl border border-[#DAD8E3] dark:border-[#22363E]"
     >
-      {isSample ? (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: sampleArt(reel.eventName) }}>
-          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
-            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
-          </div>
-        </div>
-      ) : (
+      {/* Demo and real reels alike carry a real video URL, so play it. The
+          gradient placeholder only fills in for a reel with no media. */}
+      {videoUrl ? (
       <video
         ref={videoRef}
         src={videoUrl}
@@ -4557,6 +4619,12 @@ function ReelCard({
         muted={muted}
         onClick={togglePlay}
       />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: sampleArt(reel.eventName) }}>
+          <div className="w-16 h-16 rounded-full bg-white/80 flex items-center justify-center">
+            <Play className="w-7 h-7 text-[#21122B] fill-current ml-0.5" />
+          </div>
+        </div>
       )}
 
       {/* Play/Pause Center Indicator */}
@@ -4744,7 +4812,7 @@ function UploadingPostCard({ up, isDarkMode }: { up: any; isDarkMode: boolean })
         )}
         <div className="min-w-0">
           <b className="block text-sm">{up.authorName}</b>
-          <p className="text-[0.7rem] opacity-50">Uploading… {pct}%</p>
+          <p className="text-[0.7rem] opacity-50">{pct >= 99 ? 'Finishing up…' : `Uploading… ${pct}%`}</p>
         </div>
       </div>
       {up.text && <p className="text-[0.95rem] mb-3 whitespace-pre-wrap">{up.text}</p>}
@@ -4757,7 +4825,7 @@ function UploadingPostCard({ up, isDarkMode }: { up: any; isDarkMode: boolean })
           )}
           <div className="absolute inset-0 bg-black/45 flex flex-col items-center justify-center gap-2.5">
             <span className="w-9 h-9 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
-            <p className="text-white font-black text-sm">{pct}%</p>
+            <p className="text-white font-black text-sm">{pct >= 99 ? 'Finishing up…' : `${pct}%`}</p>
             <div className="w-2/3 h-1.5 rounded-full bg-white/25 overflow-hidden">
               <div className="h-full bg-white transition-all duration-200" style={{ width: `${pct}%` }} />
             </div>
@@ -5292,7 +5360,7 @@ function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
 // Fullscreen viewer for one album's media: photos flip one by one (tap the
 // arrows or swipe), and a video plays through and rolls into the next item
 // when it ends, so an album of videos plays one after the other.
-function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload }: { items: any[]; startIndex: number; onClose: () => void; onDelete?: (item: any) => void; onDownload?: (item: any) => void }) {
+function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload, onPostToFeed }: { items: any[]; startIndex: number; onClose: () => void; onDelete?: (item: any) => void; onDownload?: (item: any) => void; onPostToFeed?: (item: any) => void }) {
   const [idx, setIdx] = useState(startIndex);
   const touchXRef = useRef<number | null>(null);
   const item = items[idx];
@@ -5346,7 +5414,124 @@ function AlbumMediaViewer({ items, startIndex, onClose, onDelete, onDownload }: 
           <button onClick={() => go(1)} disabled={idx === items.length - 1} className="w-11 h-11 rounded-full bg-white/10 text-white grid place-items-center disabled:opacity-30" style={{ touchAction: 'manipulation' }}><ChevronRight className="w-5 h-5" /></button>
         </div>
       )}
+      {onPostToFeed && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onPostToFeed(item); }}
+          className="absolute left-4 bottom-[92px] z-30 flex items-center gap-2 px-5 py-3 rounded-full bg-white text-[#21122B] font-black text-[0.7rem] uppercase tracking-widest shadow-xl"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Send className="w-4 h-4" />
+          Post to feed
+        </button>
+      )}
     </div>
+  );
+}
+
+// A couple posts a photo or video straight from their albums to the feed.
+// The event tag is required, the caption is optional, and no access code is
+// asked for: this is the couple posting from their own dashboard.
+function QuickPostToFeedModal({ media, coupleName, events, isDarkMode, onClose, onPosted }: any) {
+  const [quickCaption, setQuickCaption] = useState('');
+  const [quickEvent, setQuickEvent] = useState('');
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickOrientation, setQuickOrientation] = useState<'portrait' | 'landscape'>('landscape');
+
+  // Album media carries no stored orientation; a portrait video belongs on
+  // the Reels tab, so measure it while the popup is open (fallback landscape).
+  useEffect(() => {
+    if (!media || media.type !== 'video' || !media.url) return;
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    let settled = false;
+    const finish = (o: 'portrait' | 'landscape') => { if (!settled) { settled = true; setQuickOrientation(o); } };
+    v.onloadedmetadata = () => finish((v.videoHeight || 0) > (v.videoWidth || 0) ? 'portrait' : 'landscape');
+    v.onerror = () => finish('landscape');
+    v.src = media.url;
+    const t = window.setTimeout(() => finish('landscape'), 4000);
+    return () => { window.clearTimeout(t); };
+  }, [media?.url]);
+
+  const sendQuickPost = async () => {
+    if (!quickEvent || quickBusy) return;
+    setQuickBusy(true);
+    try {
+      const shared: any = {
+        authorName: coupleName || 'The couple',
+        text: quickCaption.trim(),
+        mediaUrls: [media.url],
+        mediaTypes: [media.type || 'image'],
+        ...(media.type === 'video' && quickOrientation === 'portrait' ? { videoOrientation: 'portrait' } : {}),
+        eventId: quickEvent,
+        pending: false,
+        likeCount: 0,
+        loveCount: 0
+      };
+      if (DEMO) {
+        onPosted({
+          ...shared,
+          id: `demo_${Date.now()}`,
+          localDemo: true,
+          authorUid: 'demo-self',
+          authorPhoto: null,
+          commentCount: 0,
+          timestamp: new Date()
+        });
+        return;
+      }
+      await addDoc(collection(db, scopedPath('posts')), { ...shared, authorUid: 'admin', authorPhoto: null, timestamp: serverTimestamp() });
+      onPosted(null);
+    } catch (err) {
+      console.error('Quick post error:', err);
+      onPosted('error');
+    }
+  };
+
+  return (
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="fixed inset-0 bg-black/60 z-[820] backdrop-blur-sm" />
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+        onClick={(e: any) => e.stopPropagation()}
+        className={`fixed inset-x-4 top-1/2 -translate-y-1/2 z-[821] mx-auto max-w-md rounded-[24px] p-5 border shadow-2xl ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white' : 'bg-white border-[#DAD8E3] text-[#1A2B32]'}`}
+      >
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <h3 className="font-black font-display text-lg">Post to your feed</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10" aria-label="Close"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="rounded-[16px] overflow-hidden bg-black mb-4 max-h-[240px] flex items-center justify-center">
+          {media.type === 'video' ? (
+            <video src={media.url} className="max-h-[240px] w-full object-contain" muted playsInline autoPlay loop />
+          ) : (
+            <img src={media.url} className="max-h-[240px] w-full object-contain" alt="" />
+          )}
+        </div>
+        <p className="text-[0.65rem] uppercase tracking-widest font-black opacity-50 mb-2">Tag the part of the celebration</p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {(events || []).map((e: any) => (
+            <button key={e.id} type="button" onClick={() => setQuickEvent(quickEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${quickEvent === e.id ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
+          ))}
+        </div>
+        <textarea
+          value={quickCaption}
+          onChange={(e) => setQuickCaption(e.target.value)}
+          rows={2}
+          placeholder="Add a caption (optional)"
+          className={`w-full rounded-[14px] p-3 text-sm outline-none border mb-4 resize-none ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}
+        />
+        <button
+          onClick={sendQuickPost}
+          disabled={!quickEvent || quickBusy}
+          className={`w-full py-3.5 rounded-full font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${quickEvent && !quickBusy ? 'bg-[var(--ann-accent)] text-white shadow-lg active:scale-[0.98]' : 'bg-[#DAD8E3] dark:bg-[#22363E] text-[#5A6970] opacity-50'}`}
+          style={{ touchAction: 'manipulation' }}
+        >
+          {quickBusy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Posting…</> : <><Send className="w-4 h-4" /> Send to feed</>}
+        </button>
+      </motion.div>
+    </>
   );
 }
 
@@ -5986,7 +6171,8 @@ function AdminDashboardModal({
   onUpdatePostAds,
   onUpdateReelAds,
   posts = [],
-  onDeletePost
+  onDeletePost,
+  onAdminDemoPost
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
   const [isDirty, setIsDirty] = useState(false);
@@ -6046,6 +6232,9 @@ function AdminDashboardModal({
   const [albumProgressPct, setAlbumProgressPct] = useState(0);
   const [albumViewer, setAlbumViewer] = useState<any | null>(null);
   const [albumMediaView, setAlbumMediaView] = useState<{ items: any[]; index: number } | null>(null);
+  // Posting an album photo or video straight to the feed from its viewer.
+  const [quickPostToFeed, setQuickPostToFeed] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const canPostToFeed = !selfRole || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(selfRole);
   const [albumZipBusy, setAlbumZipBusy] = useState<string | null>(null);
   // Adding more to an album that already exists: the viewer's Add more button
   // opens the same upload popup aimed at that album.
@@ -6077,31 +6266,41 @@ function AdminDashboardModal({
     if (!kind || !albumPicked.length || albumUploading) return;
     setAlbumUploading(true);
     setAlbumProgressPct(0);
-    const media: { url: string; type: 'image' | 'video' }[] = [];
+    const totalFiles = albumPicked.length;
+    const results: ({ url: string; type: 'image' | 'video' } | null)[] = new Array(totalFiles).fill(null);
     let failed = 0;
-    for (let i = 0; i < albumPicked.length; i++) {
-      const f = albumPicked[i].file;
-      try {
-        let url: string;
-        if (DEMO) {
-          // The demo console keeps everything in the browser: shrink photos to
-          // data URLs instead of pushing them to Cloudinary.
-          // The demo console keeps everything in the browser: photos shrink to
-          // data URLs, videos play from a session blob URL (a full video can
-          // never fit in a demo data URL or the demo store).
-          url = isVideoFile(f) ? URL.createObjectURL(f) : await demoImageDataUrl(f);
-        } else {
-          url = await uploadToCloudinaryWithProgress(f, 'albums', (pct) => {
-            setAlbumProgressPct(Math.min(99, Math.round(((i + pct / 100) / albumPicked.length) * 100)));
-          });
+    let completed = 0;
+    // Several files upload side by side (three at a time) instead of one
+    // after another, so a batch of videos finishes in roughly a third of
+    // the wait.
+    const queue = albumPicked.map((picked, i) => ({ file: picked.file, i }));
+    const worker = async () => {
+      while (queue.length) {
+        const job = queue.shift()!;
+        try {
+          let url: string;
+          if (DEMO) {
+            // The demo console keeps everything in the browser: photos shrink to
+            // data URLs, videos play from a session blob URL (a full video can
+            // never fit in a demo data URL or the demo store).
+            url = isVideoFile(job.file) ? URL.createObjectURL(job.file) : await demoImageDataUrl(job.file);
+          } else {
+            url = await uploadToCloudinaryWithProgress(job.file, 'albums', (pct) => {
+              setAlbumProgressPct(Math.min(99, Math.round(((completed + pct / 100) / totalFiles) * 100)));
+            });
+          }
+          results[job.i] = { url, type: isVideoFile(job.file) ? 'video' : 'image' };
+        } catch (err) {
+          failed += 1;
+          console.error('Album upload error:', err);
         }
-        media.push({ url, type: isVideoFile(f) ? 'video' : 'image' });
-      } catch (err) {
-        failed += 1;
-        console.error('Album upload error:', err);
+        completed += 1;
+        setAlbumProgressPct(Math.min(99, Math.round((completed / totalFiles) * 100)));
       }
-      setAlbumProgressPct(Math.round(((i + 1) / albumPicked.length) * 100));
-    }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    const media: { url: string; type: 'image' | 'video' }[] = results.filter(Boolean) as any;
+    setAlbumProgressPct(100);
     const title = albumAddTarget ? (albumAddTarget.title || (kind === 'video' ? 'Video album' : 'Photo album')) : (albumTitle.trim() || (kind === 'video' ? 'Video album' : 'Photo album'));
     if (media.length) {
       try {
@@ -7821,7 +8020,7 @@ function AdminDashboardModal({
                           {albumUploading && (
                             <div>
                               <div className="h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden"><div className="h-full bg-[var(--ann-accent)] transition-all" style={{ width: `${albumProgressPct}%` }} /></div>
-                              <p className="text-[0.65rem] opacity-60 text-center mt-1.5">Uploading… {albumProgressPct}%</p>
+                              <p className="text-[0.65rem] opacity-60 text-center mt-1.5">{albumProgressPct >= 100 ? 'Saving your album…' : `Uploading… ${albumProgressPct}%`}</p>
                             </div>
                           )}
                           <button onClick={uploadAlbumBatch} disabled={!albumPicked.length || albumUploading} className={`w-full py-3.5 rounded-xl font-black text-sm ${!albumPicked.length || albumUploading ? 'opacity-40 cursor-not-allowed bg-black/10 dark:bg-white/10' : 'bg-[var(--ann-accent)] text-white active:scale-[0.99] transition-transform'}`} style={{ touchAction: 'manipulation' }}>
@@ -7883,6 +8082,23 @@ function AdminDashboardModal({
                       onClose={() => setAlbumMediaView(null)}
                       onDownload={(item: any) => downloadMediaFile(item.url, `${albumFileBase(albumViewer)}-${albumMediaView.index + 1}.${item.type === 'video' ? 'mp4' : 'jpg'}`)}
                       onDelete={(item: any) => setConfirmAsk({ title: 'Remove from album?', message: 'This one comes out of the album. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumMedia(albumViewer, item) })}
+                      onPostToFeed={canPostToFeed ? (item: any) => { setQuickPostToFeed({ url: item.url, type: item.type || 'image' }); setAlbumMediaView(null); } : undefined}
+                    />
+                  )}
+
+                  {quickPostToFeed && (
+                    <QuickPostToFeedModal
+                      media={quickPostToFeed}
+                      coupleName={(() => { const b = (weddingDetails as any)?.bride; const g = (weddingDetails as any)?.groom; return b && g ? `${b} & ${g}` : demoHeader(); })()}
+                      events={Array.isArray(events) && events.length ? events : (demoEvents() as any[])}
+                      isDarkMode={isDarkMode}
+                      onClose={() => setQuickPostToFeed(null)}
+                      onPosted={(res: any) => {
+                        if (res === 'error') { showToast('Could not post to the feed. Try again.', 'error'); setQuickPostToFeed(null); return; }
+                        if (res) onAdminDemoPost && onAdminDemoPost(res);
+                        showToast('Posted to your feed.');
+                        setQuickPostToFeed(null);
+                      }}
                     />
                   )}
                 </div>
@@ -7934,19 +8150,6 @@ function AdminDashboardModal({
                             <button onClick={() => setTeamDetail(adm)} className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border border-[#DAD8E3] dark:border-[#22363E] transition-all hover:border-[var(--ann-accent)] hover:text-[var(--ann-accent)]">
                               View details
                             </button>
-                            {(!adm.role || ['owner', 'couple', 'admin', 'bride', 'groom'].includes(adm.role)) && [
-                              { id: 'canDeletePosts', label: 'Delete Posts' },
-                              { id: 'canUploadImages', label: 'Upload Images' },
-                              { id: 'canSetAccessCode', label: 'Access Code' }
-                            ].map((p: any) => (
-                              <button
-                                key={p.id}
-                                onClick={() => togglePermission(adm.email, p.id, adm.permissions?.[p.id])}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${adm.permissions?.[p.id] ? 'bg-[var(--ann-accent)] border-[var(--ann-accent)] text-white shadow-md' : 'opacity-40 border-current'}`}
-                              >
-                                {p.label}
-                              </button>
-                            ))}
                           </div>
                         </div>
                       ))}
