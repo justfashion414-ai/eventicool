@@ -1900,12 +1900,17 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const makePrivate = !publicNow;
     if (DEMO) {
       setFeedPrivate(makePrivate);
+      if (makePrivate) setFeedGateGen(g => g + 1);
       showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
       return;
     }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
     try {
+      // Toggling the feed private disconnects EVERY device that was granted
+      // access, live, whether the access code was revoked before or not: the
+      // gen bump sends them all back to the banner the moment it lands.
       const patch: Record<string, any> = { feedPrivate: makePrivate, lastUpdated: serverTimestamp() };
+      if (makePrivate) patch.feedGateGen = feedGateGen + 1;
       await setDoc(doc(db, scopedPath('app_config'), 'main'), patch, { merge: true });
       showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
     } catch (err) {
@@ -3831,7 +3836,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <button 
                   disabled={(!newPostText.trim() && attachedMedia.length === 0) || isPosting || !configLoaded || !activeAccessCode}
                   onClick={async () => {
-                    if (archiveMode) { showToast('This wedding is archived. New posts are turned off.', 'error'); return; }
+                    if (archiveMode) return; // Archive mode: the send button does not respond at all.
                     if (!newPostEvent) { showToast('Select the part of the celebration first.', 'error'); return; }
                     if (!accessCode.trim()) { showToast('Enter the access code before posting.', 'error'); return; }
                     if (!activeAccessCode) { showToast('No access code is set right now. Ask the couple for the new one.', 'error'); return; }
@@ -4071,6 +4076,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onClick={() => {
             if (activeTab !== 'feed') {
               setActiveTab('feed');
+            } else if (archiveMode) {
+              // Archive mode: the Send button does not respond at all.
             } else if (DEMO) {
               setIsComposeOpen(true); // Preview skips the profile check
             } else {
@@ -4144,6 +4151,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           displayName={displayName}
           avatar={avatar}
           isAdmin={isAdmin}
+          archiveMode={archiveMode}
           showToast={showToast}
           onClose={() => setCommentsPost(null)}
         />
@@ -5316,7 +5324,7 @@ function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }:
     </article>
   );
 }
-function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose }: any) {
+function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, showToast, onClose, archiveMode }: any) {
   const isSample = ['sample-', 'demo-seed-'].some((p) => String(post?.id || '').startsWith(p));
   const [comments, setComments] = useState<any[]>(isSample ? (SAMPLE_COMMENTS[post.id] || []) : []);
   const [text, setText] = useState('');
@@ -5332,6 +5340,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
   }, [isSample, post?.id]);
 
   const send = async () => {
+    if (archiveMode) return; // Archive mode: commenting is off everywhere.
     const body = text.trim();
     if (!body || sending) return;
     setSending(true);
@@ -5418,6 +5427,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
             </div>
           ))
         )}
+        {!archiveMode && (
         <div className={`sticky bottom-0 flex items-center gap-2 pt-2 pb-1 ${isDarkMode ? 'bg-[#13232A]' : 'bg-[#F6F5FA]'}`}>
           <div className="w-[34px] h-[34px] rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center text-[13px] font-bold shrink-0 overflow-hidden">
             {avatar ? <img src={avatar} className="w-full h-full object-cover" alt="" /> : <span>{(displayName || 'Y').charAt(0).toUpperCase()}</span>}
@@ -5432,6 +5442,7 @@ function CommentsSheet({ post, isDarkMode, user, displayName, avatar, isAdmin, s
           />
           <button onClick={send} disabled={!text.trim() || sending} className="bg-[var(--ann-accent)] text-white rounded-full px-4 py-2.5 font-semibold text-[0.9rem] disabled:opacity-40 shrink-0">Send</button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -9073,17 +9084,20 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
                     <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => (
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
+                        const archiveLocked = k === 'archive' && feedPrivate;
+                        return (
                         <div key={k} className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <b className="block text-[0.95rem]">{label}</b>
-                            <small className="block opacity-50 text-sm">{sub}</small>
+                            <small className="block opacity-50 text-sm">{archiveLocked ? `${sub} Turn the feed public first.` : sub}</small>
                           </div>
-                          <button type="button" aria-label={label} onClick={() => k === 'private' ? updateFeedPrivacy(!on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'}`}>
+                          <button type="button" aria-label={label} disabled={archiveLocked} onClick={() => k === 'private' ? updateFeedPrivacy(!on) : onUpdateAppFlags(k === 'approve' ? { approveGuestPosts: !on } : k === 'push' ? { pushEnabled: !on } : { archiveMode: !on }, `${label}: ${on ? 'off' : 'on'}.`)} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${on ? 'bg-[var(--ann-accent)]' : 'bg-black/20 dark:bg-white/20'} ${archiveLocked ? 'opacity-40 cursor-not-allowed' : ''}`}>
                             <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${on ? 'left-6' : 'left-1'}`} />
                           </button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                   {/* Storage: how far this app's photos and videos have gone
