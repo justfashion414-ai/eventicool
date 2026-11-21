@@ -2969,13 +2969,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
-                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               ) : footerStyle === 'tunnel' ? (
-                <GiantFooterTunnel images={footerPool} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterTunnel images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               ) : footerStyle === 'globe' ? (
-                <GiantFooterGlobe images={footerPool} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterGlobe images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               ) : (
-                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
               )}
 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
@@ -5603,13 +5603,16 @@ const footerRows = (images: string[], rows: number): string[][] => {
 // Style 1 · Photo wall: a still 24-photo grid under the couple's serif names.
 // Every tile sits greyed out; a bright scan sweeps the rows top to bottom and
 // back up again, looping (the reference video's arrangement).
-function GiantFooterWall({ images = [], isDarkMode, onTap, thanks }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void; thanks?: string }) {
+function GiantFooterWall({ images = [], isDarkMode, onTap, thanks, paused }: { images?: string[]; isDarkMode: boolean; onTap?: (src: string) => void; thanks?: string; paused?: boolean }) {
   const ROWS = 8;
   const [activeRow, setActiveRow] = useState(0);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
   useEffect(() => {
     let r = 0;
     let dir = 1;
     const t = setInterval(() => {
+      if (pausedRef.current) return;
       let next = r + dir;
       if (next > ROWS - 1) { dir = -1; next = ROWS - 2; }
       if (next < 0) { dir = 1; next = 1; }
@@ -5654,7 +5657,7 @@ function GiantFooterWall({ images = [], isDarkMode, onTap, thanks }: { images?: 
 
 // Style 2 · Marquee: dark navy wall, accent bar on top, rounded photo rows
 // drifting at different speeds, and a small photo-count chip.
-function GiantFooterMarquee({ images = [], onTap, thanks }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void; thanks?: string }) {
+function GiantFooterMarquee({ images = [], onTap, thanks, paused }: { images?: string[]; isDarkMode?: boolean; onTap?: (src: string) => void; thanks?: string; paused?: boolean }) {
   const rows = footerRows(images, 4);
   return (
     <section className="relative overflow-hidden w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-[#070716] mt-12">
@@ -5675,7 +5678,7 @@ function GiantFooterMarquee({ images = [], onTap, thanks }: { images?: string[];
       </div>
       <div className="flex flex-col gap-[6px] py-[14px]">
         {rows.map((row, r) => (
-          <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s` }}>
+          <div key={r} className={`ev-fw-row ev-fw-row-lg ${r % 2 ? 'ev-fw-row-rev' : ''}`} style={{ animationDuration: `${46 + r * 13}s`, animationPlayState: paused ? 'paused' : 'running' }}>
             {[...row, ...row].map((src, i) => (
               <button key={i} type="button" onClick={() => onTap && onTap(src)} className="ev-fw-cell-lg">
                 <img src={src} alt="" loading="lazy" />
@@ -5690,7 +5693,8 @@ function GiantFooterMarquee({ images = [], onTap, thanks }: { images?: string[];
 
 // Giant footer styles 3 & 4 (Nov 21 2026, replicated from the admin's
 // footer-styles file): the couple's photos moving in 3D. Both drift on their
-// own, respect reduced motion, steer by dragging, and open a photo on tap.
+// own, respect reduced motion, and open a photo on tap; dragging does nothing
+// and the drift pauses while the photo popup is open.
 // compact=true is the dashboard preview mockup's small version.
 const EVFW_CROP = [['cover', 'center'], ['210% auto', '50% 22%'], ['190% auto', '20% 40%'], ['190% auto', '80% 45%']];
 const EVFW_THANKS = 'Thank you for celebrating with us';
@@ -5710,17 +5714,17 @@ function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background,
     <section
       ref={stageRef}
       className={`ev-fw-stage relative overflow-hidden ${compact ? 'w-full h-[460px]' : 'w-screen left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] min-h-[720px] sm:min-h-[900px] mt-12'}`}
-      style={{ background, touchAction: 'pan-y' }}
+      style={{ background, touchAction: 'pan-y', cursor: 'pointer' }}
     >
       <div ref={worldRef} className="ev-fw-world" />
       <div className="ev-fw-vig" style={{ background: vignette }} />
       <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} thanks={thanks} compact={compact} />
-      {onTap ? <div className="ev-fw-hint">DRAG TO STEER · TAP A PHOTO</div> : null}
+      {onTap ? <div className="ev-fw-hint">TAP A PHOTO</div> : null}
     </section>
   );
 }
 
-function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, onTap }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void }) {
+function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, onTap, paused }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void; paused?: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const [tick, setTick] = useState(0);
@@ -5729,6 +5733,8 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
   const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
 
   useEffect(() => {
     const stage = stageRef.current, world = worldRef.current;
@@ -5752,7 +5758,7 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       world.appendChild(e);
       tiles.push(e);
     }
-    const st = { off: 0, rot: 0, vrot: 0, vy: 0 };
+    const st = { off: 0, rot: 0 };
     let last = performance.now(), raf = 0;
     const paint = (e: any, idx: number) => {
       if (e._g === idx) return;
@@ -5766,11 +5772,10 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
     };
     const frame = (t: number) => {
       const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (pausedRef.current) { raf = requestAnimationFrame(frame); return; }
       if (!rm) {
-        st.off += (80 * (m / 390)) * dt + st.vy * dt;
-        st.rot += 2.4 * dt + st.vrot * dt;
-        st.vy *= Math.pow(0.05, dt);
-        st.vrot *= Math.pow(0.05, dt);
+        st.off += (80 * (m / 390)) * dt;
+        st.rot += 2.4 * dt;
       }
       const o = ((st.off % dz) + dz) % dz, gb = Math.floor(st.off / dz);
       tiles.forEach(e => {
@@ -5785,23 +5790,10 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    let drag: any = null;
+    let pdown: any = null;
     let lastTapAt = 0;
-    const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
     const onDown = (ev: PointerEvent) => {
-      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), t0: performance.now(), mv: 0 };
-      stage.classList.add('ev-fw-dg');
-      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
-    };
-    const onMove = (ev: PointerEvent) => {
-      if (!drag) return;
-      const dx = ev.clientX - drag.px, dy = ev.clientY - drag.py;
-      drag.mv = Math.max(drag.mv, Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y));
-      if (drag.mv > 6) {
-        st.rot += dx * 0.28; st.vrot = dx / dragDt() * 0.2;
-        st.off -= dy * 1.6 * (m / 390); st.vy = -dy / dragDt() * 1.2 * (m / 390);
-      }
-      drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
+      pdown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
     };
     const tapAt = (x: number, y: number) => {
       if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
@@ -5812,19 +5804,15 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       }
     };
     const onEnd = (ev: PointerEvent) => {
-      if (!drag) return;
-      const mv = drag.mv; drag = null;
-      stage.classList.remove('ev-fw-dg');
+      const p = pdown; pdown = null;
       lastTapAt = performance.now();
-      if (mv < 12) tapAt(ev.clientX, ev.clientY);
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12) tapAt(ev.clientX, ev.clientY);
     };
     const onCancel = (ev: PointerEvent) => {
-      if (!drag) return;
-      const mv = drag.mv, dur = performance.now() - drag.t0; drag = null;
-      stage.classList.remove('ev-fw-dg');
+      const p = pdown; pdown = null;
       lastTapAt = performance.now();
       // Mobile: a tap the browser mistook for the start of a scroll arrives here.
-      if (mv < 12 && dur < 450) tapAt(ev.clientX, ev.clientY);
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12 && performance.now() - p.t < 450) tapAt(ev.clientX, ev.clientY);
     };
     const onClick = (ev: MouseEvent) => {
       if (performance.now() - lastTapAt < 700) return;
@@ -5833,7 +5821,6 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
     };
     const onResize = () => setTick(x => x + 1);
     stage.addEventListener('pointerdown', onDown);
-    stage.addEventListener('pointermove', onMove);
     stage.addEventListener('pointerup', onEnd);
     stage.addEventListener('pointercancel', onCancel);
     stage.addEventListener('click', onClick);
@@ -5842,7 +5829,6 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       stage.removeEventListener('pointerdown', onDown);
-      stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onEnd);
       stage.removeEventListener('pointercancel', onCancel);
       stage.removeEventListener('click', onClick);
@@ -5862,7 +5848,7 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
   );
 }
 
-function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onTap }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void }) {
+function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onTap, paused }: { images?: string[]; compact?: boolean; bride?: string; groom?: string; wed?: string; onTap?: (src: string) => void; paused?: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const [tick, setTick] = useState(0);
@@ -5871,6 +5857,8 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
   const pool = () => (imgRef.current.length ? imgRef.current : PLACEHOLDER_IMAGES);
+  const pausedRef = useRef(false);
+  pausedRef.current = !!paused;
   const imgKey = (images[0] || '') + '|' + images.length;
 
   useEffect(() => {
@@ -5910,43 +5898,28 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
         tiles.push(e);
       }
     }
-    const st = { ry: 0, vry: 0, tilt: 0, vt: 0 };
+    const st = { ry: 0 };
     let T = 0, last = performance.now(), raf = 0;
     const applyTransform = () => {
-      const tl = -8 + Math.sin(T * 0.22) * 4 + st.tilt;
+      const tl = -8 + Math.sin(T * 0.22) * 4;
       world.style.transform = `translateZ(${-R * 0.55}px) rotateX(${tl}deg) rotateY(${st.ry}deg)`;
     };
     applyTransform();
     const frame = (t: number) => {
       const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (pausedRef.current) { raf = requestAnimationFrame(frame); return; }
       if (!rm) {
         T += dt;
-        st.ry += 5 * dt + st.vry * dt;
-        st.vry *= Math.pow(0.06, dt);
-        st.tilt = Math.max(-40, Math.min(40, st.tilt + st.vt * dt));
-        st.vt *= Math.pow(0.06, dt);
+        st.ry += 5 * dt;
       }
       applyTransform();
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    let drag: any = null;
+    let pdown: any = null;
     let lastTapAt = 0;
-    const dragDt = () => Math.max((performance.now() - drag.t) / 1000, 0.008);
     const onDown = (ev: PointerEvent) => {
-      drag = { x: ev.clientX, y: ev.clientY, px: ev.clientX, py: ev.clientY, t: performance.now(), t0: performance.now(), mv: 0 };
-      stage.classList.add('ev-fw-dg');
-      try { stage.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
-    };
-    const onMove = (ev: PointerEvent) => {
-      if (!drag) return;
-      const dx = ev.clientX - drag.px, dy = ev.clientY - drag.py;
-      drag.mv = Math.max(drag.mv, Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y));
-      if (drag.mv > 6) {
-        st.ry += dx * 0.4; st.vry = dx / dragDt() * 0.3;
-        st.tilt = Math.max(-40, Math.min(40, st.tilt - dy * 0.25));
-      }
-      drag.px = ev.clientX; drag.py = ev.clientY; drag.t = performance.now();
+      pdown = { x: ev.clientX, y: ev.clientY, t: performance.now() };
     };
     const tapAt = (x: number, y: number) => {
       if (!onTapRef.current || typeof document.elementsFromPoint !== 'function') return;
@@ -5957,19 +5930,15 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       }
     };
     const onEnd = (ev: PointerEvent) => {
-      if (!drag) return;
-      const mv = drag.mv; drag = null;
-      stage.classList.remove('ev-fw-dg');
+      const p = pdown; pdown = null;
       lastTapAt = performance.now();
-      if (mv < 12) tapAt(ev.clientX, ev.clientY);
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12) tapAt(ev.clientX, ev.clientY);
     };
     const onCancel = (ev: PointerEvent) => {
-      if (!drag) return;
-      const mv = drag.mv, dur = performance.now() - drag.t0; drag = null;
-      stage.classList.remove('ev-fw-dg');
+      const p = pdown; pdown = null;
       lastTapAt = performance.now();
       // Mobile: a tap the browser mistook for the start of a scroll arrives here.
-      if (mv < 12 && dur < 450) tapAt(ev.clientX, ev.clientY);
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 12 && performance.now() - p.t < 450) tapAt(ev.clientX, ev.clientY);
     };
     const onClick = (ev: MouseEvent) => {
       if (performance.now() - lastTapAt < 700) return;
@@ -5978,7 +5947,6 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
     };
     const onResize = () => setTick(x => x + 1);
     stage.addEventListener('pointerdown', onDown);
-    stage.addEventListener('pointermove', onMove);
     stage.addEventListener('pointerup', onEnd);
     stage.addEventListener('pointercancel', onCancel);
     stage.addEventListener('click', onClick);
@@ -5987,7 +5955,6 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       stage.removeEventListener('pointerdown', onDown);
-      stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onEnd);
       stage.removeEventListener('pointercancel', onCancel);
       stage.removeEventListener('click', onClick);
