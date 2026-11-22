@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, animate, useAnimationFrame, useMotionValue } from 'motion/react';
 import { 
   Home, 
@@ -6819,7 +6820,7 @@ function MapPicker({ open, initial, onClose }: any) {
   }, [query, open]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black" onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] bg-white rounded-t-3xl sm:rounded-3xl p-4 flex flex-col" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 shrink-0">
@@ -6853,7 +6854,8 @@ function MapPicker({ open, initial, onClose }: any) {
           <button disabled={!sel} onClick={() => onClose(sel)} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Use this place</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
