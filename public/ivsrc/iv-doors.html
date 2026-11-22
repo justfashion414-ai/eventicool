@@ -791,6 +791,8 @@ orbEls.forEach(orb => {
 function unlock() {
   Sfx.play("chime");
   const after = $("#after"); after.hidden = false; confetti();
+  const fixMap = function () { try { if (window.__ivMap) window.__ivMap.invalidateSize(); } catch (e) {} };
+  setTimeout(fixMap, 120); setTimeout(fixMap, 900);
   setTimeout(() => after.scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "start"}), 500);
 }
 
@@ -861,6 +863,7 @@ function liveMap() {
   var go = function () {
     try {
       var map = L.map(box, { zoomControl: false, attributionControl: false, scrollWheelZoom: false }).setView([lat, lng], 16);
+      window.__ivMap = map;
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
       L.circleMarker([lat, lng], { radius: 9, color: "#fff", weight: 3, fillColor: "#ea4335", fillOpacity: 1 }).addTo(map);
       $("#mapIn").addEventListener("click", function () { map.zoomIn(); });
@@ -914,12 +917,13 @@ $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encode
       }
       var step = p * n;
       cards.forEach(function (c, j) {
+        var last = j === n - 1; /* the last photo stays pinned on the page (user spec Nov 22 2026) */
         if (mode === 'glide') {
           var ein = j === 0 ? 1 : Math.min(1, Math.max(0, step - (j - 1)));
-          var eout = Math.min(1, Math.max(0, step - j));
-          c.style.transform = 'translateX(' + ((1 - ein) * 102 - eout * 102).toFixed(2) + '%)';
+          var eout = last ? 0 : Math.min(1, Math.max(0, step - j));
+          c.style.transform = 'translateX(' + ((1 - ein) * 118 - eout * 118).toFixed(2) + '%)';
         } else {
-          var t = Math.min(1, Math.max(0, step - j));
+          var t = last ? 0 : Math.min(1, Math.max(0, step - j));
           c.style.transform = 'perspective(900px) rotateY(' + (-t * 165).toFixed(2) + 'deg)';
           c.style.opacity = t > .92 ? '0' : '1';
           c.style.zIndex = String(n - j);
@@ -973,8 +977,9 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
     var nm = document.createElement('span'); nm.className = 'dc-name'; nm.textContent = name;
     host.appendChild(swEl); host.appendChild(nm);
   });
-  /* Dress-look mockups (user spec Nov 22 2026): the couple's gender mockups
-     drawn in their picked colours, above the swatches. */
+  /* Dress-look mockups (user spec Nov 22 2026): the couple's mockups drawn in
+     their picked colours. Male is shirt & trouser; female is a gown or blouse
+     & skirt. One look for everyone shows the male mockup alone. */
   (function () {
     var of_ = C.dressOutfit;
     if (!of_ || typeof of_ !== 'object') return;
@@ -982,8 +987,8 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
     var femStyle = fem.style || 'gown';
     var both = of_.mode !== 'split';
     var mT = male.top || '#B57D2C', mB = male.bottom || mT;
-    var fT = both ? mT : (femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT));
-    var fB = both ? mB : (femStyle === 'gown' ? fT : (fem.bottom || mB));
+    var fT = femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT);
+    var fB = femStyle === 'gown' ? fT : (fem.bottom || mB);
     var fig = function (kind, cTop, cBottom) {
       var t = cTop || '#B57D2C', b = cBottom || t, sk = '#E7C9A9';
       var st = 'stroke="rgba(0,0,0,.16)" stroke-width="1"';
@@ -1007,26 +1012,18 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
       }
       return s + '</svg>';
     };
-    var labCss = 'font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;opacity:.65;margin-top:6px';
-    var mk = function (svg, lab, not) {
+    var labCss = 'font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;opacity:.75;margin-top:8px';
+    var mk = function (svg, lab) {
       var d = document.createElement('div');
       d.style.cssText = 'text-align:center';
-      var h = svg + '<div style="' + labCss + '">' + lab + '</div>';
-      if (not) h += '<div style="font-size:11px;opacity:.7;max-width:110px;margin:2px auto 0">' + not + '</div>';
-      d.innerHTML = h;
+      d.innerHTML = svg + '<div style="' + labCss + '">' + lab + '</div>';
       return d;
     };
     var wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;gap:18px;align-items:flex-end;margin:10px 0 4px;flex-wrap:wrap';
-    wrap.appendChild(mk(fig('male', mT, mB), both ? 'Him' : 'His look', both ? '' : (male.note || '')));
-    wrap.appendChild(mk(fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB), both ? 'Her' : 'Her look', both ? '' : (fem.note || '')));
+    wrap.style.cssText = 'display:flex;gap:22px;align-items:flex-end;margin:10px 0 4px;flex-wrap:wrap';
+    wrap.appendChild(mk(fig('male', mT, mB), 'Male'));
+    if (!both) wrap.appendChild(mk(fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB), 'Female'));
     host.appendChild(wrap);
-    if (both && male.note) {
-      var pn = document.createElement('p');
-      pn.style.cssText = 'margin:4px 0 0;font-size:12px;opacity:.7';
-      pn.textContent = male.note;
-      host.appendChild(pn);
-    }
   })();
 })();
 

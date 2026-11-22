@@ -384,6 +384,8 @@ export const colorNameOf = (c: any): string => ((c && typeof c === 'object' && c
 // two slots by default and as many more as the couple adds. Whatever they
 // pick here shows as colour chips on the invitation card and on the home page.
 const BrandedColorPicker = ({ initial, onDone, onClose, isDarkMode }: { initial: string; onDone: (hex: string) => void; onClose: () => void; isDarkMode: boolean }) => {
+  /* The floating preview eye steps aside while the picker is open. */
+  useEffect(() => { document.body.classList.add('overlay-open'); return () => { document.body.classList.remove('overlay-open'); }; }, []);
   const start = hexToHsv(initial);
   const [h, setH] = useState(start[0]);
   const [s, setS] = useState(start[1]);
@@ -462,7 +464,10 @@ const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: any[]; onC
 
 /* Bottom sheet (user spec Nov 22 2026): the popup surface for editors that
    need room — the dress studio and the day schedule open here. */
-const BottomSheet = ({ title, onClose, isDarkMode, children }: any) => (
+const BottomSheet = ({ title, onClose, isDarkMode, children }: any) => {
+  /* The floating preview eye steps aside while a sheet is open (user spec Nov 22 2026). */
+  useEffect(() => { document.body.classList.add('overlay-open'); return () => { document.body.classList.remove('overlay-open'); }; }, []);
+  return (
   <div className="fixed inset-0 z-[96] flex items-end sm:items-center sm:justify-center">
     <div className="absolute inset-0 bg-black/55" style={{ animation: 'annFade .2s ease' }} onClick={onClose} />
     <div className={`relative w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[88vh] overflow-y-auto px-4 pt-3 pb-7 ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-white text-[#1d2b30]'}`} style={{ animation: 'annSheetUp .28s cubic-bezier(.2,.8,.3,1)' }}>
@@ -474,7 +479,8 @@ const BottomSheet = ({ title, onClose, isDarkMode, children }: any) => (
       {children}
     </div>
   </div>
-);
+  );
+};
 
 /* Dress-look mockups (user spec Nov 22 2026): simple SVG garments filled with
    the colours the couple picked, so guests see the look, not just swatches.
@@ -514,25 +520,21 @@ const DressMockup = ({ outfit, isDarkMode }: { outfit: any; isDarkMode?: boolean
   const both = outfit.mode !== 'split';
   const mT = male.top || '#B57D2C';
   const mB = male.bottom || mT;
-  const fT = both ? mT : (femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT));
-  const fB = both ? mB : (femStyle === 'gown' ? fT : (fem.bottom || mB));
-  const lab: any = { fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 800, opacity: .65, marginTop: 6 };
-  const note: any = { fontSize: 11, opacity: .7, maxWidth: 110, margin: '2px auto 0' };
+  const fT = femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT);
+  const fB = femStyle === 'gown' ? fT : (fem.bottom || mB);
+  const lab: any = { fontSize: 14, letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 800, opacity: .75, marginTop: 8 };
+  const fig = (kind: 'male' | 'gown' | 'blouse', t: string, b: string, label: string) => (
+    <div style={{ textAlign: 'center' }}>
+      <DressFigure kind={kind} top={t} bottom={b} />
+      <div style={lab}>{label}</div>
+    </div>
+  );
   return (
     <div className={`rounded-xl border px-4 py-3 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ marginTop: 10 }}>
-      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ textAlign: 'center' }}>
-          <DressFigure kind="male" top={mT} bottom={mB} />
-          <div style={lab}>{both ? 'Him' : 'His look'}</div>
-          {!both && male.note ? <div style={note}>{male.note}</div> : null}
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <DressFigure kind={femStyle === 'gown' ? 'gown' : 'blouse'} top={fT} bottom={fB} />
-          <div style={lab}>{both ? 'Her' : 'Her look'}</div>
-          {!both && fem.note ? <div style={note}>{fem.note}</div> : null}
-        </div>
+      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        {fig('male', mT, mB, 'Male')}
+        {!both && fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB, 'Female')}
       </div>
-      {both && male.note ? <p style={{ margin: '8px 0 0', fontSize: 12, opacity: .7 }}>{male.note}</p> : null}
     </div>
   );
 };
@@ -577,39 +579,36 @@ const DressStudio = ({ open, onClose, colors, outfit, isDarkMode, onSave }: any)
       <DressMockup outfit={o} isDarkMode={isDarkMode} />
       <div className="flex gap-2 mt-4 mb-4">
         <button type="button" onClick={() => setO({ ...o, mode: 'both' })} className={seg(both)} style={{ touchAction: 'manipulation' }}>One look for everyone</button>
-        <button type="button" onClick={() => setO({ ...o, mode: 'split' })} className={seg(!both)} style={{ touchAction: 'manipulation' }}>Him and her, separate</button>
+        <button type="button" onClick={() => setO({ ...o, mode: 'split' })} className={seg(!both)} style={{ touchAction: 'manipulation' }}>Male &amp; female</button>
       </div>
       <div className="rounded-xl border p-3 mb-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
-        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">His look · shirt &amp; trouser</span>
+        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Male · shirt &amp; trouser</span>
         <div className="flex flex-wrap gap-2">
           <Slot label="Shirt" value={o.male?.top} path="male.top" />
           <Slot label="Trouser" value={o.male?.bottom} path="male.bottom" />
         </div>
-        <input className={inputCls + ' mt-2'} value={o.male?.note || ''} onChange={(e) => set('male.note', e.target.value)} placeholder="e.g. White shirt, navy trousers" maxLength={80} />
       </div>
+      {!both && (
       <div className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
-        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Her look</span>
+        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Female</span>
         <div className="flex gap-2 mb-2">
           <button type="button" onClick={() => set('female.style', 'gown')} className={seg((o.female?.style || 'gown') === 'gown')} style={{ touchAction: 'manipulation' }}>Gown</button>
           <button type="button" onClick={() => set('female.style', 'blouse-skirt')} className={seg(o.female?.style === 'blouse-skirt')} style={{ touchAction: 'manipulation' }}>Blouse &amp; skirt</button>
         </div>
-        {!both && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {(o.female?.style || 'gown') === 'gown'
-              ? <Slot label="Gown" value={o.female?.gown} path="female.gown" />
-              : <><Slot label="Blouse" value={o.female?.top} path="female.top" /><Slot label="Skirt" value={o.female?.bottom} path="female.bottom" /></>}
-          </div>
-        )}
-        {!both && <input className={inputCls} value={o.female?.note || ''} onChange={(e) => set('female.note', e.target.value)} placeholder="e.g. Gold gown, gold heels" maxLength={80} />}
-        {both && <p className="text-[10px] opacity-50">One look for everyone: the same colours dress both mockups.</p>}
+        <div className="flex flex-wrap gap-2">
+          {(o.female?.style || 'gown') === 'gown'
+            ? <Slot label="Gown" value={o.female?.gown} path="female.gown" />
+            : <><Slot label="Blouse" value={o.female?.top} path="female.top" /><Slot label="Skirt" value={o.female?.bottom} path="female.bottom" /></>}
+        </div>
       </div>
+      )}
       <button type="button" onClick={() => {
         const next = JSON.parse(JSON.stringify(o));
+        next.male = next.male || {}; next.female = next.female || {};
+        next.male.note = ''; next.female.note = '';
         if (next.mode !== 'split') {
-          next.female = next.female || {};
           next.female.top = next.male?.top || ''; next.female.bottom = next.male?.bottom || '';
           next.female.gown = next.female.gown || next.male?.top || '';
-          next.female.note = next.male?.note || '';
         }
         onSave(next); onClose();
       }} className="mt-4 w-full px-4 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Save the dress code</button>
@@ -6715,6 +6714,17 @@ function MapPicker({ open, initial, onClose }: any) {
     setTimeout(() => map.invalidateSize(), 150);
   }, [open, ready]);
 
+  /* Reopen fix (user report Nov 22 2026): closing the popup unmounts the map
+     div but the Leaflet map stayed on the dead node, so the next open drew into
+     a fresh empty div and stayed blank until refresh. Destroy the map on close
+     so every open builds a fresh one on the live div. */
+  useEffect(() => {
+    if (open) { document.body.classList.add('overlay-open'); return; }
+    try { if (mapRef.current) mapRef.current.remove(); } catch (e) { /* already gone */ }
+    mapRef.current = null; mkRef.current = null;
+    document.body.classList.remove('overlay-open');
+  }, [open]);
+
   const pick = async (lat: number, lng: number, reverse: boolean) => {
     setSel({ lat, lng, label: (selRef.current && selRef.current.label) || '' });
     if (!reverse) return;
@@ -7821,14 +7831,15 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               <button type="button" onClick={() => setSchedOpen(true)} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.62rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Edit the schedule</button>
               {schedOpen && (
                 <BottomSheet title="Day schedule" onClose={() => setSchedOpen(false)} isDarkMode={isDarkMode}>
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-[1fr_2fr_2fr_auto] gap-2 text-[10px] font-black uppercase tracking-widest opacity-50 px-0.5"><span>Time</span><span>What</span><span>Note</span><span /></div>
+                  <div className="space-y-2.5">
                     {f.schedule.map((r: any[], i: number) => (
-                      <div key={i} className="grid grid-cols-[1fr_2fr_2fr_auto] gap-2 items-center">
-                        <input className={inputCls} value={r[0] || ''} onChange={(e) => setRow(i, 0, e.target.value)} placeholder="2:00 PM" />
-                        <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="Ceremony" />
-                        <input className={inputCls} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note" />
-                        <button type="button" aria-label="Remove this row" onClick={() => setF({ ...f, schedule: f.schedule.filter((_: any, j: number) => j !== i) })} className={`w-7 h-7 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-white/10' : 'bg-black/5'}`}>×</button>
+                      <div key={i} className={`rounded-xl border p-2.5 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-[118px] shrink-0"><BrandedTimeField value={r[0] || ''} onChange={(v: string) => setRow(i, 0, v)} isDarkMode={isDarkMode} inputCls={inputCls} /></div>
+                          <input className={inputCls} value={r[1] || ''} onChange={(e) => setRow(i, 1, e.target.value)} placeholder="What happens — e.g. Ceremony" />
+                          <button type="button" aria-label="Remove this row" onClick={() => setF({ ...f, schedule: f.schedule.filter((_: any, j: number) => j !== i) })} className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-white/10' : 'bg-black/5'}`}>×</button>
+                        </div>
+                        <input className={inputCls + ' mt-2 w-full'} value={r[2] || ''} onChange={(e) => setRow(i, 2, e.target.value)} placeholder="Note — e.g. Please be seated by 1:45 PM" />
                       </div>
                     ))}
                   </div>
@@ -8003,7 +8014,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       ))}
 
       {invTab === 'templates' && (
-      <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 250, touchAction: 'manipulation' }}>
+      <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="inv-eye-float fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 250, touchAction: 'manipulation' }}>
         <Eye className="w-5 h-5" />
       </button>
       )}

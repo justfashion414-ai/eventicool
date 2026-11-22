@@ -804,6 +804,8 @@ $("#skip").addEventListener("click", e => { e.stopPropagation(); skipIntro(); })
 function unlock() {
   Sfx.play("chime");
   const after = $("#after"); after.hidden = false; confetti();
+  const fixMap = function () { try { if (window.__ivMap) window.__ivMap.invalidateSize(); } catch (e) {} };
+  setTimeout(fixMap, 120); setTimeout(fixMap, 900);
   setTimeout(() => after.scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "start"}), 500);
 }
 
@@ -874,6 +876,7 @@ function liveMap() {
   var go = function () {
     try {
       var map = L.map(box, { zoomControl: false, attributionControl: false, scrollWheelZoom: false }).setView([lat, lng], 16);
+      window.__ivMap = map;
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
       L.circleMarker([lat, lng], { radius: 9, color: "#fff", weight: 3, fillColor: "#ea4335", fillOpacity: 1 }).addTo(map);
       $("#mapIn").addEventListener("click", function () { map.zoomIn(); });
