@@ -7169,7 +7169,13 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         dress: best.dress || weddingDetails?.asoEbi || '',
         rsvpBy: best.rsvpBy || '',
         whatsapp: best.whatsapp || '',
-        schedule: Array.isArray(best.schedule) && best.schedule.length ? best.schedule : [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']],
+        schedule: (() => {
+          const raw = best.schedule;
+          let rows: any = null;
+          if (Array.isArray(raw) && raw.length) rows = raw;
+          else if (typeof raw === 'string' && raw.trim()) { try { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) rows = parsed; } catch { /* unparsable, use defaults */ } }
+          return rows && rows.length ? rows : [['2:00 PM', 'Ceremony', 'Please be seated by 1:45 PM'], ['4:00 PM', 'Cocktails and photos', 'Garden terrace'], ['6:00 PM', 'Reception dinner', 'Followed by speeches'], ['8:00 PM', 'First dance and party', 'Dancing until late']];
+        })(),
         music: best.music || '',
         photos: Array.isArray(best.photos) ? best.photos : [],
       });
@@ -7248,7 +7254,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       whatsapp: s(f.whatsapp).replace(/\D/g, ''),
       dressColors: (Array.isArray(dressColors) ? dressColors : []).filter((c: any) => typeof c === 'string' && c.trim()).map((c: string) => c.trim()).slice(0, 12),
       photos: (Array.isArray(f.photos) ? f.photos : []).slice(0, 5).filter((u: any) => typeof u === 'string' && u),
-      schedule: scheduleRows,
+      schedule: JSON.stringify(scheduleRows),
       music: s(f.music), updatedAt: serverTimestamp(),
     };
     try {
