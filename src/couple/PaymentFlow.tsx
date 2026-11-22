@@ -15,7 +15,7 @@ const PLANS = [
 ] as const;
 
 const ng = (n: number) => '₦' + n.toLocaleString('en-NG');
-const pillBtn = (accent: string): React.CSSProperties => ({ display: 'inline-block', background: accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' });
+const pillBtn = (accent: string): React.CSSProperties => ({ display: 'inline-block', background: accent, color: '#fff', textDecoration: 'none', padding: '14px 15px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' });
 
 // Step 3 (Confirming your payment): a gateway-style verification screen with no
 // backend behind it. It only behaves the way a payment gateway does while it
@@ -28,14 +28,14 @@ const verifyCss = (accent: string) => `
 @keyframes pfvfill { from { width: 0%; } to { width: 100%; } }
 @keyframes pfvsweep { 0%,100% { top: 10%; } 50% { top: 80%; } }
 @keyframes pfvfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.pfv-ring { width: 76px; height: 76px; border-radius: 50%; margin: 0 auto; position: relative; display: flex; align-items: center; justify-content: center; background: conic-gradient(${accent} 0deg 300deg, #ece5da 300deg 360deg); animation: pfvspin 1.4s linear infinite; }
-.pfv-ring::before { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
-.pfv-ring b { position: relative; font-size: 30px; color: ${accent}; font-family: Georgia, serif; }
-.pfv-barwrap { height: 8px; border-radius: 999px; background: #ece5da; overflow: hidden; margin: 18px auto 0; max-width: 260px; }
+.pfv-ring { width: 110px; height: 110px; border-radius: 50%; margin: 0 auto; position: relative; display: flex; align-items: center; justify-content: center; background: conic-gradient(${accent} 0deg 300deg, #ece5da 300deg 360deg); animation: pfvspin 1.4s linear infinite; }
+.pfv-ring::before { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: #fff; }
+.pfv-ring b { position: relative; font-size: 42px; color: ${accent}; font-family: Georgia, serif; }
+.pfv-barwrap { height: 10px; border-radius: 999px; background: #ece5da; overflow: hidden; margin: 22px auto 0; max-width: 300px; }
 .pfv-bar { height: 100%; border-radius: 999px; background: ${accent}; animation: pfvfill ${VERIFY_MS}ms linear forwards; }
 .pfv-status { animation: pfvfade .45s ease; }
-.pfv-doc { position: relative; width: 134px; height: 86px; margin: 18px auto 0; border-radius: 10px; border: 1px solid #ece5da; background: #faf7f0; overflow: hidden; }
-.pfv-doc i { position: absolute; left: 16px; right: 16px; height: 5px; border-radius: 3px; background: #e6ded1; }
+.pfv-doc { position: relative; width: 184px; height: 112px; margin: 22px auto 0; border-radius: 10px; border: 1px solid #ece5da; background: #faf7f0; overflow: hidden; }
+.pfv-doc i { position: absolute; left: 16px; right: 16px; height: 6px; border-radius: 3px; background: #e6ded1; }
 .pfv-doc em { position: absolute; left: 0; right: 0; height: 2px; background: ${accent}; opacity: .85; box-shadow: 0 0 12px ${accent}; animation: pfvsweep 1.6s ease-in-out infinite; }
 `;
 
@@ -52,19 +52,30 @@ interface Props {
 }
 
 export default function PaymentFlow({ accent, appName, email, appId, titles = ['Your free trial has ended', 'Make your transfer', 'Confirming your payment', 'Almost there'], intro, note, demoMode, onDone }: Props) {
+  // Session stickiness (user spec Nov 22 2026): someone may hop to their bank
+  // app and come back, or the page may refresh mid-flow. The step, the chosen
+  // plan, the session-account deadline, the uploaded receipt and the sent flag
+  // live in sessionStorage for this app, so the flow reopens where it was left.
+  const boot: any = (() => { try { return JSON.parse(window.sessionStorage.getItem('pf-flow-' + appId) || '{}'); } catch { return {}; } })();
+
   const [pay, setPay] = useState({ ...DEFAULT_PAYMENT });
   const [gb, setGb] = useState<Record<string, number>>({ essential: 5, complete: 10, legacy: 20 });
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [plan, setPlan] = useState<(typeof PLANS)[number] | null>(null);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(() => {
+    const n = Number(boot.step);
+    return (n === 2 || n === 3 || n === 4) && PLANS.some((x) => x.id === boot.planId) ? n : 1;
+  });
+  const [plan, setPlan] = useState<(typeof PLANS)[number] | null>(() => PLANS.find((x) => x.id === boot.planId) || null);
   const [more, setMore] = useState('');
-  const [left, setLeft] = useState(300);
+  const [deadline, setDeadline] = useState<number>(() => Number(boot.deadline) || 0);
+  const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   const [receipt, setReceipt] = useState<File | null>(null);
-  const [receiptUrl, setReceiptUrl] = useState('');
-  const [sent, setSent] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState(() => String(boot.receiptUrl || ''));
+  const [sent, setSent] = useState(() => !!boot.sent);
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [vi, setVi] = useState(0);
+  const left = !deadline ? 300 : deadline > now ? Math.ceil((deadline - now) / 1000) : 0;
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
 
   useEffect(() => {
@@ -91,9 +102,22 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
   }, []);
 
   useEffect(() => {
-    if (step !== 2) return;
-    const t = window.setInterval(() => setLeft((s) => (s > 0 ? s - 1 : 0)), 1000);
+    if (!deadline) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
+  }, [deadline]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem('pf-flow-' + appId, JSON.stringify({ step, planId: plan ? plan.id : '', deadline, receiptUrl, sent }));
+    } catch { /* storage unavailable */ }
+  }, [step, plan, deadline, receiptUrl, sent, appId]);
+
+  useEffect(() => {
+    if (step !== 2 && step !== 3) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
   }, [step]);
 
   useEffect(() => {
@@ -190,8 +214,8 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
                   {(more === p.id ? ([...p.features.slice(0, p.id === 'legacy' ? 1 : 3), `${gbOf(p.id)} of storage`, ...p.features.slice(p.id === 'legacy' ? 1 : 3)] as string[]) : ([...p.features.slice(0, 3), `${gbOf(p.id)} of storage`] as string[])).map((f) => <li key={f}>{f}</li>)}
                 </ul>
                 <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                  <button type="button" style={{ ...pillBtn(accent), flex: 1 }} onClick={() => { setPlan(p); setMore(''); setStep(2); setLeft(300); }}>CHOOSE {p.name.toUpperCase()}</button>
-                  <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: accent, border: `1.5px solid ${accent}`, padding: '13px 18px' }} onClick={() => setMore(more === p.id ? '' : p.id)}>
+                  <button type="button" style={{ ...pillBtn(accent), flex: 1 }} onClick={() => { setPlan(p); setMore(''); setStep(2); setDeadline(Date.now() + 300000); }}>CHOOSE {p.name.toUpperCase()}</button>
+                  <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: accent, border: `1.5px solid ${accent}`, padding: '13px 14px' }} onClick={() => setMore(more === p.id ? '' : p.id)}>
                     {more === p.id ? 'LESS' : 'SEE MORE'}
                   </button>
                 </div>
@@ -218,7 +242,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
             <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '.06em', color: '#1d2b30', marginTop: 10 }}>{pay.accountNumber}</div>
             <div style={{ color: '#5a6970', fontSize: 14, marginTop: 4 }}>{pay.accountName}</div>
             <div style={{ color: '#93a4ab', fontSize: 13 }}>{pay.bankName}</div>
-            <button type="button" style={{ ...pillBtn(accent), marginTop: 14, padding: '10px 22px', fontSize: 12.5, background: copied ? '#1f8a5b' : accent }} onClick={() => { try { navigator.clipboard?.writeText(pay.accountNumber); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setToast('Could not copy the account number'); } }}>
+            <button type="button" style={{ ...pillBtn(accent), marginTop: 14, padding: '10px 14px', fontSize: 12.5, background: copied ? '#1f8a5b' : accent }} onClick={() => { try { navigator.clipboard?.writeText(pay.accountNumber); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setToast('Could not copy the account number'); } }}>
               {copied ? 'COPIED' : 'COPY ACCOUNT NUMBER'}
             </button>
             <p style={{ color: '#5a6970', fontSize: 13, lineHeight: 1.55, margin: '14px 0 0' }}>
@@ -229,7 +253,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
             <button type="button" style={pillBtn(accent)} onClick={() => setStep(3)}>I'VE MADE THE PAYMENT</button>
             {left === 0 && (
-              <button type="button" style={{ ...pillBtn(accent), background: 'transparent', color: accent, border: `1.5px solid ${accent}` }} onClick={() => setLeft(300)}>RESTART SESSION</button>
+              <button type="button" style={{ ...pillBtn(accent), background: 'transparent', color: accent, border: `1.5px solid ${accent}` }} onClick={() => setDeadline(Date.now() + 300000)}>RESTART SESSION</button>
             )}
             <button type="button" style={{ ...pillBtn(accent), background: 'transparent', color: '#5a6970', border: '1.5px solid #d9d2c6' }} onClick={() => { setStep(1); setMore(''); }}>BACK TO PLANS</button>
           </div>
@@ -240,13 +264,17 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
       )}
       {step === 3 && plan && (
         <>
-          <div style={{ ...card, marginTop: 20, textAlign: 'center', padding: '26px 18px 22px' }}>
+          <div style={{ ...card, marginTop: 20, textAlign: 'center', padding: '30px 18px 28px', minHeight: '54vh', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, color: '#5a6970', marginBottom: 26 }}>
+              <span><b style={{ color: '#1d2b30' }}>{plan.name}</b> plan</span>
+              <span><b style={{ color: '#1d2b30' }}>{ng(plan.amount)}</b></span>
+            </div>
             <div className="pfv-ring"><b>₦</b></div>
             <div className="pfv-barwrap"><div className="pfv-bar" /></div>
-            <p key={vi} className="pfv-status" style={{ color: '#5a6970', fontSize: 14.5, fontWeight: 600, margin: '16px 0 0' }}>{VERIFY_STEPS[vi]}</p>
-            <p style={{ color: '#93a4ab', fontSize: 12.5, margin: '8px 0 0' }}>Keep this page open while we check your transfer.</p>
+            <p key={vi} className="pfv-status" style={{ color: '#5a6970', fontSize: 16, fontWeight: 600, margin: '22px 0 0' }}>{VERIFY_STEPS[vi]}</p>
+            <p style={{ color: '#93a4ab', fontSize: 13, margin: '10px 0 0' }}>Keep this page open while we check your transfer.</p>
             <div className="pfv-doc" aria-hidden="true">
-              <i style={{ top: 16 }} /><i style={{ top: 30 }} /><i style={{ top: 44, left: 30, right: 30 }} /><i style={{ top: 58 }} />
+              <i style={{ top: 18 }} /><i style={{ top: 34 }} /><i style={{ top: 50, left: 34, right: 34 }} /><i style={{ top: 66 }} /><i style={{ top: 82, left: 34, right: 60 }} />
               <em />
             </div>
           </div>
@@ -254,19 +282,27 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
       )}
       {step === 4 && plan && (
         <>
-          <div style={{ ...card, marginTop: 20 }}>
+          <div style={{ ...card, marginTop: 20, textAlign: 'center', padding: '16px 16px 12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, color: '#5a6970' }}>
+              <span><b style={{ color: '#1d2b30' }}>{plan.name}</b> plan</span>
+              <span><b style={{ color: '#1d2b30' }}>{ng(plan.amount)}</b></span>
+            </div>
+          </div>
+          <div style={{ ...card, marginTop: 12, minHeight: '50vh' }}>
             <p style={{ color: '#5a6970', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
               Your payment is being confirmed. To make confirmation faster, upload your payment receipt below, then chat with us on WhatsApp. Confirmation is done soon after your receipt arrives.
             </p>
             <div style={{ marginTop: 14 }}>
-              <label style={{ ...pillBtn(accent), display: 'block', textAlign: 'center', opacity: busy === 'upload' ? 0.6 : 1 }}>
-                {busy === 'upload' ? 'UPLOADING…' : receipt ? 'CHOOSE ANOTHER RECEIPT' : 'UPLOAD RECEIPT'}
+              <label style={{ display: 'block', marginTop: 4, border: '1.5px dashed #d9d2c6', borderRadius: 14, background: '#faf7f0', padding: '30px 14px 26px', textAlign: 'center', cursor: 'pointer', opacity: busy === 'upload' ? 0.6 : 1 }}>
+                <span style={{ display: 'inline-flex', width: 46, height: 46, borderRadius: '50%', background: '#f4efe6', alignItems: 'center', justifyContent: 'center', color: '#1d2b30', fontSize: 20, fontWeight: 800 }}>↑</span>
+                <b style={{ display: 'block', marginTop: 10, fontSize: 15, color: '#1d2b30' }}>{busy === 'upload' ? 'UPLOADING…' : receipt ? 'CHOOSE ANOTHER RECEIPT' : 'UPLOAD RECEIPT'}</b>
+                <small style={{ display: 'block', color: '#93a4ab', marginTop: 4, fontSize: 12.5 }}>A screenshot or photo of your transfer alert</small>
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={pickReceipt} disabled={busy === 'upload'} />
               </label>
               {receipt && !receiptUrl && <small style={{ display: 'block', color: '#93a4ab', marginTop: 8, textAlign: 'center' }}>{receipt.name}</small>}
               {receiptUrl && (
                 <div style={{ textAlign: 'center', marginTop: 10 }}>
-                  <img src={receiptUrl} alt="Payment receipt" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 12, border: '1px solid #ece5da' }} />
+                  <img src={receiptUrl} alt="Payment receipt" style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, border: '1px solid #ece5da' }} />
                 </div>
               )}
             </div>
