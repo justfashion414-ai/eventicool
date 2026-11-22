@@ -36,7 +36,7 @@ async function inviteMeta(appId, ivId) {
   } catch (e) { date = d.wedDate ? String(d.wedDate) : '' }
   const photo = Array.isArray(d.photos) && d.photos.length ? d.photos[0] : ''
   return {
-    title: `${d.bride || 'You are'} & ${d.groom || ''} invite you to their wedding`.replace('&  ', '& ').trim(),
+    title: (d.bride && d.groom) ? `${d.bride} & ${d.groom} invite you to their wedding` : 'You are invited',
     desc: [date, d.venue, d.city].filter(Boolean).join(' · ') || 'Save the date',
     photo,
   }
