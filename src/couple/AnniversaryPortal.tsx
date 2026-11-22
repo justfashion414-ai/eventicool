@@ -6701,18 +6701,24 @@ function QuickPostToFeedModal({ media, coupleName, events, isDarkMode, onClose, 
    pin jumps there. Runs on the Photon geocoder over the same OpenStreetMap
    data that draws the map tiles (no key, no billing), with a Nominatim
    fallback. Google's own live database would need a paid Google Maps key. */
+function dedupePlaces(list: any[]): any[] {
+  const seen = new Set<string>(); const out: any[] = [];
+  for (const r of list) { const k = String(r.label).toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push(r); }
+  return out;
+}
+
 function normPlaces(j: any): any[] {
   try {
     if (Array.isArray(j) && j.length && j[0] && j[0].display_name) {
-      return j.map((r: any) => ({ lat: Number(r.lat), lng: Number(r.lon), label: String(r.display_name).split(',').slice(0, 3).join(', ') }));
+      return dedupePlaces(j.map((r: any) => ({ lat: Number(r.lat), lng: Number(r.lon), label: String(r.display_name).split(',').slice(0, 3).join(', ') })));
     }
     if (j && Array.isArray(j.features)) {
-      return j.features.map((f: any) => {
+      return dedupePlaces(j.features.map((f: any) => {
         const p = f.properties || {}; const c = (f.geometry && f.geometry.coordinates) || [];
         const name = p.name || [p.street, p.housenumber].filter(Boolean).join(' ') || p.city || '';
         const label = [name, p.city || p.county || p.state, p.country].filter(Boolean).slice(0, 3).join(', ');
         return { lat: Number(c[1]), lng: Number(c[0]), label };
-      }).filter((r: any) => isFinite(r.lat) && isFinite(r.lng) && r.label);
+      }).filter((r: any) => isFinite(r.lat) && isFinite(r.lng) && r.label));
     }
   } catch (e) { /* keep it empty */ }
   return [];
@@ -6728,9 +6734,11 @@ function MapPicker({ open, initial, onClose }: any) {
   const mapRef = useRef<any>(null);
   const mkRef = useRef<any>(null);
   const selRef = useRef<any>(null);
+  const pickedRef = useRef('');
 
   useEffect(() => {
     if (!open) return;
+    pickedRef.current = '';
     selRef.current = initial && initial.lat != null ? { ...initial } : null;
     setSel(selRef.current);
     setResults([]);
@@ -6793,6 +6801,7 @@ function MapPicker({ open, initial, onClose }: any) {
     if (!open) return;
     const q = query.trim();
     if (q.length < 3) { setResults([]); return; }
+    if (pickedRef.current && q === pickedRef.current) return;
     const ctl = new AbortController();
     const t = setTimeout(async () => {
       try {
@@ -6812,19 +6821,20 @@ function MapPicker({ open, initial, onClose }: any) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/95 backdrop-blur-md" onClick={() => onClose(null)}>
-      <div className="w-full sm:w-[560px] max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl p-4" onClick={(e: any) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
+      <div className="w-full sm:w-[560px] max-h-[92vh] bg-white rounded-t-3xl sm:rounded-3xl p-4 flex flex-col" onClick={(e: any) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3 shrink-0">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
           <button onClick={() => onClose(null)} className="w-8 h-8 rounded-full bg-[#EEEDF3] text-slate-600 grid place-items-center text-sm font-black" style={{ touchAction: 'manipulation' }}>×</button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex gap-2 mb-2">
           <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e: any) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} placeholder="Search a street, area or landmark" className="flex-1 px-3 py-2.5 rounded-xl border border-[#DAD8E3] text-sm outline-none bg-white text-slate-900" />
           <button onClick={search} className="px-4 rounded-xl bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>{busy ? '…' : 'Search'}</button>
         </div>
         {results.length > 0 && (
-          <div className="mb-2 rounded-xl border border-[#DAD8E3] overflow-hidden">
+          <div className="mb-2 rounded-xl border border-[#DAD8E3] max-h-40 overflow-y-auto">
             {results.map((r: any, i: number) => (
-              <button key={i} type="button" onClick={() => { const nx = { lat: Number(r.lat), lng: Number(r.lng), label: String(r.label) }; selRef.current = nx; setSel(nx); if (mapRef.current) mapRef.current.setView([nx.lat, nx.lng], 16); setResults([]); setQuery(nx.label); }} className="w-full text-left px-3 py-2.5 text-[0.78rem] text-slate-700 border-b border-[#F0EFF5] last:border-0" style={{ touchAction: 'manipulation' }}>{String(r.label)}</button>
+              <button key={i} type="button" onClick={() => { const nx = { lat: Number(r.lat), lng: Number(r.lng), label: String(r.label) }; selRef.current = nx; setSel(nx); if (mapRef.current) mapRef.current.setView([nx.lat, nx.lng], 16); setResults([]); setQuery(nx.label); pickedRef.current = String(nx.label); }} className="w-full text-left px-3 py-2.5 text-[0.78rem] text-slate-700 border-b border-[#F0EFF5] last:border-0" style={{ touchAction: 'manipulation' }}>{String(r.label)}</button>
             ))}
           </div>
         )}
@@ -6837,7 +6847,8 @@ function MapPicker({ open, initial, onClose }: any) {
         </div>
         <p className="text-[0.7rem] opacity-60 mt-2">Drag the pin or tap the map to fine-tune the exact spot.</p>
         {sel && sel.label ? <p className="text-[0.8rem] font-semibold mt-1 text-slate-800">{sel.label}</p> : null}
-        <div className="flex items-center justify-end gap-2 mt-3">
+        </div>
+        <div className="flex items-center justify-end gap-2 mt-3 pt-2 border-t border-[#F0EFF5] shrink-0">
           <button onClick={() => onClose(null)} className="px-4 py-2 rounded-full border border-[#DAD8E3] text-[0.7rem] font-black uppercase tracking-widest text-slate-600" style={{ touchAction: 'manipulation' }}>Cancel</button>
           <button disabled={!sel} onClick={() => onClose(sel)} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-40" style={{ touchAction: 'manipulation' }}>Use this place</button>
         </div>
