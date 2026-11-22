@@ -7570,6 +7570,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [musicUploading, setMusicUploading] = useState(false);
   const [musicPct, setMusicPct] = useState(0);
   const [musicUpName, setMusicUpName] = useState('');
+  const [musicMsg, setMusicMsg] = useState('');
   const myMusicInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (DEMO) { setMyMusic([]); return; }
@@ -7584,11 +7585,11 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > 12 * 1024 * 1024) { showToast('That track is over 12 MB. Try a smaller mp3', 'error'); return; }
-    if (!DEMO && storageBlocked()) { showToast(STORAGE_FULL_MESSAGE, 'error'); return; }
+    if (file.size > 50 * 1024 * 1024) { const msg = 'That track is over 50 MB. Try a smaller mp3'; setMusicMsg(msg); showToast(msg, 'error'); return; }
+    if (!DEMO && storageBlocked()) { setMusicMsg(STORAGE_FULL_MESSAGE); showToast(STORAGE_FULL_MESSAGE, 'error'); return; }
     const base = String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
-    if (DEMO) { showToast('Uploads work in your real app. Pick from the library here', 'error'); return; }
-    setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
+    if (DEMO) { const msg = 'Uploads work in your real app. Pick from the library here'; setMusicMsg(msg); showToast(msg, 'error'); return; }
+    setMusicMsg(''); setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
     try {
       const url = await uploadToCloudinaryWithProgressInner(file, 'eventicor-music', (p: number) => setMusicPct(p), APP_ID);
       setMusicPct(100);
@@ -7598,7 +7599,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       closeMusicDropdown();
       showToast('Your track is in. Guests hear it when the card opens', 'success');
     } catch (err: any) {
-      showToast('Could not upload that track. Try again' + (err && err.message ? ': ' + String(err.message).slice(0, 80) : ''), 'error');
+      const msg = 'Could not upload that track. Try again' + (err && err.message ? ': ' + String(err.message).slice(0, 80) : '');
+      setMusicMsg(msg);
+      showToast(msg, 'error');
     }
     setMusicUploading(false);
   };
@@ -8061,7 +8064,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 </div>
                 <p className="text-[10px] opacity-50 mt-1.5">Hold &amp; fade holds the section and fades each photo in. Scroll glide slides each photo across from the right as they scroll. Flip stack turns them over like pages.</p>
               </div>
-              <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
+              <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={onInvitePhotos} />
             </InvSec>
             <InvSec id="music" title="Music">
               <div className="relative">
@@ -8110,7 +8113,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                         <button type="button" onClick={() => myMusicInputRef.current?.click()} className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left text-sm hover:bg-[var(--ann-accent)]/5" style={{ touchAction: 'manipulation' }}>
                           <Upload className="w-4 h-4 opacity-60 shrink-0" />
                           <span>Upload from my device</span>
-                          <span className="ml-auto text-[0.58rem] font-black uppercase tracking-widest opacity-40">mp3</span>
+                          <span className="ml-auto text-[0.58rem] font-black uppercase tracking-widest opacity-40">mp3 · up to 50MB</span>
                         </button>
                       )}
                     </div>
@@ -8123,8 +8126,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                     <p className="text-[10px] opacity-50 mt-1.5 m-0">It lands in Your uploads the moment it finishes.</p>
                   </div>
                 )}
+                {musicMsg && <p className="text-xs font-semibold text-[#e05a4e] mt-2 m-0">{musicMsg}</p>}
               </div>
-              <input ref={myMusicInputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" className="hidden" onChange={onMyMusic} />
+              <input ref={myMusicInputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" className="sr-only" onChange={onMyMusic} />
             </InvSec>
           </>
         );
