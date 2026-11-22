@@ -979,6 +979,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isAdmin, setIsAdmin] = useState(false);
   const [displayName, setDisplayName] = useState(localStorage.getItem(lsKey('profile-name')) || '');
   const [avatar, setAvatar] = useState(localStorage.getItem(lsKey('profile-avatar')) || '');
+  // Secret way in: the admin picks where the hidden entrance to their dashboard
+  // sits. Cached on this device at sign-in so it keeps working signed-out.
+  const [secretPath, setSecretPath] = useState<string>(() => { try { return (JSON.parse(localStorage.getItem(lsKey('secret-path')) || 'null') || {}).v || 'default'; } catch { return 'default'; } });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
@@ -1016,6 +1019,41 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (user && !user.isAnonymous && isAdmin) { goAdminPage(); return; }
     shortcutLoginRef.current = true;
     setAuthScreen('signin');
+  };
+  // A chosen secret way in fires this directly: one gesture, same gate as the
+  // round button (sample apps never expose it, previews stay one-tap).
+  const triggerAdminEntry = () => {
+    if (adminMode === 'none') return;
+    if (adminMode === 'preview') { goAdminPage(); return; }
+    if (user && !user.isAnonymous && isAdmin) { goAdminPage(); return; }
+    shortcutLoginRef.current = true;
+    setAuthScreen('signin');
+  };
+  const namesTapCountRef = useRef(0);
+  const namesTapAtRef = useRef(0);
+  const onNamesTap = () => {
+    const now = Date.now();
+    if (now - namesTapAtRef.current > 3000) namesTapCountRef.current = 0;
+    namesTapAtRef.current = now;
+    namesTapCountRef.current += 1;
+    if (namesTapCountRef.current < 5) return;
+    namesTapCountRef.current = 0;
+    triggerAdminEntry();
+  };
+  const footerHoldTimerRef = useRef<number | null>(null);
+  const startFooterHold = () => {
+    if (footerHoldTimerRef.current) return;
+    footerHoldTimerRef.current = window.setTimeout(() => { footerHoldTimerRef.current = null; triggerAdminEntry(); }, 3000);
+  };
+  const endFooterHold = () => { if (footerHoldTimerRef.current) { window.clearTimeout(footerHoldTimerRef.current); footerHoldTimerRef.current = null; } };
+  // The admin saves their secret way in from the dashboard's Security tab.
+  const saveSecretPath = (v: string) => {
+    setSecretPath(v);
+    try { localStorage.setItem(lsKey('secret-path'), JSON.stringify({ v })) } catch {}
+    if (DEMO || !user || user.isAnonymous) { showToast('Your secret way in is set. Guests never see it.', 'success'); return; }
+    setDoc(doc(db, scopedPath('admins'), user.email || ''), { secretPath: v }, { merge: true })
+      .then(() => showToast('Your secret way in is set. Guests never see it.', 'success'))
+      .catch(() => showToast('Could not save that. Try again', 'error'));
   };
   const leaveAdminPage = () => {
     // Deliberately leaving the dashboard (View app) ends the boot-restore gate:
@@ -1639,6 +1677,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           ? { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true }
           : { canDeletePosts: !!admPerms.canDeletePosts, canUploadImages: admPerms.canUploadImages !== false, canSetAccessCode: !!admPerms.canSetAccessCode });
         setMustSetPassword(!!admDoc.mustSetPassword);
+        // The admin's chosen secret way in, cached on this device so the
+        // trigger keeps working after they sign out.
+        const sp = String((admDoc as any).secretPath || 'default');
+        setSecretPath(sp);
+        try { localStorage.setItem(lsKey('secret-path'), JSON.stringify({ v: sp })) } catch {}
         const mins = Number(snap.data().sessionMinutes);
         if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
         // Idle session window: lastActiveAt (written while the admin works)
@@ -3015,7 +3058,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <header className={`sticky top-0 z-[60] backdrop-blur-md px-5 py-3.5 border-b transition-colors ${isDarkMode ? 'bg-[#0B171C]/80 border-[#22363E]' : 'bg-[#EEEDF3]/80 border-[#DAD8E3]'}`}>
           <div className="max-w-[520px] mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]">{demoHeader()}</h1>
+              <h1 className="text-[1.25rem] font-serif-display italic font-medium tracking-[0] leading-none text-[var(--ann-accent)]" onClick={secretPath === 'names5' ? onNamesTap : undefined} style={secretPath === 'names5' ? { WebkitTapHighlightColor: 'transparent' } : undefined}>{demoHeader()}</h1>
               {!isOnline && (
                 <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[10px] font-black uppercase tracking-wider">
                   Offline
@@ -3295,6 +3338,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               )}
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
+              <div
+                onPointerDown={secretPath === 'footerhold' ? startFooterHold : undefined}
+                onPointerUp={secretPath === 'footerhold' ? endFooterHold : undefined}
+                onPointerCancel={secretPath === 'footerhold' ? endFooterHold : undefined}
+                onPointerLeave={secretPath === 'footerhold' ? endFooterHold : undefined}
+                onContextMenu={secretPath === 'footerhold' ? (e: any) => e.preventDefault() : undefined}
+              >
               {footerStyle === 'marquee' ? (
                 <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               ) : footerStyle === 'tunnel' ? (
@@ -3304,6 +3354,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               ) : (
                 <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               )}
+              </div>
 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
                 <div className="flex flex-col items-center gap-3">
@@ -3751,7 +3802,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               </div>
 
-              {!noChrome && (
+              {!noChrome && secretPath === 'default' && (
                 <div className="pt-6 pb-2" style={{ display: 'grid', justifyItems: 'center' }}>
                   <style>{`@keyframes evAdminHalo { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
                   {adminMode === 'none' ? (
@@ -3895,6 +3946,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onRestorePost={handleRestorePost}
         onPermanentDelete={handlePermanentDelete}
         currentUserEmail={DEMO ? 'preview@eventicor.name.ng' : user?.email}
+        profileAvatar={avatar}
+        onSaveSecretPath={saveSecretPath}
         adminPermissions={DEMO ? { canUploadImages: true, canDeletePosts: true, canSetAccessCode: true } : adminPermissions}
         showToast={showToast}
         onBackToMain={onBackToMain}
@@ -7533,9 +7586,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     if (file.size > 12 * 1024 * 1024) { showToast('That track is over 12 MB. Try a smaller mp3', 'error'); return; }
     if (!DEMO && storageBlocked()) { showToast(STORAGE_FULL_MESSAGE, 'error'); return; }
     const base = String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
+    if (DEMO) { showToast('Uploads work in your real app. Pick from the library here', 'error'); return; }
     setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
     try {
-      if (DEMO) { showToast('Uploads work in your real app. Pick from the library here', 'error'); setMusicUploading(false); return; }
       const url = await uploadToCloudinaryWithProgressInner(file, 'eventicor-music', (p: number) => setMusicPct(p), APP_ID);
       setMusicPct(100);
       await addDoc(collection(db, scopedPath('music')), { name: base, url, createdAt: serverTimestamp() });
@@ -8017,7 +8070,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${musicOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {musicOpen && (
-                  <div className={`absolute left-0 right-0 mt-2 rounded-xl border shadow-xl z-30 max-h-[260px] overflow-auto ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                  <div className={`absolute left-0 right-0 bottom-full mb-2 rounded-xl border shadow-xl z-30 max-h-[260px] overflow-auto ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     {[
                       { id: 'builtin', name: 'Built-in music', v: '' },
                       { id: 'none', name: 'No music', v: 'none' },
@@ -8060,6 +8113,13 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                         </button>
                       )}
                     </div>
+                  </div>
+                )}
+                {musicUploading && (
+                  <div className={`mt-2 rounded-xl border p-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center justify-between text-xs font-black mb-2"><span className="truncate pr-2">Uploading {musicUpName}…</span><span className="tabular-nums">{musicPct}%</span></div>
+                    <div className={`h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}><div className="h-full rounded-full bg-[var(--ann-accent)] transition-all duration-200" style={{ width: musicPct + '%' }} /></div>
+                    <p className="text-[10px] opacity-50 mt-1.5 m-0">It lands in Your uploads the moment it finishes.</p>
                   </div>
                 )}
               </div>
@@ -8209,6 +8269,8 @@ function AdminDashboardModal({
   onRestorePost,
   onPermanentDelete,
   currentUserEmail,
+  profileAvatar,
+  onSaveSecretPath,
   onSignOut,
   adminPermissions,
   videoOrientations,
@@ -9445,7 +9507,7 @@ function AdminDashboardModal({
                 </button>
                 <p className="font-display text-white text-base font-medium">{demoHeader()}</p>
                 <div className="relative ml-auto">
-                  <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
+                  <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{(currentUserEmail || 'A').charAt(0).toUpperCase()}</span>}</button>
                   {profileMenuOpen && (
                     <div className={`absolute right-0 top-10 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                       <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
@@ -9528,7 +9590,7 @@ function AdminDashboardModal({
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
-                    <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-9 h-9 rounded-full bg-[var(--ann-accent)] text-white grid place-items-center font-black" aria-label="Profile">{(currentUserEmail || 'A').charAt(0).toUpperCase()}</button>
+                    <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-9 h-9 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{(currentUserEmail || 'A').charAt(0).toUpperCase()}</span>}</button>
                     {profileMenuOpen && (
                       <div className={`absolute right-0 top-11 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                         <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
@@ -10541,6 +10603,18 @@ function AdminDashboardModal({
               )}
               {activeAdminTab === 'security' && (
                 <div className="space-y-8">
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Secret way in</h3>
+                    <p className="text-[0.8rem] opacity-60 mb-3">Only you should know where the door to this dashboard is. Pick where your secret way in sits and guests will never find it. Your pick works on every phone you have signed in on; on a brand-new phone the round button at the bottom of Settings comes back until you sign in once.</p>
+                    <div className="grid gap-2">
+                      {([['default', 'Round button at the bottom of Settings'], ['names5', 'Tap your names at the top 5 times'], ['footerhold', 'Press and hold the photo wall at the bottom 3 seconds']] as [string, string][]).map(([v, label]) => (
+                        <button key={v} onClick={() => onSaveSecretPath && onSaveSecretPath(v)} className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-left text-[0.85rem] font-bold ${(myAdminDoc?.secretPath || 'default') === v ? 'border-[var(--ann-accent)] text-[var(--ann-accent)] bg-[var(--ann-accent)]/5' : (isDarkMode ? 'border-[#22363E] text-white/70' : 'border-[#DAD8E3] text-[#1A2B32]/70')}`} style={{ touchAction: 'manipulation' }}>
+                          <span>{label}</span>
+                          {(myAdminDoc?.secretPath || 'default') === v && <Check className="w-4 h-4 shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {ownerAdmin && (
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -11238,8 +11312,8 @@ function AdminDashboardModal({
                     <div key={dp.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-[#F8F8FA] border-[#DAD8E3]'}`}>
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold truncate mb-1">By {d.authorName || 'a guest'}</p>
-                          <p className="text-[10px] opacity-40 line-clamp-2">{d.text || d.caption || ''}</p>
+                          <p className="text-[15px] font-extrabold leading-snug break-words line-clamp-3">{d.text || d.caption || 'No text on this post'}</p>
+                          <p className="text-xs font-bold opacity-60 truncate mt-1.5">Posted by {d.authorName || 'a guest'}</p>
                         </div>
                         <div className="flex flex-col gap-2 shrink-0">
                           <button 
@@ -11258,10 +11332,10 @@ function AdminDashboardModal({
                           </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 opacity-30 text-[9px] font-black uppercase tracking-widest pt-2 border-t border-black/5">
-                        <span>Deleted {new Date(dp.deletedAt?.toDate?.() || Date.now()).toLocaleDateString()}</span>
+                      <div className="flex items-center flex-wrap gap-2 text-xs font-black pt-2.5 border-t border-black/5">
+                        <span>Deleted {(() => { const dt = dp.deletedAt?.toDate?.() || new Date(dp.deletedAt || Date.now()); return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); })()}</span>
                         <span>•</span>
-                        <span>By {dp.deletedBy || 'admin'}</span>
+                        <span>by {dp.deletedBy || 'admin'}</span>
                       </div>
                     </div>
                     );
