@@ -220,6 +220,10 @@ export default async (req) => {
     return json(401, { error: 'Invalid or expired token' })
   }
 
+  // add-invitee rides the same app-scoped admin gate as every other app
+  // write: point the gate at the app's invites collection up front.
+  if (body.op === 'add-invitee') body.collection = 'apps/' + String(body.appId || '').trim() + '/invites'
+
   // Server-side enforcement for per-app data. Every couple app's data lives
   // under apps/<app>/...; admins of that app are named in apps/<app>/admins.
   // Suspended admins are refused outright, admin sessions expire by the
