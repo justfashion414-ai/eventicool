@@ -129,7 +129,7 @@ function TrialEnded({ accent, lead, appId }: { accent: string; lead: LeadData | 
         appName={`${lead?.bride || 'Bride'} & ${lead?.groom || 'Groom'}`}
         email={lead?.email || ''}
         appId={appId}
-        titles={['Your free trial has ended', 'Make your transfer', 'Almost there']}
+        titles={['Your free trial has ended', 'Make your transfer', 'Confirming your payment', 'Almost there']}
         intro={'Your free trial has ended. To keep the app running for your wedding and your guests, choose a plan below.'}
         note={'After your payment is confirmed, your app returns right away and stays online for one year.'}
       />
@@ -395,7 +395,7 @@ export default function CoupleApp() {
               appName={`${lead.bride || 'Bride'} & ${lead.groom || 'Groom'}`}
               email={lead.email || ''}
               appId={leadId}
-              titles={['Pick your plan', 'Make your transfer', 'Almost there']}
+              titles={['Pick your plan', 'Make your transfer', 'Confirming your payment', 'Almost there']}
               intro={'Your free trial is running. Choosing a plan now keeps your app online for your wedding and your guests with no interruption.'}
               note={'After your payment is confirmed, your app stays online for one year.'}
             />

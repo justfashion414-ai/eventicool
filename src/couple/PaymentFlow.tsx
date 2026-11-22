@@ -17,22 +17,44 @@ const PLANS = [
 const ng = (n: number) => '₦' + n.toLocaleString('en-NG');
 const pillBtn = (accent: string): React.CSSProperties => ({ display: 'inline-block', background: accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' });
 
+// Step 3 (Confirming your payment): a gateway-style verification screen with no
+// backend behind it. It only behaves the way a payment gateway does while it
+// checks, then hands over to the receipt page. No confirmation modal, and the
+// word "confirmed" never appears: the real confirmation stays with the admin.
+const VERIFY_STEPS = ['Contacting your bank…', 'Verifying the transfer…', 'Matching your payment…', 'Wrapping up the check…'];
+const VERIFY_MS = 11200; // 11.2s: inside the 10-12s window the user asked for
+const verifyCss = (accent: string) => `
+@keyframes pfvspin { to { transform: rotate(360deg); } }
+@keyframes pfvfill { from { width: 0%; } to { width: 100%; } }
+@keyframes pfvsweep { 0%,100% { top: 10%; } 50% { top: 80%; } }
+@keyframes pfvfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.pfv-ring { width: 76px; height: 76px; border-radius: 50%; margin: 0 auto; position: relative; display: flex; align-items: center; justify-content: center; background: conic-gradient(${accent} 0deg 300deg, #ece5da 300deg 360deg); animation: pfvspin 1.4s linear infinite; }
+.pfv-ring::before { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
+.pfv-ring b { position: relative; font-size: 30px; color: ${accent}; font-family: Georgia, serif; }
+.pfv-barwrap { height: 8px; border-radius: 999px; background: #ece5da; overflow: hidden; margin: 18px auto 0; max-width: 260px; }
+.pfv-bar { height: 100%; border-radius: 999px; background: ${accent}; animation: pfvfill ${VERIFY_MS}ms linear forwards; }
+.pfv-status { animation: pfvfade .45s ease; }
+.pfv-doc { position: relative; width: 134px; height: 86px; margin: 18px auto 0; border-radius: 10px; border: 1px solid #ece5da; background: #faf7f0; overflow: hidden; }
+.pfv-doc i { position: absolute; left: 16px; right: 16px; height: 5px; border-radius: 3px; background: #e6ded1; }
+.pfv-doc em { position: absolute; left: 0; right: 0; height: 2px; background: ${accent}; opacity: .85; box-shadow: 0 0 12px ${accent}; animation: pfvsweep 1.6s ease-in-out infinite; }
+`;
+
 interface Props {
   accent: string;
   appName: string;
   email: string;
   appId: string;
-  titles?: [string, string, string];
+  titles?: [string, string, string, string];
   intro?: string;
   note?: string;
   demoMode?: boolean;
   onDone?: () => void;
 }
 
-export default function PaymentFlow({ accent, appName, email, appId, titles = ['Your free trial has ended', 'Make your transfer', 'Almost there'], intro, note, demoMode, onDone }: Props) {
+export default function PaymentFlow({ accent, appName, email, appId, titles = ['Your free trial has ended', 'Make your transfer', 'Confirming your payment', 'Almost there'], intro, note, demoMode, onDone }: Props) {
   const [pay, setPay] = useState({ ...DEFAULT_PAYMENT });
   const [gb, setGb] = useState<Record<string, number>>({ essential: 5, complete: 10, legacy: 20 });
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [plan, setPlan] = useState<(typeof PLANS)[number] | null>(null);
   const [more, setMore] = useState('');
   const [left, setLeft] = useState(300);
@@ -42,6 +64,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
+  const [vi, setVi] = useState(0);
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
 
   useEffect(() => {
@@ -78,6 +101,14 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
     const t = window.setTimeout(() => setToast(''), 3800);
     return () => window.clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (step !== 3) return;
+    setVi(0);
+    const iv = window.setInterval(() => setVi((v) => Math.min(v + 1, VERIFY_STEPS.length - 1)), VERIFY_MS / VERIFY_STEPS.length);
+    const t = window.setTimeout(() => setStep(4), VERIFY_MS);
+    return () => { window.clearInterval(iv); window.clearTimeout(t); };
+  }, [step]);
 
   const wa = `https://wa.me/${(pay.whatsapp || DEFAULT_PAYMENT.whatsapp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello Eventicor! I just sent my payment receipt.\nApp: ${appName}\nEmail: ${email || 'not provided'}\nPlan: ${plan ? plan.name : ''}`)}`;
 
@@ -172,17 +203,18 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
       )}
       {step === 2 && plan && (
         <>
-          <div style={{ ...card, marginTop: 20, textAlign: 'center' }}>
+          <div style={{ ...card, marginTop: 20, textAlign: 'center', padding: '18px 16px 14px' }}>
+            <small style={{ color: '#8a7a63', fontWeight: 700, letterSpacing: '.1em', fontSize: 11 }}>SESSION ACCOUNT · RESERVED FOR YOU</small>
+            <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: '.06em', color: left === 0 ? '#a36a00' : '#1d2b30', lineHeight: 1.05, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{left > 0 ? mm : '0:00'}</div>
+            {left === 0 && (
+              <p style={{ color: '#a36a00', fontSize: 13, margin: '8px 0 0' }}>This payment window has expired.</p>
+            )}
+          </div>
+          <div style={{ ...card, marginTop: 12, textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, color: '#5a6970' }}>
               <span><b style={{ color: '#1d2b30' }}>{plan.name}</b> plan</span>
               <span><b style={{ color: '#1d2b30' }}>{ng(plan.amount)}</b></span>
             </div>
-            <div style={{ margin: '14px auto 0', padding: '10px 12px', borderRadius: 12, background: '#f4efe6', display: 'inline-block' }}>
-              <small style={{ color: '#8a7a63', fontWeight: 700, letterSpacing: '.08em', fontSize: 10.5 }}>SESSION ACCOUNT · RESERVED {left > 0 ? mm : '0:00'}</small>
-            </div>
-            {left === 0 && (
-              <p style={{ color: '#a36a00', fontSize: 13, margin: '10px 0 0' }}>This payment window has expired.</p>
-            )}
             <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '.06em', color: '#1d2b30', marginTop: 10 }}>{pay.accountNumber}</div>
             <div style={{ color: '#5a6970', fontSize: 14, marginTop: 4 }}>{pay.accountName}</div>
             <div style={{ color: '#93a4ab', fontSize: 13 }}>{pay.bankName}</div>
@@ -204,6 +236,23 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
         </>
       )}
       {step === 3 && plan && (
+        <style>{verifyCss(accent)}</style>
+      )}
+      {step === 3 && plan && (
+        <>
+          <div style={{ ...card, marginTop: 20, textAlign: 'center', padding: '26px 18px 22px' }}>
+            <div className="pfv-ring"><b>₦</b></div>
+            <div className="pfv-barwrap"><div className="pfv-bar" /></div>
+            <p key={vi} className="pfv-status" style={{ color: '#5a6970', fontSize: 14.5, fontWeight: 600, margin: '16px 0 0' }}>{VERIFY_STEPS[vi]}</p>
+            <p style={{ color: '#93a4ab', fontSize: 12.5, margin: '8px 0 0' }}>Keep this page open while we check your transfer.</p>
+            <div className="pfv-doc" aria-hidden="true">
+              <i style={{ top: 16 }} /><i style={{ top: 30 }} /><i style={{ top: 44, left: 30, right: 30 }} /><i style={{ top: 58 }} />
+              <em />
+            </div>
+          </div>
+        </>
+      )}
+      {step === 4 && plan && (
         <>
           <div style={{ ...card, marginTop: 20 }}>
             <p style={{ color: '#5a6970', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
@@ -229,9 +278,6 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
             <button type="button" style={{ ...pillBtn(accent), width: '100%', marginTop: 10, background: '#25d366', opacity: sent ? 1 : 0.45, cursor: sent ? 'pointer' : 'not-allowed' }} disabled={!sent} onClick={() => { if (sent) window.open(wa, '_blank'); }}>
               CONTACT SUPPORT ON WHATSAPP
             </button>
-            <p style={{ color: '#93a4ab', fontSize: 12, textAlign: 'center', margin: '10px 0 0' }}>
-              {sent ? 'WhatsApp is open for you above.' : 'WhatsApp unlocks after your receipt is sent.'}
-            </p>
             <button type="button" style={{ ...pillBtn(accent), width: '100%', marginTop: 12, background: 'transparent', color: '#5a6970', border: '1.5px solid #d9d2c6' }} onClick={() => setStep(2)}>BACK</button>
           </div>
         </>

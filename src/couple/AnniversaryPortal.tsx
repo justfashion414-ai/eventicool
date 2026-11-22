@@ -7905,7 +7905,7 @@ function AdminDashboardModal({
             appName={`${demoBride() || 'Bride'} & ${demoGroom() || 'Groom'}`}
             email={''}
             appId={APP_ID}
-            titles={['Choose a new plan', 'Make your transfer', 'Almost there']}
+            titles={['Choose a new plan', 'Make your transfer', 'Confirming your payment', 'Almost there']}
             intro={'Pick the plan that fits your app. Storage, photographers, vendors and features follow the plan you choose.'}
             demoMode={DEMO || adminMode !== 'real'}
             onDone={() => setUpgradeOpen(false)}
