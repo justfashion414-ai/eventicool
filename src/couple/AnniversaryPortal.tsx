@@ -2238,6 +2238,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return;
     }
     if (!isAdmin || !adminPermissions?.canSetAccessCode) { showToast('You do not have permission for that.', 'error'); return; }
+    // The switch answers at once: state moves first and the write follows. If
+    // the save fails the state goes back, so the toggle never sits dead.
+    setFeedPrivate(makePrivate);
+    try { localStorage.setItem(lsKey('feed-gate-cfg'), JSON.stringify({ private: makePrivate, gen: makePrivate ? feedGateGen + 1 : feedGateGen })); } catch {}
     try {
       // Toggling the feed private disconnects EVERY device that was granted
       // access, live, whether the access code was revoked before or not: the
@@ -2247,6 +2251,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       await setDoc(doc(db, scopedPath('app_config'), 'main'), patch, { merge: true });
       showToast(makePrivate ? 'Going forward, the feed and the settings in the app will not be visible to the guest anymore.' : 'Your feed is public again. Every guest can see it.');
     } catch (err) {
+      setFeedPrivate(!makePrivate);
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Failed to save the setting.', 'error');
     }
@@ -6041,7 +6046,7 @@ function GiantFooter3dShell({ compact, worldRef, stageRef, vignette, background,
       <div ref={worldRef} className="ev-fw-world" />
       <div className="ev-fw-vig" style={{ background: vignette }} />
       <GiantFooterNames bride={bride || demoBride()} groom={groom || demoGroom()} wed={wed || WED_DOT_SPACED} thanks={thanks} compact={compact} />
-      {onTap ? <div className="ev-fw-hint">TAP A PHOTO</div> : null}
+      
     </section>
   );
 }
@@ -7483,7 +7488,7 @@ const IV_STYLES = [
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
 ];
 
-function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast }: any) {
+function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast, user }: any) {
   const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm font-medium ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-white/30' : 'bg-white border-[#DAD8E3] text-slate-900'}`;
   const cardCls = `rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
   const labCls = 'block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5';
@@ -7817,7 +7822,13 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         setGuests(next);
         localStorage.setItem(lsKey('iv-guests'), JSON.stringify(next));
       } else {
-        await addDoc(collection(db, scopedPath('invites'), docId, 'guests'), { name: guestName.trim(), phone, createdAt: serverTimestamp() });
+        const idToken = await user.getIdToken();
+        const res = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` }, body: JSON.stringify({ op: 'add-invitee', appId: APP_ID, inviteId: docId, name: guestName.trim(), phone }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data && data.error === 'invitee-limit') { showToast(`Your plan allows up to ${data.limit} invitees. Upgrade your plan to add more.`, 'error'); setAddingGuest(false); return; }
+          throw new Error((data && data.error) || 'Could not reach the server');
+        }
       }
       setGuestName(''); setGuestPhone('');
       showToast('Invitee added. Copy their link or tap WhatsApp to send it', 'success');
@@ -10330,7 +10341,7 @@ function AdminDashboardModal({
               </AnimatePresence>
 
               {activeAdminTab === 'invite' && (
-                <InviteCardSection isDarkMode={isDarkMode} weddingDetails={weddingDetails} story={story} wedDate={previewWedDate()} showToast={showToast} />
+                <InviteCardSection isDarkMode={isDarkMode} weddingDetails={weddingDetails} story={story} wedDate={previewWedDate()} showToast={showToast} user={user} />
               )}
 
               {activeAdminTab === 'albums' && ( 

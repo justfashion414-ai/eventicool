@@ -292,6 +292,43 @@ export default async (req) => {
     }
   }
 
+  // The couple's invitee list is capped by plan: the cap lives in
+  // platform/settings.invitees.<plan> (0 or missing = unlimited) and the
+  // app's plan comes from its leads doc. Enforced here, not in the browser,
+  // so editing the page cannot get past it. Admins of the app only.
+  if (body.op === 'add-invitee') {
+    try {
+      const appId = String(body.appId || '').trim()
+      const inviteId = String(body.inviteId || '').trim()
+      const name = String(body.name || '').trim().slice(0, 120)
+      const phone = String(body.phone || '').replace(/\D/g, '').slice(0, 20)
+      if (!/^[A-Za-z0-9_-]{6,64}$/.test(appId) || !/^[A-Za-z0-9_-]{6,64}$/.test(inviteId)) return json(400, { error: 'Missing app or invitation' })
+      const email = String(decoded.email || '').toLowerCase()
+      let adm = null
+      try { adm = await getFirestore().collection('apps').doc(appId).collection('admins').doc(email).get() } catch {}
+      if (!adm || !adm.exists) return json(403, { error: 'You do not have access to do that here.' })
+      let cap = 0
+      try {
+        const s = await getFirestore().collection('platform').doc('settings').get()
+        const iv = (s.exists ? s.data().invitees : null) || {}
+        const lead = await getFirestore().collection('leads').doc(appId).get()
+        const plan = String(lead.exists ? (lead.data().plan || 'essential') : 'essential').toLowerCase()
+        const n = Number(iv[plan])
+        if (Number.isFinite(n) && n > 0) cap = Math.floor(n)
+      } catch {}
+      if (cap > 0) {
+        const inv = await getFirestore().collection('apps').doc(appId).collection('invites').get()
+        let count = 0
+        for (const d of inv.docs) { count += (await d.ref.collection('guests').get()).size }
+        if (count >= cap) return json(403, { error: 'invitee-limit', limit: cap })
+      }
+      const ref = await getFirestore().collection('apps').doc(appId).collection('invites').doc(inviteId).collection('guests').add({ name, phone, createdAt: FieldValue.serverTimestamp() })
+      return json(200, { id: ref.id })
+    } catch (e) {
+      return json(500, { error: String(e?.message || e) })
+    }
+  }
+
   const { op, collection, id, data, field, value, limit } = body
   if (!collection || typeof collection !== 'string' || collection.startsWith('_')) {
     return json(400, { error: 'A collection name is required' })

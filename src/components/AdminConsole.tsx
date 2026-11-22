@@ -237,7 +237,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [payForm, setPayForm] = useState<{ accountName: string; bankName: string; accountNumber: string; whatsapp: string } | null>(null)
   // Platform-wide settings (platform/settings): the feed pagination and the
   // storage each plan carries. Every app reads them; only this console edits them.
-  const [plat, setPlat] = useState<{ feedPageSize: number; storage: { essential: number; complete: number; legacy: number } } | null>(null)
+  const [plat, setPlat] = useState<{ feedPageSize: number; storage: { essential: number; complete: number; legacy: number }; invitees: { essential: number; complete: number; legacy: number } } | null>(null)
   const [platSaved, setPlatSaved] = useState('')
   const [platCustom, setPlatCustom] = useState('')
   const [paySaved, setPaySaved] = useState('')
@@ -308,7 +308,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }, [])
   useEffect(() => {
     let alive = true
-    const fallback = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } }
+    const fallback = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 }, invitees: { essential: 0, complete: 0, legacy: 0 } }
     ;(async () => {
       await consoleAuthReady()
       if (!alive || !consoleAuth.currentUser) { if (alive) setPlat(fallback); return }
@@ -317,7 +317,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         if (!alive) return
         const st = (d && d.storage) || {}
         const num = (v: unknown, def: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def }
-        setPlat(d && d.feedPageSize !== undefined ? { feedPageSize: num(d.feedPageSize, 0), storage: { essential: num(st.essential, 5), complete: num(st.complete, 10), legacy: num(st.legacy, 20) } } : fallback)
+        const invNum = (v: unknown, def: number) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.floor(n) : def }
+        const di = (d && d.invitees) || {}
+        setPlat(d && d.feedPageSize !== undefined ? { feedPageSize: num(d.feedPageSize, 0), storage: { essential: num(st.essential, 5), complete: num(st.complete, 10), legacy: num(st.legacy, 20) }, invitees: { essential: invNum(di.essential, 0), complete: invNum(di.complete, 0), legacy: invNum(di.legacy, 0) } } : fallback)
       } catch { if (alive) setPlat(fallback) }
     })()
     return () => { alive = false }
@@ -946,11 +948,17 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       if (!plat) return
       setPlat({ ...plat, storage: { ...plat.storage, [k]: n } })
     }
+    const iv = (k: 'essential' | 'complete' | 'legacy') => (plat ? plat.invitees[k] : 0)
+    const setIv = (k: 'essential' | 'complete' | 'legacy', v: string) => {
+      const n = Number(v.replace(/[^0-9]/g, ''))
+      if (!plat) return
+      setPlat({ ...plat, invitees: { ...plat.invitees, [k]: Number.isFinite(n) ? n : 0 } })
+    }
     const savePlat = async (note: string) => {
       if (!plat) return
       setBusy(true)
       try {
-        await consoleCall('set', { collection: 'platform', id: 'settings', data: { feedPageSize: plat.feedPageSize, storage: plat.storage, updatedAt: Date.now() } })
+        await consoleCall('set', { collection: 'platform', id: 'settings', data: { feedPageSize: plat.feedPageSize, storage: plat.storage, invitees: plat.invitees, updatedAt: Date.now() } })
         Object.keys(PL).forEach((k) => { PL[k].gb = plat.storage[k as 'essential' | 'complete' | 'legacy'] || PL[k].gb })
         logAudit(note)
         setPlatSaved('Saved. Every app picks this up on its next load.')
@@ -989,6 +997,20 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </div>
           ))}
           <button className="btn" disabled={busy} onClick={() => savePlat('Updated the storage included with each plan')}>Save storage</button>
+        </div>
+        <div className="card">
+          <h3>Invitees per plan</h3>
+          <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How many invitees a couple can add to their invitation list on each plan. Enforced on the server: an app at its limit is stopped from adding more until it upgrades. 0 means unlimited.</p>
+          {(['essential', 'complete', 'legacy'] as const).map((k) => (
+            <div className="rw" key={k}>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{ng(PL[k].price)} plan</small></div>
+              <div className="row">
+                <input value={String(iv(k))} style={{ width: 90 }} aria-label={`${PL[k].name} invitee limit`} onChange={(e) => setIv(k, e.target.value)} />
+                <small style={{ width: 60 }}>max</small>
+              </div>
+            </div>
+          ))}
+          <button className="btn" disabled={busy} onClick={() => savePlat('Updated the invitee limit for each plan')}>Save invitee limits</button>
         </div>
         {platSaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '4px 0 0' }}>{platSaved}</p>}
       </>
