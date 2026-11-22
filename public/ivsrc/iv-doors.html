@@ -249,14 +249,16 @@ p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .map{position:relative;margin:30px auto 0;width:100%;max-width:380px;aspect-ratio:4/3.3;border-radius:18px;overflow:hidden;background:#ebe5da;box-shadow:0 0 0 1px rgba(185,119,44,.5),0 14px 30px rgba(90,40,40,.22)}
 .map-svg{display:block;width:100%;height:100%}
 #mapWorld{transform-origin:248px 160px;transition:transform .5s cubic-bezier(.3,.7,.2,1)}
-.map-card{position:absolute;left:10px;top:10px;max-width:calc(100% - 66px);display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;background:#fff;border-radius:10px;padding:9px 12px 10px;box-shadow:0 2px 8px rgba(0,0,0,.28);font-family:var(--sans)}
+.map-card{position:absolute;left:10px;top:10px;max-width:calc(100% - 66px);display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;background:#fff;border-radius:10px;padding:9px 12px 10px;box-shadow:0 2px 8px rgba(0,0,0,.28);font-family:var(--sans);z-index:1200}
 .map-card b{font-weight:500;font-size:14px;color:#202124;line-height:1.25}
 .map-card span{font-size:11px;color:#70757a}
 .map-card a{margin-top:7px;display:inline-block;background:#1a73e8;color:#fff;text-decoration:none;font-size:11.5px;letter-spacing:.04em;padding:6px 13px;border-radius:999px}
-.zoomctl{position:absolute;right:10px;bottom:30px;display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.3);overflow:hidden}
+.zoomctl{position:absolute;right:10px;bottom:30px;display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.3);overflow:hidden;z-index:1200}
 .zoomctl button{width:36px;height:36px;border:0;background:#fff;color:#5f6368;font-family:var(--sans);font-size:20px;line-height:1;cursor:pointer}
 .zoomctl button+button{border-top:1px solid #e0e0e0}
-.map-note{position:absolute;right:8px;bottom:6px;font-family:var(--sans);font-size:9px;letter-spacing:.08em;color:#70757a;background:rgba(255,255,255,.75);padding:1px 5px;border-radius:3px}
+.map-note{position:absolute;right:8px;bottom:6px;font-family:var(--sans);font-size:9px;letter-spacing:.08em;color:#70757a;background:rgba(255,255,255,.75);padding:1px 5px;border-radius:3px;z-index:1200}
+/* Preview mockup (no i= param): the RSVP form shows but answers no taps. */
+.iv-preview #rsvpForm input,.iv-preview #rsvpForm textarea,.iv-preview #rsvpForm button{pointer-events:none!important}
 .pin-drop{animation:none;transform-box:fill-box}
 .map.seen .pin-drop{animation:drop .8s cubic-bezier(.3,.9,.4,1) both}
 @keyframes drop{0%{transform:translateY(-46px);opacity:0}55%{opacity:1}78%{transform:translateY(4px)}100%{transform:none}}
@@ -855,11 +857,11 @@ function buildMap() {
 function liveMap() {
   var lat = Number(C.pos.lat), lng = Number(C.pos.lng);
   if (!isFinite(lat) || !isFinite(lng)) { buildMap(); return; }
-  var m = $("#map"), svg = $("#mapSvg");
-  if (svg) svg.style.display = "none";
+  var m = $("#map"), svg = $("#mapSvg"), svgNext = null;
+  if (svg) { svgNext = svg.nextSibling; svg.parentNode.removeChild(svg); }
   var note = m.querySelector(".map-note"); if (note) note.textContent = "Live map";
   $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
-  var box = document.createElement("div"); box.id = "liveMap"; box.style.cssText = "position:absolute;inset:0;background:#e8e0d4";
+  var box = document.createElement("div"); box.id = "liveMap"; box.style.cssText = "position:absolute;left:0;top:0;right:0;bottom:0;background:#e8e0d4";
   m.insertBefore(box, m.firstChild);
   var go = function () {
     try {
@@ -870,15 +872,18 @@ function liveMap() {
       $("#mapIn").addEventListener("click", function () { map.zoomIn(); });
       $("#mapOut").addEventListener("click", function () { map.zoomOut(); });
       setTimeout(function () { map.invalidateSize(); }, 250);
-    } catch (e) { if (svg) svg.style.display = ""; if (box && box.parentNode) box.parentNode.removeChild(box); if (note) note.textContent = "Illustrative map"; }
+    } catch (e) { if (svg) { try { m.insertBefore(svg, svgNext); } catch (e2) {} } if (box && box.parentNode) box.parentNode.removeChild(box); if (note) note.textContent = "Illustrative map"; }
   };
   if (window.L) go();
   else {
     var css = document.createElement("link"); css.rel = "stylesheet"; css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(css);
-    var sc = document.createElement("script"); sc.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; sc.onload = go; sc.onerror = function () { if (svg) svg.style.display = ""; if (box && box.parentNode) box.parentNode.removeChild(box); }; document.head.appendChild(sc);
+    var sc = document.createElement("script"); sc.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; sc.onload = go; sc.onerror = function () { if (svg) { try { m.insertBefore(svg, svgNext); } catch (e2) {} } if (box && box.parentNode) box.parentNode.removeChild(box); }; document.head.appendChild(sc);
   }
 }
 if (C.pos && C.pos.lat != null) liveMap(); else buildMap();
+/* Preview mockup (the floating eye): no i= param means nobody owns this card,
+   so the RSVP form stays a mockup and answers no taps. */
+try { if (!new URLSearchParams(window.location.search).get("i")) document.documentElement.classList.add("iv-preview"); } catch (eP) {}
 $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 
 /* ===== Couple photo (each photo is its own card: the CARDS carry the

@@ -6820,7 +6820,7 @@ function MapPicker({ open, initial, onClose }: any) {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/95 backdrop-blur-md" onClick={() => onClose(null)}>
+    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black" onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] bg-white rounded-t-3xl sm:rounded-3xl p-4 flex flex-col" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 shrink-0">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
@@ -7645,7 +7645,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
 
   const previewUrl = (t: string) => {
     const st = IV_STYLES.find((s) => s.id === t);
-    if (st && st.iv) return `/iv/iv-${t}.html?${cardParams()}`;
+    if (st && st.iv) return `/iv/iv-${t}.html?${cardParams()}&preview=1`;
     const p = new URLSearchParams();
     p.set('tpl', t);
     p.set('bride', f.bride || 'Amara');
@@ -7719,7 +7719,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   };
 
   const [guests, setGuests] = useState<any[] | null>(null);
+  const [guestsErr, setGuestsErr] = useState(false);
+  const guestErrTries = useRef(0);
   const [openRow, setOpenRow] = useState<string | null>(null);
+  const [delGuest, setDelGuest] = useState<any>(null);
   // Returning from WhatsApp (or any app switch) can leave the live listener
   // dead, which read as an empty list until a manual refresh. guestEpoch
   // re-subscribes whenever the page becomes visible again.
@@ -7748,10 +7751,35 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     const unsub = onSnapshot(collection(db, scopedPath('invites'), docId, 'guests'), (snap: any) => {
       const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
       rows.sort((a: any, b: any) => ((a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)));
+      guestErrTries.current = 0;
+      setGuestsErr(false);
       setGuests(rows);
-    }, () => setGuests([]));
+    }, () => {
+      /* A failed or dead listener must never read as "no invitees": keep the
+         last rows, flag the error and re-subscribe on a short backoff. */
+      setGuestsErr(true);
+      if (guestErrTries.current < 4) { guestErrTries.current += 1; setTimeout(() => setGuestEpoch((x: number) => x + 1), 2500); }
+    });
     return () => { try { unsub(); } catch { /* gone */ } };
   }, [docId, guestEpoch]);
+
+  const deleteGuest = async (g: any) => {
+    if (!g) return;
+    setDelGuest(null);
+    try {
+      if (docId === 'demo') {
+        const next = (guests || []).filter((x: any) => x.id !== g.id);
+        setGuests(next);
+        try { localStorage.setItem(lsKey('iv-guests'), JSON.stringify(next)); } catch { /* demo only */ }
+      } else {
+        await deleteDoc(doc(db, scopedPath('invites'), docId, 'guests', g.id));
+      }
+      setOpenRow((o: string | null) => (o === g.id ? null : o));
+      showToast(`${g.name || 'Invitee'} removed from your list`, 'success');
+    } catch (e: any) {
+      showToast('Could not remove them. Check your connection and try again.', 'error');
+    }
+  };
 
   const guestLink = (gid: string) => {
     const st = IV_STYLES.find((s) => s.id === tpl);
@@ -8023,7 +8051,12 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         <div>
           <label className={labCls}>Your invitees</label>
           <p className="text-xs opacity-60 mt-1 mb-3">Every invitee gets their own link. You see here when each one opens their card, and their reply the moment they send it.</p>
-          {guests === null ? (
+          {guests === null && guestsErr ? (
+            <div className={`rounded-xl border p-3 flex items-center justify-between gap-2 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+              <p className="text-xs opacity-60">Your invitee list could not load just now.</p>
+              <button type="button" onClick={() => { guestErrTries.current = 0; setGuestsErr(false); setGuestEpoch((x: number) => x + 1); }} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Try again</button>
+            </div>
+          ) : guests === null ? (
             <p className="text-xs opacity-60">Loading your invitees…</p>
           ) : guests.length === 0 ? (
             <p className="text-xs opacity-60">No invitees yet. Add one for each person you are inviting, then copy their link.</p>
@@ -8063,6 +8096,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                           {repAt && <p className="text-[0.65rem] opacity-50 mt-0.5">Sent {repAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
                           {openedAt && <p className="text-[0.65rem] opacity-50">Card opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
                         </div>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button type="button" aria-label={`Delete ${g.name || 'this invitee'} from the invitee list`} onClick={(ev) => { ev.stopPropagation(); setDelGuest(g); }} className="px-3 py-1.5 rounded-full border border-red-500/40 text-red-500 text-[0.6rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Delete guest</button>
+                        </div>
                         {!openedAt && (
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
@@ -8086,6 +8122,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             </div>
             <p className="text-[10px] opacity-50 mt-1.5">Their WhatsApp number powers the WhatsApp button on their row.</p>
           </div>
+          <DeleteConfirmationModal isOpen={!!delGuest} onClose={() => setDelGuest(null)} onConfirm={() => deleteGuest(delGuest)} isDarkMode={isDarkMode} title="Remove invitee?" message={`${delGuest && delGuest.name ? delGuest.name : 'This invitee'} and their personal link will be removed from your list. Any reply they sent goes with them.`} confirmLabel="Remove" />
         </div>
       ) : (
         <p className="text-xs opacity-60">Save your invite first, then add your invitees here.</p>
