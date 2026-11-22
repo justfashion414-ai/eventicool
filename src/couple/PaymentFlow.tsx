@@ -75,6 +75,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [vi, setVi] = useState(0);
+  const [nav, setNav] = useState(''); // button-level loading before a step change
   const left = !deadline ? 300 : deadline > now ? Math.ceil((deadline - now) / 1000) : 0;
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
 
@@ -194,6 +195,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
 
   return (
     <div style={{ width: '100%', maxWidth: 430 }}>
+      <style>{'@keyframes pfspin { to { transform: rotate(360deg); } } .pf-spin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: pfspin .7s linear infinite; vertical-align: -2px; margin-right: 8px; }'}</style>
       <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 32, lineHeight: 1.15, color: accent, fontWeight: 600, textAlign: 'center' }}>
         {titles[step - 1]}
       </div>
@@ -214,7 +216,9 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
                   {(more === p.id ? ([...p.features.slice(0, p.id === 'legacy' ? 1 : 3), `${gbOf(p.id)} of storage`, ...p.features.slice(p.id === 'legacy' ? 1 : 3)] as string[]) : ([...p.features.slice(0, 3), `${gbOf(p.id)} of storage`] as string[])).map((f) => <li key={f}>{f}</li>)}
                 </ul>
                 <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                  <button type="button" style={{ ...pillBtn(accent), flex: 1 }} onClick={() => { setPlan(p); setMore(''); setStep(2); setDeadline(Date.now() + 300000); }}>CHOOSE {p.name.toUpperCase()}</button>
+                  <button type="button" style={{ ...pillBtn(accent), flex: 1, opacity: nav && nav !== p.id ? 0.55 : 1 }} disabled={!!nav} onClick={() => { if (nav) return; setPlan(p); setMore(''); setNav(p.id); window.setTimeout(() => { setStep(2); setDeadline(Date.now() + 300000); setNav(''); }, 900); }}>
+                    {nav === p.id ? <><span className="pf-spin" />SETTING UP…</> : <>CHOOSE {p.name.toUpperCase()}</>}
+                  </button>
                   <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: accent, border: `1.5px solid ${accent}`, padding: '13px 14px' }} onClick={() => setMore(more === p.id ? '' : p.id)}>
                     {more === p.id ? 'LESS' : 'SEE MORE'}
                   </button>
@@ -251,7 +255,9 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
           </div>
           <p style={{ color: '#5a6970', fontSize: 13.5, textAlign: 'center', marginTop: 16 }}>Once your payment is made, tap the button below.</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            <button type="button" style={pillBtn(accent)} onClick={() => setStep(3)}>I'VE MADE THE PAYMENT</button>
+            <button type="button" style={{ ...pillBtn(accent), opacity: nav && nav !== 'paid' ? 0.55 : 1 }} disabled={!!nav} onClick={() => { if (nav) return; setNav('paid'); window.setTimeout(() => { setStep(3); setNav(''); }, 900); }}>
+              {nav === 'paid' ? <><span className="pf-spin" />CHECKING…</> : "I'VE MADE THE PAYMENT"}
+            </button>
             {left === 0 && (
               <button type="button" style={{ ...pillBtn(accent), background: 'transparent', color: accent, border: `1.5px solid ${accent}` }} onClick={() => setDeadline(Date.now() + 300000)}>RESTART SESSION</button>
             )}
