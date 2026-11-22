@@ -7118,6 +7118,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
 // Events & details cards. Six styles, one form filled from the couple's own
 // details, and every open of the sent card counted live.
 const IV_STYLES = [
+  { id: 'royal', n: 'Royal seal', d: 'A wax-sealed royal envelope opens into a scratch-to-reveal date', iv: true },
   { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
   { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
@@ -7129,6 +7130,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const labCls = 'block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5';
   const chipCls = (on: boolean) => `px-3 py-2 rounded-full border text-[11px] font-black uppercase tracking-widest transition-colors ${on ? 'bg-[var(--ann-accent)] text-white border-transparent' : isDarkMode ? 'border-[#22363E] text-white/70' : 'border-[#DAD8E3] text-slate-600'}`;
   const [tpl, setTpl] = useState('envelope');
+  const [invTab, setInvTab] = useState<'templates' | 'invitees'>('templates');
   const [musicLib, setMusicLib] = useState<{ id: string; name: string; url: string }[]>([]);
   useEffect(() => {
     let alive = true
@@ -7259,6 +7261,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         })(),
         music: best.music || '',
         photos: Array.isArray(best.photos) ? best.photos : [],
+        photoFx: best.photoFx || 'hold',
       });
     }).catch(() => {});
     return () => { alive = false; };
@@ -7289,6 +7292,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     if (Array.isArray(dressColors) && dressColors.length) p.set('dressColors', JSON.stringify(dressColors));
     if (f.music) p.set('music', f.music);
     if (f.photos && f.photos.length) p.set('photo', f.photos[0]);
+    if (f.photos && f.photos.length > 1) p.set('photos', JSON.stringify(f.photos));
+    if (f.photoFx) p.set('photoFx', f.photoFx);
     if (f.schedule && f.schedule.length) p.set('schedule', JSON.stringify(f.schedule));
     return p.toString();
   };
@@ -7336,6 +7341,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       dressColors: (Array.isArray(dressColors) ? dressColors : []).filter((c: any) => (typeof c === 'string' ? c.trim() : colorHexOf(c).trim())).map((c: any) => typeof c === 'string' ? { hex: c.trim(), name: colorNameFor(c.trim()) } : { hex: colorHexOf(c).trim(), name: (c && c.name) || colorNameFor(colorHexOf(c)) }).slice(0, 12),
       photos: (Array.isArray(f.photos) ? f.photos : []).slice(0, 5).filter((u: any) => typeof u === 'string' && u),
       schedule: JSON.stringify(scheduleRows),
+      photoFx: (f.photoFx === 'glide' || f.photoFx === 'flip') ? f.photoFx : 'hold',
       music: s(f.music), updatedAt: serverTimestamp(),
     };
     try {
@@ -7468,6 +7474,13 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         <p className="text-sm opacity-60 mt-0.5">Invitation cards you send your guests. Pick a style, check the details, save, then add your invitees. Each one gets their own link, and you see when they open it and what they reply.</p>
       </div>
 
+      <div className={`grid grid-cols-2 gap-1 p-1 rounded-full border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+        <button type="button" onClick={() => setInvTab('templates')} className={`py-2.5 rounded-full text-[0.68rem] font-black uppercase tracking-widest transition-colors ${invTab === 'templates' ? 'bg-[var(--ann-accent)] text-white' : isDarkMode ? 'text-white/70' : 'text-slate-600'}`} style={{ touchAction: 'manipulation' }}>Invite templates</button>
+        <button type="button" onClick={() => setInvTab('invitees')} className={`py-2.5 rounded-full text-[0.68rem] font-black uppercase tracking-widest transition-colors ${invTab === 'invitees' ? 'bg-[var(--ann-accent)] text-white' : isDarkMode ? 'text-white/70' : 'text-slate-600'}`} style={{ touchAction: 'manipulation' }}>Invitee list</button>
+      </div>
+
+      {invTab === 'templates' && (
+      <>
       <section>
         <div className="mb-3">
           <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">Card style</label>
@@ -7542,7 +7555,16 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   </button>
                 )}
               </div>
-              <p className="text-[10px] opacity-50 mt-1.5">Up to 5. With two or more, the card holds on the photos while your guest scrolls.</p>
+              <p className="text-[10px] opacity-50 mt-1.5">Up to 5. With two or more, the photos play as your guest scrolls.</p>
+              <div className="mt-3">
+                <label className={labCls}>Photo effect</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[['hold', 'Hold & fade'], ['glide', 'Scroll glide'], ['flip', 'Flip stack']].map(([v, n]: any) => (
+                    <button key={v} type="button" onClick={() => setF({ ...f, photoFx: v })} className={chipCls((f.photoFx || 'hold') === v)} style={{ touchAction: 'manipulation' }}>{n}</button>
+                  ))}
+                </div>
+                <p className="text-[10px] opacity-50 mt-1.5">Hold &amp; fade holds the section and fades each photo in. Scroll glide slides each photo across from the right as they scroll. Flip stack turns them over like pages.</p>
+              </div>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
             </InvSec>
             <InvSec id="music" title="Music">
@@ -7605,7 +7627,14 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         );
       })()}
 
-      {docId && (
+
+        <div className="flex justify-center pt-1 pb-2">
+          <button type="button" onClick={saveInvite} disabled={saving} className="px-8 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50" style={{ touchAction: 'manipulation' }}>{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
+        </div>
+      </>
+      )}
+
+      {invTab === 'invitees' && (docId ? (
         <section className={cardCls}>
           <label className={labCls}>Your invitees</label>
           <p className="text-xs opacity-60 mt-1 mb-3">Every invitee gets their own link. You see here when each one opens their card, and their reply the moment they send it.</p>
@@ -7671,14 +7700,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             <p className="text-[10px] opacity-50 mt-1.5">Their WhatsApp number powers the WhatsApp button on their row.</p>
           </div>
         </section>
-      )}
-
-      <div>
-        <div className={`${cardCls} flex items-center justify-between gap-3`}>
-          <span className="text-xs opacity-60">{docId ? 'Your card is live. Changes update the same link.' : 'Nothing saved yet.'}</span>
-          <button type="button" onClick={saveInvite} disabled={saving} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50">{saving ? 'Saving…' : docId ? 'Update invite' : 'Save invite'}</button>
-        </div>
-      </div>
+      ) : (
+        <p className="text-xs opacity-60">Save your invite first, then add your invitees here.</p>
+      ))}
 
       <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 250, touchAction: 'manipulation' }}>
         <Eye className="w-5 h-5" />

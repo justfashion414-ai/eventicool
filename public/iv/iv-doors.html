@@ -5,10 +5,12 @@
 (function () {
   var q = new URLSearchParams(location.search);
   var o = {};
-  ['name1','name2','date','venue','address','rsvpBy','whatsapp','hashtag','photo','story','dress','schedule','music'].forEach(function (k) {
+  ['name1','name2','date','venue','address','rsvpBy','whatsapp','hashtag','photo','story','dress','schedule','music','photoFx'].forEach(function (k) {
     var v = q.get(k); if (v) o[k] = v;
   });
   var dcv = q.get('dressColors'); if (dcv) { try { var dca = JSON.parse(dcv); if (Array.isArray(dca)) o.dressColors = dca; } catch (e) {} }
+  var phv = q.get('photos'); if (phv) { try { var pha = JSON.parse(phv); if (Array.isArray(pha)) o.photos = pha; } catch (e) {} }
+  var fxv = q.get('photoFx'); if (fxv) o.photoFx = fxv;
   var id = (q.get('i') || '').trim();
   var ivApp = (q.get('app') || '').trim();
   var ivAppQ = ivApp ? '&app=' + encodeURIComponent(ivApp) : '';
@@ -32,6 +34,7 @@
         if (typeof d.dress === 'string') o.dress = d.dress; else o.dress = '';
         if (d.rsvpBy) o.rsvpBy = d.rsvpBy;
         if (Array.isArray(d.photos)) o.photos = d.photos;
+        if (d.photoFx) o.photoFx = d.photoFx;
         if (d.whatsapp) o.whatsapp = d.whatsapp;
         if (d.music) o.music = d.music;
         if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
@@ -215,6 +218,8 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 .ph-s{font-family:var(--sans);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.8}
 .ph-caro img{opacity:0;transition:opacity .9s ease}
 .ph-caro img.on{opacity:1}
+.ph-glide img,.ph-flip img{opacity:1;transition:none;will-change:transform}
+.ph-flip img{transform-origin:left center}
 .ph-pause{position:relative}
 .ph-pause .arch{position:sticky;top:calc(env(safe-area-inset-top,0px) + 11vh)}
 p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -648,6 +653,44 @@ const Music = MusicIV || (() => {
     stop() { if (!ctx) return; master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(0, ctx.currentTime + .4); setTimeout(() => { if (!on) clearInterval(timer); }, 500); on = false; }
   };
 })();
+/* ===== Sound effects (generated, no files) ===== */
+const Sfx = (() => {
+  let ctx, out, on = true, lastScratch = 0;
+  function ensure() {
+    if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); out = ctx.createGain(); out.gain.value = .9; out.connect(ctx.destination); } catch (e) { return false; } }
+    if (ctx.state === "suspended") ctx.resume(); return true;
+  }
+  const now = () => ctx.currentTime;
+  function tone(f, t, d, g, type = "sine", f2) {
+    const o = ctx.createOscillator(), e = ctx.createGain(); o.type = type; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+    e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(g, t + .008); e.gain.exponentialRampToValueAtTime(.0001, t + d);
+    o.connect(e); e.connect(out); o.start(t); o.stop(t + d + .03);
+  }
+  function noise(t, d, g, freq, q = 1, type = "bandpass") {
+    const n = Math.floor(ctx.sampleRate * d), buf = ctx.createBuffer(1, n, ctx.sampleRate), data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    const s = ctx.createBufferSource(); s.buffer = buf; const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const e = ctx.createGain(); e.gain.setValueAtTime(g, t); e.gain.exponentialRampToValueAtTime(.0001, t + d);
+    s.connect(f); f.connect(e); e.connect(out); s.start(t);
+  }
+  const fx = {
+    snip() { const t = now(); noise(t, .07, .5, 5200, 2, "highpass"); tone(1800, t, .05, .15, "square", 900); },
+    cut() { const t = now(); noise(t, .5, .25, 900, .6, "lowpass"); tone(520, t, .3, .1, "triangle", 260); },
+    pop() { const t = now(); tone(520, t, .12, .4, "sine", 110); noise(t, .08, .35, 2400, 1); tone(1400, t + .02, .25, .12, "triangle", 2200); },
+    flip() { const t = now(); noise(t, .12, .3, 1800, 1.2); tone(900, t + .06, .2, .12, "triangle", 600); tone(1350, t + .1, .3, .08, "sine"); },
+    crack() { const t = now(); noise(t, .06, .7, 3000, 1.5, "highpass"); noise(t + .03, .1, .5, 1400, 2); tone(160, t, .12, .3, "square", 70); },
+    burst() { const t = now(); noise(t, .12, .8, 2500, 1, "highpass"); noise(t, .5, .4, 600, .7, "lowpass"); [784, 988, 1175, 1568].forEach((f, i) => tone(f, t + .12 + i * .07, .8, .14, "triangle")); },
+    seal() { const t = now(); noise(t, .09, .6, 1100, 2); tone(180, t, .15, .35, "sine", 60); tone(1900, t + .04, .5, .1, "triangle", 2600); },
+    flap() { const t = now(); noise(t, .55, .22, 1200, .7, "lowpass"); tone(300, t, .4, .08, "triangle", 150); },
+    door() { const t = now(); tone(70, t, 1.6, .3, "sawtooth", 48); noise(t, 1.6, .14, 300, .8, "lowpass"); tone(120, t + .5, 1.1, .12, "sawtooth", 80); },
+    curtain() { const t = now(); noise(t, 1.5, .16, 700, .5, "bandpass"); noise(t + .2, 1.2, .1, 300, .5, "lowpass"); },
+    scratch() { const t = now(); if (t - lastScratch < .08) return; lastScratch = t; noise(t, .07, .13, 3500, 1.2); },
+    reveal() { const t = now(); tone(1318, t, .5, .12, "sine"); tone(1760, t + .08, .6, .1, "sine"); },
+    chime() { const t = now(); [1046, 1318, 1568, 2093].forEach((f, i) => tone(f, t + i * .09, 1.2, .12, "sine")); }
+  };
+  return { get on() { return on; }, set on(v) { on = !!v; }, play(n) { if (!on) return; try { if (!ensure()) return; if (fx[n]) fx[n](); } catch (e) {} } };
+})();
 const musicBtn = $("#music");
 musicBtn.addEventListener("click", () => {
   if (Music.on) Music.stop(); else Music.start();
@@ -692,11 +735,11 @@ function shards() {
 }
 let opened = false;
 function openInvite() {
-  if (opened) return; opened = true;
+  if (opened) return; opened = true; Sfx.play("seal");
   const k = reduce ? .15 : 1, at = (ms, fn) => setTimeout(fn, ms * k);
   if (Music.start()) { musicBtn.hidden = false; musicBtn.setAttribute("aria-pressed", "true"); }
   env.classList.add("breaking"); shards(); cam.tamp = .35; cam.trx = 2;
-  at(500, () => env.classList.add("open"));
+  at(500, () => { Sfx.play("door"); env.classList.add("open"); });
   at(2500, () => { env.classList.add("zoom"); cam.tamp = 0; cam.trx = 0; });
   at(3100, () => env.classList.add("gone"));
   at(4100, () => { env.remove(); document.documentElement.classList.remove("locked"); window.scrollTo(0, 0); musicBtn.hidden = false; });
@@ -716,13 +759,14 @@ function sparks(orb) {
 orbEls.forEach(orb => {
   $(".flip", orb).addEventListener("click", () => {
     if (orb.classList.contains("done")) return;
-    orb.classList.add("done"); sparks(orb); revealed++;
+    orb.classList.add("done"); Sfx.play("pop"); sparks(orb); revealed++;
     $("#progress").textContent = revealed === 3 ? "All revealed" : revealed + " of 3 revealed";
     if (revealed === 3) setTimeout(unlock, 700);
   });
 });
 
 function unlock() {
+  Sfx.play("chime");
   const after = $("#after"); after.hidden = false; confetti();
   setTimeout(() => after.scrollIntoView({behavior: reduce ? "auto" : "smooth", block: "start"}), 500);
 }
@@ -786,20 +830,22 @@ buildMap();
 $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 
 /* ===== Couple photo (set C.photo to a picture to replace the placeholder).
-   Two or more photos: the section holds still while the guest scrolls and each
-   scroll step brings the next photo up, so the card never slides them past on
-   its own. One photo simply sits in the arch. ===== */
+   Two or more photos play as the guest scrolls, in the style the couple picked:
+   hold = the section holds still and each scroll step fades the next photo in,
+   glide = the scroll itself carries each photo across from the right to the left,
+   flip = the scroll turns each photo away like a page. One photo simply sits in the arch. ===== */
 (function () {
   var list = (Array.isArray(C.photos) && C.photos.length) ? C.photos.slice(0, 6) : (C.photo ? [C.photo] : []);
   if (!list.length) return;
+  var mode = (C.photoFx === 'glide' || C.photoFx === 'flip') ? C.photoFx : 'hold';
   var ready = new Image();
   ready.onload = function () {
     var h = $("#phHolder"); if (h) h.remove();
     var host = $("#archIn"); if (!host) return;
     if (list.length === 1) { ready.alt = couple; host.appendChild(ready); return; }
-    var wrap = document.createElement('div'); wrap.className = 'ph-caro';
+    var wrap = document.createElement('div'); wrap.className = 'ph-caro' + (mode === 'glide' ? ' ph-glide' : mode === 'flip' ? ' ph-flip' : '');
     var imgs = list.map(function (u) { var im = new Image(); im.alt = couple; im.src = u; wrap.appendChild(im); return im; });
-    imgs[0].className = 'on';
+    if (mode === 'hold') imgs[0].className = 'on';
     host.appendChild(wrap);
     var arch = document.getElementById('arch');
     if (!arch) return;
@@ -808,8 +854,27 @@ $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encode
     stage.style.height = 'calc(' + (n * 58 + 42) + 'vh)';
     arch.parentNode.insertBefore(stage, arch);
     stage.appendChild(arch);
-    var cur = 0;
-    var setIdx = function (i) { if (i === cur) return; cur = i; imgs.forEach(function (im, k) { im.className = k === i ? 'on' : ''; }); };
+    var apply = function (p) {
+      if (mode === 'hold') {
+        var idx = Math.min(n - 1, Math.floor(p * n));
+        imgs.forEach(function (im, k) { im.className = k === idx ? 'on' : ''; });
+        return;
+      }
+      var step = p * n;
+      imgs.forEach(function (im, j) {
+        if (mode === 'glide') {
+          var ein = j === 0 ? 1 : Math.min(1, Math.max(0, step - (j - 1)));
+          var eout = Math.min(1, Math.max(0, step - j));
+          var x = (1 - ein) * 102 - eout * 102;
+          im.style.transform = 'translateX(' + x.toFixed(2) + '%)';
+        } else {
+          var t = Math.min(1, Math.max(0, step - j));
+          im.style.transform = 'perspective(900px) rotateY(' + (-t * 165).toFixed(2) + 'deg)';
+          im.style.opacity = t > .92 ? '0' : '1';
+          im.style.zIndex = String(n - j);
+        }
+      });
+    };
     var ticking = false;
     var onScroll = function () {
       if (ticking) return; ticking = true;
@@ -818,7 +883,7 @@ $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encode
         var r = stage.getBoundingClientRect();
         var range = r.height - window.innerHeight; if (range <= 0) return;
         var p = Math.min(1, Math.max(0, (-r.top) / range));
-        setIdx(Math.min(n - 1, Math.floor(p * n)));
+        apply(p);
       });
     };
     window.addEventListener('scroll', onScroll, { passive: true });
