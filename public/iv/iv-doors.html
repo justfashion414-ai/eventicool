@@ -34,7 +34,13 @@
         if (d.music) o.music = d.music;
         if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
         if (Array.isArray(d.dressColors) && d.dressColors.length) o.dressColors = d.dressColors;
-        if (d.guest && d.guest.name) o.guestName = d.guest.name;
+        if (d.guest && d.guest.name) {
+          o.guestName = d.guest.name;
+          /* Fill the reply form's name field as soon as the card's data is in
+             (the guest's name rides on their link). */
+          var rn = document.getElementById('rName');
+          if (rn && !rn.value) rn.value = o.guestName;
+        }
       }
     } catch (e) {}
   }
