@@ -6821,7 +6821,7 @@ function MapPicker({ open, initial, onClose }: any) {
 
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black" onClick={() => onClose(null)}>
+    <div className="fixed inset-0 z-[900] flex items-end sm:items-center justify-center bg-black" onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] bg-white rounded-t-3xl sm:rounded-3xl p-4 flex flex-col" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 shrink-0">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
