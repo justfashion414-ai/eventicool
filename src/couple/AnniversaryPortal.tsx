@@ -6725,7 +6725,7 @@ function normPlaces(j: any): any[] {
   return [];
 }
 
-function MapPicker({ open, initial, onClose }: any) {
+function MapPicker({ open, initial, onClose, accentKey }: any) {
   const [ready, setReady] = useState<boolean>(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -6821,7 +6821,7 @@ function MapPicker({ open, initial, onClose }: any) {
 
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[900] flex items-end sm:items-center justify-center bg-black" onClick={() => onClose(null)}>
+    <div className="fixed inset-0 z-[900] flex items-end sm:items-center justify-center bg-black" style={{ ['--ann-accent' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).accent, ['--ann-hero' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).hero, ['--ann-soft' as any]: (ACCENT_VARS[accentKey] || ACCENT_VARS.midnight).soft }} onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] bg-white rounded-t-3xl sm:rounded-3xl p-4 flex flex-col" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 shrink-0">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
@@ -7918,7 +7918,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 <div><label className={labCls}>Address / city</label><input className={inputCls + ' cursor-pointer'} readOnly value={f.city} onClick={() => setMapOpen(true)} placeholder="12 Palm Avenue, Lekki, Lagos" /><p className="text-[10px] opacity-50 mt-1">Tap to pick the exact spot on a live map</p></div>
               </div>
             </InvSec>
-<MapPicker open={mapOpen} initial={f.venuePos} onClose={(pos: any) => { setMapOpen(false); if (pos && pos.lat != null) setF({ ...f, venuePos: { lat: Number(pos.lat), lng: Number(pos.lng), label: String(pos.label || '') }, city: String(pos.label || '') || f.city }); }} />
+<MapPicker open={mapOpen} initial={f.venuePos} accentKey={accentKey} onClose={(pos: any) => { setMapOpen(false); if (pos && pos.lat != null) setF({ ...f, venuePos: { lat: Number(pos.lat), lng: Number(pos.lng), label: String(pos.label || '') }, city: String(pos.label || '') || f.city }); }} />
             <InvSec id="note" title="A note to your guests">
               <textarea className={inputCls + ' min-h-[150px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
             </InvSec>
