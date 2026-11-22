@@ -3854,6 +3854,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         isOpen={isAdminModalOpen}
         asPage={route === '/admin'}
         onClose={leaveAdminPage}
+        user={user}
         onSignOut={() => doSignOut()}
         activeCode={activeAccessCode}
         onUpdateCode={updateAccessCode}
@@ -8245,6 +8246,7 @@ function AdminDashboardModal({
   isOpen, 
   asPage, 
   onClose, 
+  user, 
   activeCode, 
   onUpdateCode, 
   isDarkMode, 
