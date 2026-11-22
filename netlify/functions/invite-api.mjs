@@ -75,7 +75,9 @@ export default async (req) => {
         const attend = body.attend === 'no' ? 'no' : 'yes'
         const note = String(body.note || '').slice(0, 400)
         const name = String(body.name || '').slice(0, 60)
-        await gref.set({ reply: { name, attend, note, at: FieldValue.serverTimestamp() } }, { merge: true })
+        const patch = { reply: { name, attend, note, at: FieldValue.serverTimestamp() } }
+        if (!(g.data() || {}).openedAt) patch.openedAt = FieldValue.serverTimestamp()
+        await gref.set(patch, { merge: true })
         return json(200, { ok: true })
       }
 

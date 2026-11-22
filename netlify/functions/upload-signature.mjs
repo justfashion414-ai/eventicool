@@ -106,7 +106,7 @@ export default async (req) => {
         const us = await fs.collection('apps').doc(appId).collection('usage').doc('main').get()
         if (us.exists) {
           const u = us.data() || {}
-          used = Math.max(0, Number(u.imagesBytes) || 0) + Math.max(0, Number(u.videosBytes) || 0)
+          used = Math.max(0, Number(u.imagesBytes) || 0) + Math.max(0, Number(u.videosBytes) || 0) + Math.max(0, Number(u.audioBytes) || 0)
         }
       } catch {}
       if (used + sizeBytes > limitBytes) {

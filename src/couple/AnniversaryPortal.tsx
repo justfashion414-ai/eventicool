@@ -92,6 +92,7 @@ import {
   EyeOff,
   KeyRound,
   MessageCircle,
+  Upload,
 } from 'lucide-react';
 
 enum OperationType {
@@ -341,6 +342,44 @@ const hexToHsv = (hex: string): [number, number, number] => {
   return [h, max ? (d / max) * 100 : 0, max * 100];
 };
 
+// Colour names: pick a colour and the app names it for you ("Crimson", "Gold",
+// "Sage green"). The nearest named colour wins; the name travels with the hex
+// into the invite card so guests see it in the dress code section.
+const COLOR_NAMES: Array<[number, number, number, string]> = [
+  [0,0,0,'Black'],[255,255,255,'White'],[128,128,128,'Grey'],[192,192,192,'Silver'],[119,136,153,'Slate grey'],[47,79,79,'Dark slate'],
+  [255,0,0,'Red'],[220,20,60,'Crimson'],[139,0,0,'Burgundy'],[128,0,32,'Maroon'],[178,34,34,'Brick red'],
+  [255,99,71,'Tomato'],[255,127,80,'Coral'],[240,128,128,'Salmon'],[233,150,122,'Dusty rose'],
+  [255,192,203,'Pink'],[255,105,180,'Hot pink'],[219,112,147,'Rose pink'],[255,20,147,'Deep pink'],[199,21,133,'Magenta'],
+  [128,0,128,'Purple'],[147,112,219,'Lavender'],[216,191,216,'Lilac'],[238,130,238,'Violet'],[230,230,250,'Soft lavender'],
+  [128,128,0,'Olive'],[107,142,35,'Olive green'],[154,205,50,'Lime green'],[0,128,0,'Green'],[34,139,34,'Forest green'],
+  [46,139,87,'Sea green'],[0,255,127,'Spring green'],[144,238,144,'Light green'],
+  [64,224,208,'Turquoise'],[0,206,209,'Teal'],[0,128,128,'Deep teal'],[72,209,204,'Mint'],[175,238,238,'Pale aqua'],
+  [0,191,255,'Sky blue'],[30,144,255,'Bright blue'],[0,0,255,'Royal blue'],[25,25,112,'Midnight blue'],[70,130,180,'Steel blue'],[176,196,222,'Powder blue'],
+  [255,250,205,'Lemon'],[255,215,0,'Gold'],[218,165,32,'Goldenrod'],[184,134,11,'Dark gold'],
+  [255,165,0,'Orange'],[255,140,0,'Tangerine'],[255,228,196,'Peach'],[250,128,114,'Salmon pink'],
+  [210,105,30,'Chocolate'],[139,69,19,'Brown'],[160,82,45,'Sienna'],[188,143,143,'Rosy brown'],
+  [245,222,179,'Wheat'],[245,245,220,'Beige'],[255,248,220,'Cream'],[255,255,240,'Ivory'],[240,230,140,'Khaki'],
+];
+const cnParse = (hex: string): [number, number, number] | null => {
+  let x = String(hex || '').replace('#', '');
+  if (x.length === 3) x = x.split('').map((ch) => ch + ch).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(x)) return null;
+  return [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)];
+};
+export const colorNameFor = (hex: string): string => {
+  const rgb = cnParse(hex); if (!rgb) return '';
+  let best = '', bd = Infinity;
+  for (const c of COLOR_NAMES) {
+    const d = (rgb[0]-c[0])*(rgb[0]-c[0]) + (rgb[1]-c[1])*(rgb[1]-c[1]) + (rgb[2]-c[2])*(rgb[2]-c[2]);
+    if (d < bd) { bd = d; best = c[3]; }
+  }
+  return best;
+};
+// Colours are stored as {hex, name}; older saves are plain hex strings. Every
+// reader goes through these two so both shapes always render.
+export const colorHexOf = (c: any): string => (typeof c === 'string' ? c : (c && c.hex) || '');
+export const colorNameOf = (c: any): string => ((c && typeof c === 'object' && c.name) || colorNameFor(colorHexOf(c)) || '');
+
 // Dress colours of the day: a branded gradient picker (no native control),
 // two slots by default and as many more as the couple adds. Whatever they
 // pick here shows as colour chips on the invitation card and on the home page.
@@ -378,7 +417,8 @@ const BrandedColorPicker = ({ initial, onDone, onClose, isDarkMode }: { initial:
         <div ref={hueRef} onPointerDown={(e: any) => { mode.current = 'hue'; moveHue(e); }} style={{ height: 14, marginTop: 14, borderRadius: 999, position: 'relative', touchAction: 'none', background: 'linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)' }}>
           <span style={{ position: 'absolute', left: `calc(${(h / 360) * 100}% - 8px)`, top: -4, width: 16, height: 22, borderRadius: 6, border: '3px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.45)', background: `hsl(${h},100%,50%)`, pointerEvents: 'none' }} />
         </div>
-        <div className="flex items-center justify-between mt-3">
+        <p className="text-center text-[0.95rem] font-semibold text-[var(--ann-accent)] mt-3">{colorNameFor(hex)}</p>
+        <div className="flex items-center justify-between mt-2">
           <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest opacity-70"><span className="w-4 h-4 rounded-full border border-black/10" style={{ background: hex }} />{hex}</span>
           <button type="button" onClick={() => onDone(hex)} className="px-4 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
         </div>
@@ -387,18 +427,19 @@ const BrandedColorPicker = ({ initial, onDone, onClose, isDarkMode }: { initial:
   );
 };
 
-const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: string[]; onChange: (next: string[]) => void; isDarkMode: boolean }) => {
+const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: any[]; onChange: (next: any[]) => void; isDarkMode: boolean }) => {
   const [pick, setPick] = useState<number | null>(null);
   const slots = Math.max(2, colors.length + (colors.length ? 1 : 0));
-  const rows: (string | null)[] = [];
+  const rows: (any | null)[] = [];
   for (let i = 0; i < slots; i++) rows.push(colors[i] || null);
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-start gap-3">
         {rows.map((c, i) => c ? (
-          <div key={i} className="relative">
-            <button type="button" aria-label={'Change colour ' + (i + 1)} onClick={() => setPick(i)} className="w-11 h-11 rounded-full border-2 shadow-sm" style={{ background: c, borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }} />
-            <button type="button" aria-label="Remove colour" onClick={() => onChange(colors.filter((_: string, j: number) => j !== i))} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[11px] leading-none flex items-center justify-center">×</button>
+          <div key={i} className="relative flex flex-col items-center gap-1">
+            <button type="button" aria-label={'Change colour ' + (i + 1) + (colorNameOf(c) ? ': ' + colorNameOf(c) : '')} title={colorNameOf(c)} onClick={() => setPick(i)} className="w-11 h-11 rounded-full border-2 shadow-sm" style={{ background: colorHexOf(c), borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }} />
+            <span className="text-[0.55rem] uppercase tracking-wider opacity-60 max-w-[72px] truncate">{colorNameOf(c)}</span>
+            <button type="button" aria-label="Remove colour" onClick={() => onChange(colors.filter((_: any, j: number) => j !== i))} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-black/70 text-white text-[11px] leading-none flex items-center justify-center">×</button>
           </div>
         ) : (
           <button key={i} type="button" aria-label="Pick a colour" onClick={() => setPick(i)} className={`w-11 h-11 rounded-full border-2 border-dashed flex items-center justify-center text-lg ${isDarkMode ? 'border-[#22363E] text-white/40' : 'border-[#C9C6D6] text-slate-400'}`}>+</button>
@@ -406,9 +447,10 @@ const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: string[]; 
       </div>
       <p className="text-[10px] opacity-50 mt-2">Tap a circle to pick its colour. Tap + to add another.</p>
       {pick !== null && (
-        <BrandedColorPicker initial={rows[pick] || '#B57D2C'} onDone={(hex: string) => {
+        <BrandedColorPicker initial={colorHexOf(rows[pick]) || '#B57D2C'} onDone={(hex: string) => {
           const next = colors.slice();
-          if (pick < next.length) next[pick] = hex; else next.push(hex);
+          const named = { hex, name: colorNameFor(hex) };
+          if (pick < next.length) next[pick] = named; else next.push(named);
           onChange(next.filter(Boolean));
           setPick(null);
         }} onClose={() => setPick(null)} isDarkMode={isDarkMode} />
@@ -467,7 +509,7 @@ const DEMO_PARTNERS = [
   { id: 'demo-lens', name: 'Lens & Light Studio', category: 'Photography', description: 'The studio shooting the wedding day. Their full album lands here first.' },
   { id: 'demo-kiln', name: 'Kiln Films', category: 'Videography', description: 'Every highlight reel and the wedding film come from Kiln Films.' },
 ];
-interface UsageRec { imagesBytes: number; videosBytes: number; count: number; updatedAt?: number }
+interface UsageRec { imagesBytes: number; videosBytes: number; audioBytes?: number; count: number; updatedAt?: number }
 let platSettings: { feedPageSize: number; storage: Record<string, number> } = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 } };
 let usageRec: UsageRec | null = null;
 let usagePlan = 'essential';
@@ -479,27 +521,28 @@ export function setUsageClient(u: UsageRec | null, plan: string) {
   usagePlan = ['essential', 'complete', 'legacy'].includes(plan) ? plan : 'essential';
 }
 export function usageLimitGB(): number { return platSettings.storage[usagePlan] || 5; }
-export function usageUsedGB(): number { return usageRec ? (usageRec.imagesBytes + usageRec.videosBytes) / GB : 0; }
-export function storageBlocked(): boolean { return usageRec ? usageRec.imagesBytes + usageRec.videosBytes >= usageLimitGB() * GB : false; }
-async function recordMediaUsage(bytes: number, isVideo: boolean) {
+export function usageUsedGB(): number { return usageRec ? (usageRec.imagesBytes + usageRec.videosBytes + (usageRec.audioBytes || 0)) / GB : 0; }
+export function storageBlocked(): boolean { return usageRec ? usageRec.imagesBytes + usageRec.videosBytes + (usageRec.audioBytes || 0) >= usageLimitGB() * GB : false; }
+async function recordMediaUsage(bytes: number, kind: 'image' | 'video' | 'audio' = 'image') {
   if (DEMO || !auth?.currentUser || !bytes) return;
   try {
     const ref = doc(db, scopedPath('usage'), 'main');
     const patch: any = { count: increment(1), updatedAt: serverTimestamp() };
-    patch[isVideo ? 'videosBytes' : 'imagesBytes'] = increment(bytes);
+    patch[kind === 'video' ? 'videosBytes' : kind === 'audio' ? 'audioBytes' : 'imagesBytes'] = increment(bytes);
     await setDoc(ref, patch, { merge: true });
     try { window.dispatchEvent(new Event('ann-usage-dirty')); } catch {}
   } catch { /* the chart catches up on the next snapshot */ }
 }
 
-const uploadToCloudinaryWithProgressInner = async (file: Blob, folder: string, onProgress: (pct: number) => void): Promise<string> => {
+const uploadToCloudinaryWithProgressInner = async (file: Blob, folder: string, onProgress: (pct: number) => void, gateApp?: string): Promise<string> => {
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
   const idToken = await auth?.currentUser?.getIdToken().catch(() => null);
 
+  const gateQ = gateApp ? `&app=${encodeURIComponent(gateApp)}&size=${file.size}` : '';
   const signatureEndpoints = [
-    `/api/upload-signature?folder=${encodeURIComponent(folder)}`,
-    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}`
+    `/api/upload-signature?folder=${encodeURIComponent(folder)}${gateQ}`,
+    `/.netlify/functions/upload-signature?folder=${encodeURIComponent(folder)}${gateQ}`
   ];
 
   let sigData: any = null;
@@ -647,7 +690,7 @@ const uploadToCloudinaryWithProgress = async (file: Blob, folder: string, onProg
   const url = await uploadToCloudinaryWithProgressInner(file, folder, onProgress);
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
-  await recordMediaUsage(file.size || 0, isVideo);
+  await recordMediaUsage(file.size || 0, isVideo ? 'video' : 'image');
   return url;
 };
 
@@ -656,7 +699,7 @@ const uploadToCloudinary = async (file: Blob, folder: string): Promise<string> =
   const url = await uploadToCloudinaryWithProgressInner(file, folder, () => {});
   const fileName = (file as File).name || (file.type?.startsWith('video/') ? 'upload.mp4' : 'upload.jpg');
   const isVideo = Boolean(file.type && file.type.startsWith('video/')) || /\.(mp4|mov|webm|mkv)$/i.test(fileName);
-  await recordMediaUsage(file.size || 0, isVideo);
+  await recordMediaUsage(file.size || 0, isVideo ? 'video' : 'image');
   return url;
 };
 export default function AnniversaryPortal({ onBackToMain, previewMode, template, adminMode = 'real', installable = false, paywallEnter }: AnniversaryPortalProps) {
@@ -2989,7 +3032,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   </div>
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <div>
-                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: string, i: number) => <span key={i} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: c }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
+                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{demoText(DETAILS.hashtag)}</span></p>
                   </div>
                 </div>
@@ -6941,7 +6984,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           )}
           {details && details.asoEbi && (
             <div>
-              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: string, i: number) => <span key={i} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: c }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
+              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
             </div>
           )}
@@ -7101,6 +7144,44 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     })()
     return () => { alive = false }
   }, []);
+  // The couple's own uploads: they live on this app only (apps/<app>/music),
+  // so one couple's tracks never appear in another couple's dropdown.
+  const [myMusic, setMyMusic] = useState<{ id: string; name: string; url: string }[]>([]);
+  const [musicUploading, setMusicUploading] = useState(false);
+  const [musicPct, setMusicPct] = useState(0);
+  const [musicUpName, setMusicUpName] = useState('');
+  const myMusicInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (DEMO) { setMyMusic([]); return; }
+    const unsub = onSnapshot(collection(db, scopedPath('music')), (snap: any) => {
+      const rows = snap.docs.map((d: any) => ({ id: d.id, name: String((d.data() || {}).name || ''), url: String((d.data() || {}).url || ''), at: Number((d.data() || {}).createdAt?.seconds || 0) }));
+      rows.sort((a: any, b: any) => b.at - a.at);
+      setMyMusic(rows.filter((r: any) => r.url));
+    }, () => setMyMusic([]));
+    return () => { try { unsub(); } catch { /* gone */ } };
+  }, []);
+  const onMyMusic = async (e: any) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) { showToast('That track is over 12 MB. Try a smaller mp3', 'error'); return; }
+    if (!DEMO && storageBlocked()) { showToast(STORAGE_FULL_MESSAGE, 'error'); return; }
+    const base = String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
+    setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
+    try {
+      if (DEMO) { showToast('Uploads work in your real app. Pick from the library here', 'error'); setMusicUploading(false); return; }
+      const url = await uploadToCloudinaryWithProgressInner(file, 'eventicor-music', (p: number) => setMusicPct(p), APP_ID);
+      setMusicPct(100);
+      await addDoc(collection(db, scopedPath('music')), { name: base, url, createdAt: serverTimestamp() });
+      recordMediaUsage(file.size || 0, 'audio');
+      setF({ ...f, music: url });
+      closeMusicDropdown();
+      showToast('Your track is in. Guests hear it when the card opens', 'success');
+    } catch (err: any) {
+      showToast('Could not upload that track. Try again' + (err && err.message ? ': ' + String(err.message).slice(0, 80) : ''), 'error');
+    }
+    setMusicUploading(false);
+  };
   const [f, setF] = useState<any>(() => ({
     bride: demoBride() || 'Amara',
     groom: demoGroom() || 'Daniel',
@@ -7252,7 +7333,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       venue: s(f.venue), city: s(f.city),
       message: s(f.story), hashtag: s(f.hashtag), dress: s(f.dress),
       whatsapp: s(f.whatsapp).replace(/\D/g, ''),
-      dressColors: (Array.isArray(dressColors) ? dressColors : []).filter((c: any) => typeof c === 'string' && c.trim()).map((c: string) => c.trim()).slice(0, 12),
+      dressColors: (Array.isArray(dressColors) ? dressColors : []).filter((c: any) => (typeof c === 'string' ? c.trim() : colorHexOf(c).trim())).map((c: any) => typeof c === 'string' ? { hex: c.trim(), name: colorNameFor(c.trim()) } : { hex: colorHexOf(c).trim(), name: (c && c.name) || colorNameFor(colorHexOf(c)) }).slice(0, 12),
       photos: (Array.isArray(f.photos) ? f.photos : []).slice(0, 5).filter((u: any) => typeof u === 'string' && u),
       schedule: JSON.stringify(scheduleRows),
       music: s(f.music), updatedAt: serverTimestamp(),
@@ -7285,6 +7366,19 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   };
 
   const [guests, setGuests] = useState<any[] | null>(null);
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  // Returning from WhatsApp (or any app switch) can leave the live listener
+  // dead, which read as an empty list until a manual refresh. guestEpoch
+  // re-subscribes whenever the page becomes visible again.
+  const [guestEpoch, setGuestEpoch] = useState(0);
+  useEffect(() => {
+    const bump = () => setGuestEpoch((x: number) => x + 1);
+    const onVis = () => { if (!document.hidden) bump(); };
+    const onPage = (e: any) => { if (e && e.persisted) bump(); };
+    window.addEventListener('pageshow', onPage);
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.removeEventListener('pageshow', onPage); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
@@ -7304,7 +7398,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       setGuests(rows);
     }, () => setGuests([]));
     return () => { try { unsub(); } catch { /* gone */ } };
-  }, [docId]);
+  }, [docId, guestEpoch]);
 
   const guestLink = (gid: string) => {
     const st = IV_STYLES.find((s) => s.id === tpl);
@@ -7448,14 +7542,14 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   </button>
                 )}
               </div>
-              <p className="text-[10px] opacity-50 mt-1.5">Up to 5. On the card they glide across by themselves.</p>
+              <p className="text-[10px] opacity-50 mt-1.5">Up to 5. With two or more, the card holds on the photos while your guest scrolls.</p>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onInvitePhotos} />
             </InvSec>
             <InvSec id="music" title="Music">
               <div className="relative">
                 {musicOpen && <div className="fixed inset-0 z-20" onClick={closeMusicDropdown} />}
                 <button type="button" onClick={() => { if (musicOpen) stopInvitePreview(); setMusicOpen(!musicOpen) }} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
-                  <span className="truncate">{f.music === '' ? 'Built-in music' : f.music === 'none' ? 'No music' : ((musicLib.find((tr) => tr.url === f.music) || {}).name || 'Selected track')}</span>
+                  <span className="truncate">{f.music === '' ? 'Built-in music' : f.music === 'none' ? 'No music' : ((musicLib.find((tr) => tr.url === f.music) || myMusic.find((tr) => tr.url === f.music) || {}).name || 'Selected track')}</span>
                   <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${musicOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {musicOpen && (
@@ -7464,7 +7558,12 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       { id: 'builtin', name: 'Built-in music', v: '' },
                       { id: 'none', name: 'No music', v: 'none' },
                       ...musicLib.map((tr) => ({ id: tr.id, name: tr.name, v: tr.url })),
-                    ].map((o) => {
+                      ...(myMusic.length ? [{ id: 'my-hdr', hdr: true }] : []),
+                      ...myMusic.map((tr) => ({ id: 'my-' + tr.id, name: tr.name, v: tr.url })),
+                    ].map((o: any) => {
+                      if (o.hdr) return (
+                        <div key={o.id} className={`px-3.5 pt-2.5 pb-1 text-[0.58rem] font-black uppercase tracking-widest opacity-50 ${isDarkMode ? 'border-t border-[#22363E]' : 'border-t border-[#DAD8E3]'}`}>Your uploads</div>
+                      );
                       const playing = invitePlaying === o.v;
                       return (
                       <div key={o.id} className={`w-full flex items-center gap-1 pr-2 ${playing ? 'mus-playing' : 'hover:bg-[var(--ann-accent)]/5'}`}>
@@ -7483,9 +7582,24 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       </div>
                       );
                     })}
+                    <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+                      {musicUploading ? (
+                        <div className="px-3.5 py-3">
+                          <div className="flex items-center justify-between text-xs opacity-70 mb-1.5"><span className="truncate pr-2">Uploading {musicUpName}…</span><span>{musicPct}%</span></div>
+                          <div className={`h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}><div className="h-full rounded-full bg-[var(--ann-accent)] transition-all" style={{ width: musicPct + '%' }} /></div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => myMusicInputRef.current?.click()} className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left text-sm hover:bg-[var(--ann-accent)]/5" style={{ touchAction: 'manipulation' }}>
+                          <Upload className="w-4 h-4 opacity-60 shrink-0" />
+                          <span>Upload from my device</span>
+                          <span className="ml-auto text-[0.58rem] font-black uppercase tracking-widest opacity-40">mp3</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
+              <input ref={myMusicInputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" className="hidden" onChange={onMyMusic} />
             </InvSec>
           </>
         );
@@ -7500,24 +7614,48 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           ) : guests.length === 0 ? (
             <p className="text-xs opacity-60">No invitees yet. Add one for each person you are inviting, then copy their link.</p>
           ) : (
-            <div className="space-y-2">
+            <div className={`rounded-xl border overflow-hidden ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
+              <div className={`grid grid-cols-[1.4fr_0.8fr_auto] items-center gap-2 px-3 py-2 text-[0.58rem] font-black uppercase tracking-widest opacity-60 ${isDarkMode ? 'bg-white/[0.04]' : 'bg-black/[0.03]'}`}>
+                <span>Guest</span><span>Opened</span><span className="text-right pr-1">Reply</span>
+              </div>
               {guests.map((g: any, i: number) => {
                 const gl = docId !== 'demo' ? guestLink(g.id) : window.location.origin + previewUrl(tpl);
                 const openedAt = g.openedAt?.seconds ? new Date(g.openedAt.seconds * 1000) : (g.openedAt ? new Date(g.openedAt) : null);
                 const rep = g.reply || null;
+                const repAt = rep && rep.at ? new Date(rep.at.seconds ? rep.at.seconds * 1000 : rep.at) : null;
+                const open = openRow === g.id;
                 return (
-                  <div key={g.id} className={`rounded-xl border p-3 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <b className="text-sm">{g.name || `Invitee ${i + 1}`}</b>
-                      <span className={`px-2 py-1 rounded-full text-[0.6rem] font-black uppercase tracking-widest ${rep ? 'bg-emerald-500/15 text-emerald-600' : openedAt ? 'bg-[var(--ann-accent)]/15 text-[var(--ann-accent)]' : isDarkMode ? 'bg-white/10 text-white/60' : 'bg-black/5 text-slate-500'}`}>{rep ? 'Replied' : openedAt ? 'Opened' : 'Not opened'}</span>
-                    </div>
-                    {openedAt && <p className="text-xs opacity-60 mt-1">Opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
-                    {rep && <p className="text-xs mt-1">{rep.attend === 'no' ? "Can't make it" : 'Coming'}{rep.note ? ` · ${rep.note}` : ''}</p>}
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
-                      <button type="button" onClick={() => copyText(guestMsg(gl), 'Message')} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.6rem] font-black uppercase tracking-widest">Copy message</button>
-                      <button type="button" aria-label={`Send ${g.name || 'this invitee'} their invite on WhatsApp`} onClick={() => { const ph = String(g.phone || '').replace(/\D/g, ''); if (!ph) { showToast('Add their WhatsApp number to open the chat', 'error'); return; } window.open('https://wa.me/' + ph + '?text=' + encodeURIComponent(guestMsg(gl)), '_blank'); }} className="px-3 py-1.5 rounded-full bg-[#25D366] text-white text-[0.6rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>WhatsApp</button>
-                    </div>
+                  <div key={g.id} className={isDarkMode ? 'border-t border-[#22363E]' : 'border-t border-[#DAD8E3]'}>
+                    <button type="button" onClick={() => setOpenRow(open ? null : g.id)} className="w-full text-left grid grid-cols-[1.4fr_0.8fr_auto] items-center gap-2 px-3 py-2.5" style={{ touchAction: 'manipulation' }}>
+                      <span className="min-w-0">
+                        <b className="text-sm block truncate">{g.name || `Invitee ${i + 1}`}</b>
+                        {g.phone ? <span className="text-[0.65rem] opacity-50 block truncate">{g.phone}</span> : null}
+                      </span>
+                      <span className="text-[0.68rem] opacity-70">{openedAt ? openedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}</span>
+                      <span className="flex items-center gap-1.5 justify-end">
+                        <span className={`px-2 py-1 rounded-full text-[0.58rem] font-black uppercase tracking-widest ${rep ? 'bg-emerald-500/15 text-emerald-600' : openedAt ? 'bg-[var(--ann-accent)]/15 text-[var(--ann-accent)]' : isDarkMode ? 'bg-white/10 text-white/60' : 'bg-black/5 text-slate-500'}`}>{rep ? 'Replied' : openedAt ? 'Opened' : 'Not opened'}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 opacity-50 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="px-3 pb-3 space-y-2.5">
+                        <div>
+                          <span className="block text-[0.58rem] font-black uppercase tracking-widest opacity-50 mb-1">Their message</span>
+                          {rep ? (
+                            <p className="text-xs">{rep.attend === 'no' ? "Can't make it" : 'Coming'}{rep.note ? <span className="opacity-80"> · “{rep.note}”</span> : null}</p>
+                          ) : (
+                            <p className="text-xs opacity-50">No reply yet{openedAt ? ' — they have opened their card' : ''}.</p>
+                          )}
+                          {repAt && <p className="text-[0.65rem] opacity-50 mt-0.5">Sent {repAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
+                          {openedAt && <p className="text-[0.65rem] opacity-50">Card opened {openedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => copyText(gl, 'Link')} className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest">Copy link</button>
+                          <button type="button" onClick={() => copyText(guestMsg(gl), 'Message')} className="px-3 py-1.5 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.6rem] font-black uppercase tracking-widest">Copy message</button>
+                          <button type="button" aria-label={`Send ${g.name || 'this invitee'} their invite on WhatsApp`} onClick={(ev) => { ev.stopPropagation(); const ph = String(g.phone || '').replace(/\D/g, ''); if (!ph) { showToast('Add their WhatsApp number to open the chat', 'error'); return; } window.open('https://wa.me/' + ph + '?text=' + encodeURIComponent(guestMsg(gl)), '_blank'); }} className="px-3 py-1.5 rounded-full bg-[#25D366] text-white text-[0.6rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>WhatsApp</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -7542,7 +7680,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
         </div>
       </div>
 
-      <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, bottom: 84, zIndex: 250, touchAction: 'manipulation' }}>
+      <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 250, touchAction: 'manipulation' }}>
         <Eye className="w-5 h-5" />
       </button>
 
