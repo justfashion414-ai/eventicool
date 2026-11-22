@@ -262,7 +262,7 @@
 .ev-fw-3d-t { position: absolute; left: 50%; top: 50%; border-radius: 12px; background-repeat: no-repeat; background-color: #222; box-shadow: 0 8px 22px -8px rgba(0,0,0,0.66); overflow: hidden; will-change: transform, opacity; }
 .ev-fw-vig { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
 .ev-fw-gn { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; pointer-events: none; z-index: 20; text-shadow: 0 4px 30px rgba(0,0,0,0.8); padding: 0 16px; }
-.ev-fw-gn::before { content: ""; position: absolute; width: min(92%, 900px); height: 62%; background: radial-gradient(ellipse, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 70%); z-index: -1; }
+.ev-fw-gn::before { content: ""; position: absolute; width: min(92%, 900px); height: 62%; background: radial-gradient(ellipse, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 70%); z-index: -1; }
 .ev-fw-gn small { font-weight: 600; font-size: clamp(10px, 2.4vw, 13px); letter-spacing: 0.3em; }
 .ev-fw-gn h2 { font-family: "Playfair Display", Georgia, serif; font-weight: 600; font-size: clamp(44px, 11vw, 116px); line-height: 0.98; letter-spacing: -0.03em; margin: 10px 0; }
 .ev-fw-gn h2 i { color: #d8b06a; font-weight: 500; padding: 0 0.08em; }

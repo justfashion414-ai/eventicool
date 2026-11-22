@@ -912,6 +912,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
   });
   const [footerLightbox, setFooterLightbox] = useState<string | null>(null);
+  // A tap that opens the popup must not also close it: on phones the 3D
+  // styles open on pointer-up, then the tap's click lands on the freshly
+  // mounted backdrop and would close it at once (the "flash" report).
+  const footerLbOpenedAt = useRef(0);
+  const openFooterLightbox = (src: string) => { footerLbOpenedAt.current = Date.now(); setFooterLightbox(src); };
+  const closeFooterLightbox = () => { if (Date.now() - footerLbOpenedAt.current < 600) return; setFooterLightbox(null); };
   // The small thank-you line every giant footer style shows above the couple's
   // names; editable in the dashboard's Giant footer style card.
   const [footerThanks, setFooterThanks] = useState<string>(() => { try { return localStorage.getItem(lsKey('footer-thanks')) || ''; } catch { return ''; } });
@@ -3180,7 +3186,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                                 <div className="flex gap-2 flex-wrap pt-0.5">
                                   {stepImgs.map((u, ii) => (
                                     <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
-                                      <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={() => setFooterLightbox(u)} className="w-full h-full object-cover cursor-zoom-in" />
+                                      <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={() => openFooterLightbox(u)} className="w-full h-full object-cover cursor-zoom-in" />
                                     </div>
                                   ))}
                                 </div>
@@ -3285,13 +3291,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* GIANT FOOTER — the couple picks the style in the dashboard */}
               {footerStyle === 'marquee' ? (
-                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterMarquee images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               ) : footerStyle === 'tunnel' ? (
-                <GiantFooterTunnel images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterTunnel images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               ) : footerStyle === 'globe' ? (
-                <GiantFooterGlobe images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterGlobe images={footerPool} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               ) : (
-                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={(src: string) => setFooterLightbox(src)} />
+                <GiantFooterWall images={footerPool} isDarkMode={isDarkMode} thanks={footerThanks} paused={!!footerLightbox} onTap={openFooterLightbox} />
               )}
 
                             <footer className="py-10 text-center border-t border-[#DAD8E3] dark:border-[#22363E] mt-12 bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-[32px] mx-4">
@@ -4327,14 +4333,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setFooterLightbox(null)}
+              onClick={closeFooterLightbox}
               className="fixed inset-0 z-[140] bg-black/90 backdrop-blur-sm"
             />
             <motion.div
               initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              onClick={() => setFooterLightbox(null)}
+              onClick={closeFooterLightbox}
               className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[141] cursor-pointer"
             >
               <img
@@ -4343,7 +4349,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 alt="Memory"
               />
               <button
-                onClick={(e) => { e.stopPropagation(); setFooterLightbox(null); }}
+                onClick={(e) => { e.stopPropagation(); closeFooterLightbox(); }}
                 aria-label="Close"
                 className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-white text-[#14262D] shadow-lg grid place-items-center hover:bg-[#EEEDF3] transition-colors"
               >
@@ -6156,8 +6162,8 @@ function GiantFooterTunnel({ images = [], compact = false, bride, groom, wed, on
       compact={compact}
       stageRef={stageRef}
       worldRef={worldRef}
-      background="#030306"
-      vignette="radial-gradient(circle at 50% 50%, #000 0%, rgba(0,0,0,0.66) 14%, rgba(0,0,0,0) 42%, rgba(0,0,0,0) 70%, rgba(0,0,0,0.53) 100%)"
+      background="var(--ann-accent)"
+      vignette="radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.18) 78%, rgba(0,0,0,0.34) 100%)"
       onTap={onTap}
       bride={bride} groom={groom} wed={wed}
     />
@@ -6282,8 +6288,8 @@ function GiantFooterGlobe({ images = [], compact = false, bride, groom, wed, onT
       compact={compact}
       stageRef={stageRef}
       worldRef={worldRef}
-      background="#000"
-      vignette="radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.87) 78%, #000 96%)"
+      background="var(--ann-accent)"
+      vignette="radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.25) 80%, rgba(0,0,0,0.4) 100%)"
       onTap={onTap}
       bride={bride} groom={groom} wed={wed}
     />
@@ -10371,11 +10377,7 @@ function AdminDashboardModal({
                                       <p className="text-xs font-bold opacity-70 truncate mt-0.5">By {g.uploaderName || g.uploaderEmail || 'Admin'}</p>
                                     </div>
                                   </button>
-                                  {adminPermissions?.canDeletePosts && (
-                                    <button onClick={() => setConfirmAsk({ title: 'Remove album?', message: 'The whole album and everything in it comes out. This cannot be undone.', confirmLabel: 'Remove', action: () => deleteAlbumGroup(g) })} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white grid place-items-center" title="Remove album" style={{ touchAction: 'manipulation' }}>
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
+                                  {/* The X used to delete the album like the Delete all button; removed (user report Nov 22 2026), Delete all plays that role. */}
                                   {/* MASS DOWNLOAD and MASS DELETE for the whole album. */}
                                   <div className="px-3 pb-3 -mt-1 flex gap-2">
                                     <button onClick={(e) => { e.stopPropagation(); downloadAlbumZip(g); }} disabled={albumZipBusy === g.id} className="flex-1 py-2 rounded-lg text-[0.6rem] font-black uppercase tracking-widest border border-[var(--ann-accent)]/40 text-[var(--ann-accent)] active:scale-[0.97] transition-transform disabled:opacity-50" style={{ touchAction: 'manipulation' }}>
@@ -10847,11 +10849,7 @@ function AdminDashboardModal({
                       <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: 'color-mix(in srgb, var(--ann-accent) 55%, #7a4b9e)' }} /> Videos {videosGB >= 0.01 ? videosGB.toFixed(2) : '0.00'} GB</span>
                       <span className="opacity-50">Balance {(freeBytes / 1073741824) >= 0.01 ? (freeBytes / 1073741824).toFixed(2) : '0.00'} GB</span>
                     </div>
-                    {usageRec?.syncedAt && (() => {
-                      const t = usageRec.syncedAt?.seconds ? usageRec.syncedAt.seconds * 1000 : (usageRec.syncedAt instanceof Date ? usageRec.syncedAt.getTime() : null);
-                      return t ? <small className="opacity-40 text-[0.7rem] block mt-1">Checked against Cloudinary · {new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</small> : null;
-                    })()}
-                    {storageFull && (
+                                        {storageFull && (
                       <p className="mt-3 text-[0.85rem]" style={{ color: '#b3261e', fontWeight: 700 }}>Your storage is full. Guests cannot post new photos or videos, and you cannot upload any, until you upgrade.</p>
                     )}
                     <button type="button" onClick={() => setUpgradeOpen(true)} className="mt-4 w-full py-3.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">
