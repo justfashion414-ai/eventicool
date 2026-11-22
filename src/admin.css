@@ -115,3 +115,7 @@
   .evad .pf{position:static}
   .evad .fg{grid-template-columns:1fr}
 }
+
+/* Bottom sheet (dress studio, day schedule editor) */
+@keyframes annSheetUp { from { transform: translateY(70px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes annFade { from { opacity: 0; } to { opacity: 1; } }

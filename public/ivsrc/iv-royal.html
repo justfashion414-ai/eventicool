@@ -32,8 +32,7 @@
   var dcv = q.get('dressColors'); if (dcv) { try { var dca = JSON.parse(dcv); if (Array.isArray(dca)) o.dressColors = dca; } catch (e) {} }
   var phv = q.get('photos'); if (phv) { try { var pha = JSON.parse(phv); if (Array.isArray(pha)) o.photos = pha; } catch (e) {} }
   var fxv = q.get('photoFx'); if (fxv) o.photoFx = fxv;
-  var phv = q.get('photos'); if (phv) { try { var pha = JSON.parse(phv); if (Array.isArray(pha)) o.photos = pha; } catch (e) {} }
-  var fxv = q.get('photoFx'); if (fxv) o.photoFx = fxv;
+  var psv = q.get('pos'); if (psv) { try { var pso = JSON.parse(psv); if (pso && pso.lat != null) o.pos = pso; } catch (e) {} }
   var id = (q.get('i') || '').trim();
   var ivApp = (q.get('app') || '').trim();
   var ivAppQ = ivApp ? '&app=' + encodeURIComponent(ivApp) : '';
@@ -59,7 +58,7 @@
         if (d.rsvpBy) o.rsvpBy = d.rsvpBy;
         if (Array.isArray(d.photos)) o.photos = d.photos;
         if (d.photoFx) o.photoFx = d.photoFx;
-        if (d.photoFx) o.photoFx = d.photoFx;
+        if (d.venuePos && d.venuePos.lat != null) o.pos = d.venuePos;
         if (d.whatsapp) o.whatsapp = d.whatsapp;
         if (d.music) o.music = d.music;
         if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
@@ -134,7 +133,7 @@ button{font:inherit;color:inherit}
 .corner{transform-origin:center}.corner.l{transform:scaleY(-1)}.corner.r{transform:scale(-1,-1)}
 .crest{position:absolute;left:5.5%;right:5.5%;bottom:8.5%;padding:9px 6px 8px;text-align:center;pointer-events:none;background:linear-gradient(180deg,rgba(24,3,10,.93),rgba(40,6,16,.93));border-top:1px solid #e9c373;border-bottom:1px solid #e9c373;box-shadow:0 0 0 1px rgba(24,3,10,.9),0 6px 14px rgba(0,0,0,.4)}
 .crest small{display:block;font-family:var(--sans);font-size:8.5px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;margin-bottom:3px;color:#f8e8c2}
-.crest .nm{display:block;font-family:var(--script);font-size:32px;line-height:1.1;color:#ffe29a;text-shadow:0 1px 0 rgba(0,0,0,.6)}
+.crest .nm{display:block;font-family:var(--sans);font-weight:600;font-size:22px;line-height:1.15;color:#ffe29a;text-shadow:0 1px 0 rgba(0,0,0,.6)}
 .flap{position:absolute;left:0;top:0;width:100%;height:50%;transform-origin:50% 0;transform-style:preserve-3d;transform:translateZ(28px) rotateX(0deg);transition:transform 1.2s cubic-bezier(.45,.05,.25,1)}
 .env.open .flap{transform:translateZ(-4px) rotateX(180deg)}
 .flap-out,.flap-in{position:absolute;inset:0;-webkit-backface-visibility:hidden;backface-visibility:hidden}
@@ -254,12 +253,18 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 .arch{margin:34px auto 0;width:min(300px,82%);aspect-ratio:3/4;padding:7px;border-radius:999px 999px 14px 14px;background:linear-gradient(135deg,#f7dc96,#b57d2c 40%,#f9e4a8 62%,#a8731f);box-shadow:0 18px 40px rgba(90,40,40,.28)}
 .arch-in{position:relative;width:100%;height:100%;border-radius:999px 999px 8px 8px;overflow:hidden;box-shadow:inset 0 0 0 3px var(--paper);background:radial-gradient(90% 60% at 50% 20%,#fbe6dc,#f1c2b6 70%,#e9aea2)}
 .arch-in img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
-.ph-caro img{opacity:0;transition:opacity .9s ease}
-.ph-caro img.on{opacity:1}
-.ph-glide img,.ph-flip img{opacity:1;transition:none;will-change:transform}
-.ph-flip img{transform-origin:left center}
+.ph-wrap{position:relative;width:min(300px,82%);aspect-ratio:3/4;margin:34px auto 0}
 .ph-pause{position:relative}
 .ph-pause .arch{position:sticky;top:calc(env(safe-area-inset-top,0px) + 11vh)}
+.ph-pause .ph-wrap{position:sticky;top:calc(env(safe-area-inset-top,0px) + 11vh);z-index:2}
+.ph-card{position:absolute;inset:0}
+.ph-card .arch{position:absolute;inset:0;margin:0;width:100%;height:100%}
+.ph-card .arch-in{position:absolute;inset:0}
+.ph-card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.ph-hold .ph-card{opacity:0;transition:opacity .9s ease}
+.ph-hold .ph-card.on{opacity:1}
+.ph-glide .ph-card,.ph-flip .ph-card{opacity:1;transition:none;will-change:transform}
+.ph-flip .ph-card{transform-origin:left center}
 .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:0 28px;color:var(--rose-ink)}
 .ph-t{font-style:italic;font-size:24px;line-height:1.1}
 .ph-s{font-family:var(--sans);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.8}
@@ -287,7 +292,7 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 /* ---------- Guest name on the cover ---------- */
 .for-tag{position:absolute;z-index:6;left:0;right:0;margin:0 auto;width:max-content;max-width:88%;text-align:center;padding:9px 26px 11px;border-radius:16px;background:rgba(12,6,3,.68);border:1px solid rgba(240,189,114,.7);box-shadow:0 8px 24px rgba(0,0,0,.35);pointer-events:none;transition:opacity .5s}
 .for-tag small{display:block;font-family:var(--sans);font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:#f8e8c2;margin-bottom:2px}
-.for-tag b{display:block;font-family:var(--script);font-weight:400;font-size:36px;line-height:1.15;color:#ffe7a6;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.for-tag b{display:block;font-family:var(--sans);font-weight:600;font-size:22px;line-height:1.2;letter-spacing:.02em;color:#ffe7a6;text-shadow:0 1px 0 rgba(0,0,0,.5)}
 .env.breaking .for-tag,.env.open .for-tag,.env.cut .for-tag,.env.gone .for-tag{opacity:0}
 .env .skip{background:rgba(12,6,3,.82);border-color:rgba(240,189,114,.7);color:#fbeccb}
 
@@ -350,7 +355,7 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
   </div>
   <button class="skip" id="skip" type="button">Skip intro</button>
   <div class="for-tag" id="forTag" hidden><small>An invitation for</small><b id="forName"></b></div>
-  <script>(function(){var g=(window.IV_OVERRIDE&&window.IV_OVERRIDE.guestName)||"";var t=document.getElementById("forTag");if(!t)return;t.hidden=false;var b=document.getElementById("forName");var nm=g||"Honoured Guest";b.textContent=nm;b.style.fontSize=nm.length>22?"22px":nm.length>16?"27px":nm.length>12?"31px":"";})();</script>
+  <script>(function(){var g=(window.IV_OVERRIDE&&window.IV_OVERRIDE.guestName)||"";var t=document.getElementById("forTag");if(!t)return;t.hidden=false;var b=document.getElementById("forName");var nm=g||"Honoured Guest";b.textContent=nm;b.style.fontSize=nm.length>22?"18px":nm.length>16?"20px":"";})();</script>
     <p class="tap-hint">Tap the seal to open</p>
 </div>
 
@@ -447,7 +452,7 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
       <form id="rsvpForm" novalidate>
         <div><label for="rName">Your name</label><input type="text" id="rName" autocomplete="name" placeholder="Full name"></div>
         <div>
-          <span class="lbl" id="attLbl">Will you attend?</span>
+          <span class="lbl" id="attLbl">Would you be able to attend?</span>
           <div class="choice" role="radiogroup" aria-labelledby="attLbl">
             <button type="button" role="radio" aria-checked="true" data-v="yes">Joyfully accept</button>
             <button type="button" role="radio" aria-checked="false" data-v="no">Regretfully decline</button>
@@ -508,6 +513,7 @@ try {
   if (ivO.story) C.story = ivO.story;
   if (ivO.loaded) { C.dress = ivO.dress || ''; C.ivLoaded = 1; } else if (ivO.dress) C.dress = ivO.dress;
   if (ivO.guestName) C.guestName = ivO.guestName;
+  if (ivO.pos) C.pos = ivO.pos;
   if (ivO.schedule) { try { C.schedule = JSON.parse(ivO.schedule); } catch (e) {} }
   if (ivO.music !== undefined) window.IV_MUSIC = ivO.music;
   if (typeof C.date === 'string') { var ivD = new Date(C.date.replace(/ /, 'T')); if (!isNaN(ivD)) C.date = ivD; }
@@ -544,7 +550,7 @@ const guestName = (window.IV_OVERRIDE && window.IV_OVERRIDE.guestName) || (() =>
   return h.split("-").filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 })();
 if (guestName) { const g = $("#greet"); g.textContent = "Dear " + guestName + ","; g.hidden = false; $("#rName").value = guestName; }
-{ const cs = $("#crestSmall"); if (cs) { cs.textContent = "Reserved for"; const cn = $("#crestNm"), nm = guestName || "Honoured Guest"; cn.textContent = nm; cn.style.fontSize = nm.length > 20 ? "21px" : nm.length > 13 ? "26px" : "32px"; } }
+{ const cs = $("#crestSmall"); if (cs) { cs.textContent = "Reserved for"; const cn = $("#crestNm"), nm = guestName || "Honoured Guest"; cn.textContent = nm; cn.style.fontSize = nm.length > 20 ? "18px" : nm.length > 13 ? "20px" : ""; } }
 
 
 /* ===== Royal envelope art ===== */
@@ -608,14 +614,15 @@ $("#hero").insertAdjacentHTML("afterbegin", floraSVG());
 const MusicIV = (function () {
   var m = window.IV_MUSIC;
   if (!m) return null;
-  if (m === 'none') return { on: false, start: function () { return false; }, stop: function () {} };
+  if (m === 'none') return { on: false, started: false, start: function () { return false; }, stop: function () {} };
+  var playing = false, started = false;
   try {
     var a = new Audio(m); a.loop = true; a.volume = 0.55;
-    return { on: true, start: function () { a.play().catch(function () {}); return true; }, stop: function () { a.pause(); } };
+    return { get on() { return playing; }, set on(v) { playing = v; }, get started() { return started; }, start: function () { var p = a.play(); if (p && p.catch) p.catch(function () {}); playing = true; started = true; return true; }, stop: function () { a.pause(); playing = false; } };
   } catch (e) { return null; }
 })();
 const Music = MusicIV || (() => {
-  let ctx, master, timer, next = 0, step = 0, on = false;
+  let ctx, master, timer, next = 0, step = 0, on = false, started = false;
   const chords = [[293.66, 369.99, 440], [246.94, 293.66, 369.99], [196, 246.94, 293.66], [220, 277.18, 329.63]];
   const arp = [0, 1, 2, 1, 2, 1, 0, 2];
   function tone(f, t, d, g, type) {
@@ -632,6 +639,7 @@ const Music = MusicIV || (() => {
   function tick() { while (next < ctx.currentTime + .6) { play(step, next); next += .44; step++; } }
   return {
     get on() { return on; },
+    get started() { return started; },
     start() {
       try {
         if (!ctx) {
@@ -642,7 +650,7 @@ const Music = MusicIV || (() => {
           master.connect(lp); lp.connect(ctx.destination); lp.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(ctx.destination);
         }
         ctx.resume(); master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(.8, ctx.currentTime + 1.2);
-        next = ctx.currentTime + .1; clearInterval(timer); timer = setInterval(tick, 150); on = true; return true;
+        next = ctx.currentTime + .1; clearInterval(timer); timer = setInterval(tick, 150); on = true; started = true; return true;
       } catch (e) { on = false; return false; }
     },
     stop() { if (!ctx) return; master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(0, ctx.currentTime + .4); setTimeout(() => { if (!on) clearInterval(timer); }, 500); on = false; }
@@ -733,7 +741,7 @@ let opened = false;
 function openInvite() {
   if (opened) return; opened = true; document.documentElement.classList.add("iv-opened");
   const k = reduce ? .15 : 1, at = (ms, fn) => setTimeout(fn, ms * k);
-  if (Music.start()) { musicBtn.hidden = false; musicBtn.setAttribute("aria-pressed", "true"); }
+  if (!Music.started && Music.start()) {} musicBtn.hidden = false; musicBtn.setAttribute("aria-pressed", String(Music.on));
   Sfx.play("seal"); env.classList.add("breaking"); shards(); cam.tamp = 0; cam.trx = 13;
   at(650, () => { env.classList.add("open"); Sfx.play("flap"); });
   at(1750, () => { env.classList.add("peek"); cam.trx = 4; Sfx.play("reveal"); });
@@ -787,7 +795,7 @@ orbEls.forEach(setupOrb);
 function skipIntro() {
   if (!env.isConnected || env.classList.contains("gone")) return;
   opened = true;
-  if (!Music.on && Music.start()) { musicBtn.hidden = false; musicBtn.setAttribute("aria-pressed", "true"); }
+  if (!Music.started && Music.start()) {} musicBtn.hidden = false; musicBtn.setAttribute("aria-pressed", String(Music.on));
   env.classList.add("gone");
   setTimeout(() => { if (!env.isConnected) return; env.remove(); document.documentElement.classList.remove("locked"); window.scrollTo(0, 0); musicBtn.hidden = false; }, reduce ? 50 : 750);
 }
@@ -854,15 +862,39 @@ function buildMap() {
   const m = $("#map");
   if ("IntersectionObserver" in window) { new IntersectionObserver((es, o) => { if (es.some(e => e.isIntersecting)) { m.classList.add("seen"); o.disconnect(); } }, {threshold: .4}).observe(m); } else m.classList.add("seen");
 }
-buildMap();
+function liveMap() {
+  var lat = Number(C.pos.lat), lng = Number(C.pos.lng);
+  if (!isFinite(lat) || !isFinite(lng)) { buildMap(); return; }
+  var m = $("#map"), svg = $("#mapSvg");
+  if (svg) svg.style.display = "none";
+  var note = m.querySelector(".map-note"); if (note) note.textContent = "Live map";
+  $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
+  var box = document.createElement("div"); box.id = "liveMap"; box.style.cssText = "position:absolute;inset:0;background:#e8e0d4";
+  m.insertBefore(box, m.firstChild);
+  var go = function () {
+    try {
+      var map = L.map(box, { zoomControl: false, attributionControl: false, scrollWheelZoom: false }).setView([lat, lng], 16);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+      L.circleMarker([lat, lng], { radius: 9, color: "#fff", weight: 3, fillColor: "#ea4335", fillOpacity: 1 }).addTo(map);
+      $("#mapIn").addEventListener("click", function () { map.zoomIn(); });
+      $("#mapOut").addEventListener("click", function () { map.zoomOut(); });
+      setTimeout(function () { map.invalidateSize(); }, 250);
+    } catch (e) { if (svg) svg.style.display = ""; if (box && box.parentNode) box.parentNode.removeChild(box); if (note) note.textContent = "Illustrative map"; }
+  };
+  if (window.L) go();
+  else {
+    var css = document.createElement("link"); css.rel = "stylesheet"; css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(css);
+    var sc = document.createElement("script"); sc.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; sc.onload = go; sc.onerror = function () { if (svg) svg.style.display = ""; if (box && box.parentNode) box.parentNode.removeChild(box); }; document.head.appendChild(sc);
+  }
+}
+if (C.pos && C.pos.lat != null) liveMap(); else buildMap();
 $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 
-/* ===== Couple photo (set C.photo to a picture to replace the placeholder) ===== */
-/* ===== Couple photo (set C.photo to a picture to replace the placeholder).
-   Two or more photos play as the guest scrolls, in the style the couple picked:
-   hold = the section holds still and each scroll step fades the next photo in,
-   glide = the scroll itself carries each photo across from the right to the left,
-   flip = the scroll turns each photo away like a page. One photo simply sits in the arch. ===== */
+/* ===== Couple photo (each photo is its own card: the CARDS carry the
+   effect, not the picture inside one static frame).
+   hold = the section holds still and each card fades over to the next,
+   glide = each card slides away completely while the next one shows,
+   flip = each card turns away like a page. One photo simply sits in the arch. ===== */
 (function () {
   var list = (Array.isArray(C.photos) && C.photos.length) ? C.photos.slice(0, 6) : (C.photo ? [C.photo] : []);
   if (!list.length) return;
@@ -872,34 +904,38 @@ $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encode
     var h = $("#phHolder"); if (h) h.remove();
     var host = $("#archIn"); if (!host) return;
     if (list.length === 1) { ready.alt = couple; host.appendChild(ready); return; }
-    var wrap = document.createElement('div'); wrap.className = 'ph-caro' + (mode === 'glide' ? ' ph-glide' : mode === 'flip' ? ' ph-flip' : '');
-    var imgs = list.map(function (u) { var im = new Image(); im.alt = couple; im.src = u; wrap.appendChild(im); return im; });
-    if (mode === 'hold') imgs[0].className = 'on';
-    host.appendChild(wrap);
-    var arch = document.getElementById('arch');
-    if (!arch) return;
-    var n = imgs.length;
+    var arch = document.getElementById('arch'); if (!arch) return;
+    var wrap = document.createElement('div'); wrap.className = 'ph-wrap ph-' + mode;
+    var cards = list.map(function (u) {
+      var card = document.createElement('div'); card.className = 'ph-card';
+      card.innerHTML = '<div class="arch"><div class="arch-in"><img alt="' + String(couple).replace(/"/g, '&quot;') + '"></div></div>';
+      card.querySelector('img').src = u;
+      wrap.appendChild(card); return card;
+    });
     var stage = document.createElement('div'); stage.className = 'ph-pause';
-    stage.style.height = 'calc(' + (n * 58 + 42) + 'vh)';
+    stage.style.height = 'calc(' + (list.length * 58 + 42) + 'vh)';
     arch.parentNode.insertBefore(stage, arch);
-    stage.appendChild(arch);
+    stage.appendChild(wrap);
+    arch.style.display = 'none';
+    var n = cards.length;
+    if (mode === 'hold') cards[0].classList.add('on');
     var apply = function (p) {
       if (mode === 'hold') {
         var idx = Math.min(n - 1, Math.floor(p * n));
-        imgs.forEach(function (im, k) { im.className = k === idx ? 'on' : ''; });
+        cards.forEach(function (c, k) { c.classList.toggle('on', k === idx); });
         return;
       }
       var step = p * n;
-      imgs.forEach(function (im, j) {
+      cards.forEach(function (c, j) {
         if (mode === 'glide') {
           var ein = j === 0 ? 1 : Math.min(1, Math.max(0, step - (j - 1)));
           var eout = Math.min(1, Math.max(0, step - j));
-          im.style.transform = 'translateX(' + ((1 - ein) * 102 - eout * 102).toFixed(2) + '%)';
+          c.style.transform = 'translateX(' + ((1 - ein) * 102 - eout * 102).toFixed(2) + '%)';
         } else {
           var t = Math.min(1, Math.max(0, step - j));
-          im.style.transform = 'perspective(900px) rotateY(' + (-t * 165).toFixed(2) + 'deg)';
-          im.style.opacity = t > .92 ? '0' : '1';
-          im.style.zIndex = String(n - j);
+          c.style.transform = 'perspective(900px) rotateY(' + (-t * 165).toFixed(2) + 'deg)';
+          c.style.opacity = t > .92 ? '0' : '1';
+          c.style.zIndex = String(n - j);
         }
       });
     };
@@ -919,7 +955,6 @@ $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encode
   };
   ready.src = list[0];
 })();
-
 /* ===== Countdown ===== */
 function tickCount() {
   let ms = Math.max(0, D - new Date()), s = Math.floor(ms / 1000);
@@ -933,9 +968,7 @@ let attend = "yes";
 $$(".choice button").forEach(b => b.addEventListener("click", () => {
   attend = b.dataset.v; $$(".choice button").forEach(x => x.setAttribute("aria-checked", String(x === b)));
 }));
-/* If this invitee already replied, their reply shows read-only and the
-   form cannot be edited or sent again. */
-try { var ivRep = window.IV_OVERRIDE && window.IV_OVERRIDE.replied; if (ivRep) {
+function ivLockReply(ivRep) {
   window.IV_REPLIED_LOCK = true;
   attend = ivRep.attend === 'no' ? 'no' : 'yes';
   $$(".choice button").forEach(x => { x.setAttribute("aria-checked", String(x.dataset.v === attend)); x.disabled = true; });
@@ -943,7 +976,8 @@ try { var ivRep = window.IV_OVERRIDE && window.IV_OVERRIDE.replied; if (ivRep) {
   var nt2 = $("#rNote"); if (nt2) { nt2.value = ivRep.note || ''; nt2.readOnly = true; }
   var sb2 = document.querySelector('#rsvpForm button[type=submit]'); if (sb2) sb2.hidden = true;
   var fm2 = $("#rsvpForm"); if (fm2) { var p2 = document.createElement('p'); p2.textContent = 'Your reply is in. Thank you for letting ' + couple + ' know.'; p2.style.cssText = 'margin:14px 0 0;text-align:center;font-family:var(--sans);font-size:13px;opacity:.85'; fm2.appendChild(p2); }
-} } catch (e) {}
+}
+try { var ivRep = window.IV_OVERRIDE && window.IV_OVERRIDE.replied; if (ivRep) ivLockReply(ivRep); } catch (e) {}
 /* The invitee's own name arrives with their link, so it is already filled in.
    They can still change it before sending. */
 try { var ivO2 = window.IV_OVERRIDE || {}; if (ivO2.guestName) { var rnEl = $("#rName"); if (rnEl && !rnEl.value) rnEl.value = ivO2.guestName; } } catch (e) {}
@@ -958,7 +992,7 @@ $("#rsvpForm").addEventListener("submit", e => {
   try {
     const q = new URLSearchParams(location.search);
     const ivId = q.get('i'), gid = q.get('g');
-    if (ivId && gid) fetch('/api/invite?id=' + encodeURIComponent(ivId) + '&app=' + encodeURIComponent(q.get('app') || '') + '&g=' + encodeURIComponent(gid), { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', name: name, attend: attend, note: note }) }).catch(function (e2) {});
+    if (ivId && gid) fetch('/api/invite?id=' + encodeURIComponent(ivId) + '&app=' + encodeURIComponent(q.get('app') || '') + '&g=' + encodeURIComponent(gid), { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', name: name, attend: attend, note: note }) }).then(function () { try { ivLockReply({ attend: attend, note: note, name: name }); } catch (e3) {} }).catch(function (e2) {});
   } catch (err2) {}
   /* Thank you: a warm popup, and the button takes the guest to the app of the
      couple who sent this invite. */

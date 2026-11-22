@@ -42,6 +42,12 @@ async function inviteMeta(appId, ivId) {
   }
 }
 
+function cdnPhoto(u) {
+  const t = String(u || '')
+  if (/res\.cloudinary\.com\//.test(t) && /\/upload\//.test(t) && !/f_jpg/.test(t)) return t.replace('/upload/', '/upload/w_1200,q_auto,f_jpg/')
+  return t
+}
+
 function injectOg(html, m, pageUrl) {
   const tags = [
     `<meta property="og:title" content="${esc(m.title)}">`,
@@ -53,7 +59,8 @@ function injectOg(html, m, pageUrl) {
     `<meta name="twitter:description" content="${esc(m.desc)}">`,
   ]
   if (m.photo) {
-    tags.push(`<meta property="og:image" content="${esc(m.photo)}">`, `<meta name="twitter:image" content="${esc(m.photo)}">`)
+    const img = cdnPhoto(m.photo)
+    tags.push(`<meta property="og:image" content="${esc(img)}">`, `<meta property="og:image:alt" content="${esc(m.title)}">`, `<meta name="twitter:image" content="${esc(img)}">`)
   }
   return html.replace('</head>', tags.join('\n') + '\n</head>')
 }
@@ -79,7 +86,7 @@ export default async (req) => {
     const r = await fetch(`${proto}://${host}/ivsrc/${file}`)
     if (!r.ok) return new Response('Not found', { status: 404 })
     html = await r.text()
-    if (isCrawler && ivId) {
+    if (ivId) {
       try {
         const m = await inviteMeta(appId, ivId)
         if (m) html = injectOg(html, m, url.origin + url.pathname + (url.search || ''))
