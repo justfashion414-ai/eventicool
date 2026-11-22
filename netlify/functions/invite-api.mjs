@@ -56,6 +56,7 @@ export default async (req) => {
         if (g.exists) {
           const gd = g.data() || {}
           out.guest = { id: gid, name: gd.name || '', opened: Boolean(gd.openedAt) }
+          if (gd.reply) out.guest.reply = { attend: gd.reply.attend === 'no' ? 'no' : 'yes', note: String(gd.reply.note || ''), name: String(gd.reply.name || '') }
         }
       }
       return json(200, out)

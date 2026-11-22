@@ -7635,7 +7635,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       )}
 
       {invTab === 'invitees' && (docId ? (
-        <section className={cardCls}>
+        <div>
           <label className={labCls}>Your invitees</label>
           <p className="text-xs opacity-60 mt-1 mb-3">Every invitee gets their own link. You see here when each one opens their card, and their reply the moment they send it.</p>
           {guests === null ? (
@@ -7699,14 +7699,16 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             </div>
             <p className="text-[10px] opacity-50 mt-1.5">Their WhatsApp number powers the WhatsApp button on their row.</p>
           </div>
-        </section>
+        </div>
       ) : (
         <p className="text-xs opacity-60">Save your invite first, then add your invitees here.</p>
       ))}
 
+      {invTab === 'templates' && (
       <button type="button" aria-label="Preview card" onClick={() => setPreviewTpl(tpl)} className="fixed w-12 h-12 rounded-full bg-[var(--ann-accent)] text-white shadow-xl flex items-center justify-center" style={{ right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 250, touchAction: 'manipulation' }}>
         <Eye className="w-5 h-5" />
       </button>
+      )}
 
       {previewTpl && (
         <div className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewTpl(null)}>

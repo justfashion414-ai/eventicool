@@ -11,6 +11,11 @@
   status = 200
 
 [[redirects]]
+  from = "/iv/*"
+  to = "/.netlify/functions/iv-meta"
+  status = 200
+
+[[redirects]]
   from = "/manifest.webmanifest"
   to = "/api/manifest"
   status = 200
