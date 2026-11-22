@@ -49,6 +49,7 @@
         if (d.music) o.music = d.music;
         if (d.schedule) o.schedule = typeof d.schedule === 'string' ? d.schedule : JSON.stringify(d.schedule);
         if (Array.isArray(d.dressColors) && d.dressColors.length) o.dressColors = d.dressColors;
+        if (d.dressOutfit && typeof d.dressOutfit === 'object') o.dressOutfit = d.dressOutfit;
         if (d.guest && d.guest.name) {
           o.guestName = d.guest.name;
           /* Fill the reply form's name field as soon as the card's data is in
@@ -450,7 +451,7 @@ p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       </form>
             <div class="sent" id="sent" hidden>
         <h4>Thank you!</h4>
-        <p>Your reply is in. <span data-f="couple"></span> will see it right away in their app.</p>
+        
       </div>
         <p class="copied" id="copied" aria-live="polite"></p>
       </div>
@@ -475,8 +476,8 @@ p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
       <span class="thx-float thx-f1"></span><span class="thx-float thx-f2"></span><span class="thx-float thx-f3"></span><span class="thx-float thx-f4"></span>
     </div>
     <h3 id="thxTitle">Thank you!</h3>
-    <p>Your reply is in. <span id="thxCouple"></span> will see it right away in their app.</p>
-    <a class="thx-btn" id="thxApp" target="_blank" rel="noopener" hidden>See more about the event</a>
+    
+    <a class="thx-btn" id="thxApp" target="_blank" rel="noopener" hidden>See more of the event</a>
     <button class="thx-close" type="button" id="thxClose">Close</button>
   </div>
 </div>
@@ -1056,7 +1057,7 @@ function ivLockReply(ivRep) {
   var rn2 = $("#rName"); if (rn2) { if (ivRep.name) rn2.value = ivRep.name; rn2.readOnly = true; }
   var nt2 = $("#rNote"); if (nt2) { nt2.value = ivRep.note || ''; nt2.readOnly = true; }
   var sb2 = document.querySelector('#rsvpForm button[type=submit]'); if (sb2) sb2.hidden = true;
-  var fm2 = $("#rsvpForm"); if (fm2) { var p2 = document.createElement('p'); p2.textContent = 'Your reply is in. Thank you for letting ' + couple + ' know.'; p2.style.cssText = 'margin:14px 0 0;text-align:center;font-family:var(--sans);font-size:13px;opacity:.85'; fm2.appendChild(p2); }
+  var fm2 = $("#rsvpForm"); if (fm2) { var p2 = document.createElement('p'); p2.textContent = 'Thank you for letting ' + couple + ' know.'; p2.style.cssText = 'margin:14px 0 0;text-align:center;font-family:var(--sans);font-size:13px;opacity:.85'; fm2.appendChild(p2); }
 }
 try { var ivRep = window.IV_OVERRIDE && window.IV_OVERRIDE.replied; if (ivRep) ivLockReply(ivRep); } catch (e) {}
 /* The invitee's own name arrives with their link, so it is already filled in.

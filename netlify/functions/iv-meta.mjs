@@ -34,7 +34,26 @@ async function inviteMeta(appId, ivId) {
     if (d.wedDate && d.wedDate.toDate) date = d.wedDate.toDate().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     else if (d.wedDate) date = String(d.wedDate)
   } catch (e) { date = d.wedDate ? String(d.wedDate) : '' }
-  const photo = Array.isArray(d.photos) && d.photos.length ? d.photos[0] : ''
+  let photo = Array.isArray(d.photos) && d.photos.length ? d.photos[0] : ''
+  // The share image is the first photo attached to the invite card itself.
+  // When the card carries none, fall back to the app's first hero image so a
+  // shared link still previews with a picture.
+  if (!photo && scoped) {
+    try {
+      const cfg = (await getFirestore().collection('apps').doc(appId).collection('app_config').doc('main').get()).data() || {}
+      const h = Array.isArray(cfg.heroImages) ? cfg.heroImages : []
+      if (h.length && String(h[0]).startsWith('http')) photo = h[0]
+    } catch (e) {}
+    if (!photo) {
+      try {
+        const ev = await getFirestore().collection('events').doc(appId).get()
+        if (ev.exists) {
+          const h2 = Array.isArray((ev.data() || {}).heroImages) ? (ev.data() || {}).heroImages : []
+          if (h2.length && String(h2[0]).startsWith('http')) photo = h2[0]
+        }
+      } catch (e) {}
+    }
+  }
   return {
     title: (d.bride && d.groom) ? `${d.bride} & ${d.groom} invite you to their wedding` : 'You are invited',
     desc: [date, d.venue, d.city].filter(Boolean).join(' · ') || 'Save the date',
