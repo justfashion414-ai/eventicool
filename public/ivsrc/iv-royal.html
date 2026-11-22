@@ -517,7 +517,7 @@ try {
   if (ivO.schedule) { try { C.schedule = JSON.parse(ivO.schedule); } catch (e) {} }
   if (ivO.music !== undefined) window.IV_MUSIC = ivO.music;
   if (typeof C.date === 'string') { var ivD = new Date(C.date.replace(/ /, 'T')); if (!isNaN(ivD)) C.date = ivD; }
-}
+} catch (e) {}
 
 /* ===== Helpers ===== */
 const $ = (s, r = document) => r.querySelector(s);
