@@ -275,14 +275,6 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 .map{position:relative;margin:30px auto 0;width:100%;max-width:380px;aspect-ratio:4/3.3;border-radius:18px;overflow:hidden;background:#ebe5da;box-shadow:0 0 0 1px rgba(185,119,44,.5),0 14px 30px rgba(90,40,40,.22)}
 .map-svg{display:block;width:100%;height:100%}
 #mapWorld{transform-origin:248px 160px;transition:transform .5s cubic-bezier(.3,.7,.2,1)}
-.map-card{position:absolute;left:10px;top:10px;max-width:calc(100% - 66px);display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;background:#fff;border-radius:10px;padding:9px 12px 10px;box-shadow:0 2px 8px rgba(0,0,0,.28);font-family:var(--sans);z-index:1200}
-.map-card b{font-weight:500;font-size:14px;color:#202124;line-height:1.25}
-.map-card span{font-size:11px;color:#70757a}
-.map-card a{margin-top:7px;display:inline-block;background:#1a73e8;color:#fff;text-decoration:none;font-size:11.5px;letter-spacing:.04em;padding:6px 13px;border-radius:999px}
-.zoomctl{position:absolute;right:10px;bottom:30px;display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.3);overflow:hidden;z-index:1200}
-.zoomctl button{width:36px;height:36px;border:0;background:#fff;color:#5f6368;font-family:var(--sans);font-size:20px;line-height:1;cursor:pointer}
-.zoomctl button+button{border-top:1px solid #e0e0e0}
-.map-note{position:absolute;right:8px;bottom:6px;font-family:var(--sans);font-size:9px;letter-spacing:.08em;color:#70757a;background:rgba(255,255,255,.75);padding:1px 5px;border-radius:3px;z-index:1200}
 /* Preview mockup (no i= param): the RSVP form shows but answers no taps. */
 .iv-preview #rsvpForm input,.iv-preview #rsvpForm textarea,.iv-preview #rsvpForm button{pointer-events:none!important}
 .pin-drop{animation:none;transform-box:fill-box}
@@ -426,9 +418,6 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
       <hr class="rule">
       <div class="map" id="map">
         <svg id="mapSvg" class="map-svg" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Illustrative map showing the wedding venue marked with a red pin"></svg>
-        <div class="map-card"><b data-f="venue"></b><span>Wedding venue</span><a id="mapLink" href="#" target="_blank" rel="noopener">Directions</a></div>
-        <div class="zoomctl"><button type="button" id="mapIn" aria-label="Zoom in">+</button><button type="button" id="mapOut" aria-label="Zoom out">&minus;</button></div>
-        <span class="map-note">Illustrative map</span>
       </div>
       <p class="venue-name" data-f="venue"></p>
       <p class="addr" data-f="address"></p>
@@ -543,7 +532,6 @@ $("#dWeek").textContent = DAYS[D.getDay()];
 $("#dFull").textContent = D.getDate() + " " + MONTHS[D.getMonth()] + " " + D.getFullYear();
 $("#dTime").textContent = "Ceremony at " + timeStr(D);
 $("#mono").textContent = C.name1[0] + " & " + C.name2[0];
-$("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 $("#timeline").innerHTML = C.schedule.map(([t, e, n]) => `<li><span class="t">${t}</span><span class="e">${e}</span><span class="n">${n}</span></li>`).join("");
 
 /* ===== Personal greeting from the link (add #guest-name to the end of the link) ===== */
@@ -862,8 +850,6 @@ function buildMap() {
     <text x="264" y="176" text-anchor="middle" font-family="Jost,Arial,sans-serif" font-weight="500" font-size="10" fill="#202124" stroke="#fff" stroke-width="3.2" paint-order="stroke" stroke-linejoin="round">${name}</text>
   </g>
   <g transform="translate(12 280)"><path d="M0 0H40" stroke="#5f6368" stroke-width="1.6"/><path d="M0 -3V3M40 -3V3" stroke="#5f6368" stroke-width="1.6"/><text x="46" y="3" ${lbl}>200 m</text></g>`;
-  let z = 1; const world = $("#mapWorld"), set = n => { z = Math.min(2.4, Math.max(1, n)); world.style.transform = `scale(${z})`; };
-  $("#mapIn").addEventListener("click", () => set(z * 1.4)); $("#mapOut").addEventListener("click", () => set(z / 1.4));
   const m = $("#map");
   if ("IntersectionObserver" in window) { new IntersectionObserver((es, o) => { if (es.some(e => e.isIntersecting)) { m.classList.add("seen"); o.disconnect(); } }, {threshold: .4}).observe(m); } else m.classList.add("seen");
 }
@@ -872,8 +858,6 @@ function liveMap() {
   if (!isFinite(lat) || !isFinite(lng)) { buildMap(); return; }
   var m = $("#map"), svg = $("#mapSvg"), svgNext = null;
   if (svg) { svgNext = svg.nextSibling; svg.parentNode.removeChild(svg); }
-  var note = m.querySelector(".map-note"); if (note) note.textContent = "Live map";
-  $("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
   var box = document.createElement("div"); box.id = "liveMap"; box.style.cssText = "position:absolute;left:0;top:0;right:0;bottom:0;background:#e8e0d4";
   m.insertBefore(box, m.firstChild);
   var go = function () {
@@ -882,10 +866,8 @@ function liveMap() {
       window.__ivMap = map;
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
       L.circleMarker([lat, lng], { radius: 9, color: "#fff", weight: 3, fillColor: "#ea4335", fillOpacity: 1 }).addTo(map);
-      $("#mapIn").addEventListener("click", function () { map.zoomIn(); });
-      $("#mapOut").addEventListener("click", function () { map.zoomOut(); });
       setTimeout(function () { map.invalidateSize(); }, 250);
-    } catch (e) { if (svg) { try { m.insertBefore(svg, svgNext); } catch (e2) {} } if (box && box.parentNode) box.parentNode.removeChild(box); if (note) note.textContent = "Illustrative map"; }
+    } catch (e) { if (svg) { try { m.insertBefore(svg, svgNext); } catch (e2) {} } if (box && box.parentNode) box.parentNode.removeChild(box); }
   };
   if (window.L) go();
   else {
@@ -897,7 +879,6 @@ if (C.pos && C.pos.lat != null) liveMap(); else buildMap();
 /* Preview mockup (the floating eye): no i= param means nobody owns this card,
    so the RSVP form stays a mockup and answers no taps. */
 try { if (!new URLSearchParams(window.location.search).get("i")) document.documentElement.classList.add("iv-preview"); } catch (eP) {}
-$("#mapLink").href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(C.venue + ", " + C.address);
 
 /* ===== Couple photo (each photo is its own card: the CARDS carry the
    effect, not the picture inside one static frame).

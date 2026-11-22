@@ -338,7 +338,7 @@ export default async (req) => {
       if (email === caller && !isSuper) return json(400, { error: 'You cannot remove yourself.' })
       const doc = await adminsCol.doc(email).get()
       if (!doc.exists) return json(404, { error: 'That admin is not on this app.' })
-      if (String(doc.data().role || '') === 'owner' && !isSuper) return json(400, { error: 'The owner cannot be removed.' })
+      if (String(doc.data().role || '') === 'owner' && !isSuper && String(callerData.role || 'owner') !== 'owner') return json(400, { error: 'Only the app owner can remove another owner.' })
       await adminsCol.doc(email).delete()
       try {
         const u = await auth.getUserByEmail(email)

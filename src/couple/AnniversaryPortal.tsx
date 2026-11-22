@@ -1658,7 +1658,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           // start as activity.
           setDoc(doc(db, scopedPath('admins'), user.email || ''), { lastActiveAt: Timestamp.fromMillis(lastActivityRef.current) }, { merge: true }).catch(() => {});
         }
-        if (!adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
+        if (wasAdminOpenOnLoadRef.current && !adminAutoOpenedRef.current) { adminAutoOpenedRef.current = true; goAdminPage(); }
       } else {
         // Every account is checked against THIS app's admins list only: the
         // platform's own login stays inside the Eventicor console and never
@@ -5106,7 +5106,7 @@ function Post({
             className="flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium text-[#5A6970] dark:text-[#93A4AB] hover:border-[var(--ann-accent)]/60 transition-all"
           >
             <MessageCircle className="w-[17px] h-[17px]" />
-            <span>Comment{commentCount > 0 ? ` ${commentCount}` : ''}</span>
+            <span className="whitespace-nowrap">Comment{commentCount > 0 ? ` ${commentCount}` : ''}</span>
           </button>
           <button
             onClick={onShare}
@@ -5761,7 +5761,7 @@ function SamplePostCard({ post, isDarkMode, liked, onLike, onComment, onShare }:
           className={`flex items-center justify-center gap-1.5 py-[9px] px-2 rounded-xl border border-[#DAD8E3] dark:border-[#22363E] text-[13px] font-medium ${mutedCls}`}
         >
           <MessageCircle className="w-[17px] h-[17px]" />
-          <span>Comment{post.commentCount > 0 ? ` ${post.commentCount}` : ''}</span>
+          <span className="whitespace-nowrap">Comment{post.commentCount > 0 ? ` ${post.commentCount}` : ''}</span>
         </button>
         <button
           onClick={onShare}
@@ -9398,7 +9398,7 @@ function AdminDashboardModal({
       setSessionBusy(false);
     }
   };
-  const roleLabel = (r?: string) => r === 'owner' ? 'Super Admin' : (!r || r === 'couple' || r === 'admin') ? 'Owner' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
+  const roleLabel = (r?: string) => (!r || r === 'owner') ? 'Owner' : (r === 'couple' || r === 'admin') ? 'Admin' : r === 'bride' ? 'Bride' : r === 'groom' ? 'Groom' : r === 'photographer' ? 'Photographer' : r === 'videographer' ? 'Videographer' : 'Vendor';
   
   return (
     <AnimatePresence>
