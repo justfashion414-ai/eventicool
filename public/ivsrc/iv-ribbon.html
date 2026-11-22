@@ -967,7 +967,7 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
   });
   /* Dress-look mockups (user spec Nov 22 2026): the couple's mockups drawn in
      their picked colours. Male is shirt & trouser; female is a gown or blouse
-     & skirt. One look for everyone shows the male mockup alone. */
+     & skirt. Both mockups show side by side: male on the left, female on the right. */
   (function () {
     var of_ = C.dressOutfit;
     if (!of_ || typeof of_ !== 'object') return;
@@ -977,7 +977,8 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
     var mT = male.top || '#B57D2C', mB = male.bottom || mT;
     var fT = femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT);
     var fB = femStyle === 'gown' ? fT : (fem.bottom || mB);
-    var fig = function (kind, cTop, cBottom) {
+    var mCap = male.cap || '', fHg = fem.headgear || '';
+    var fig = function (kind, cTop, cBottom, cCap, cHg) {
       var t = cTop || '#B57D2C', b = cBottom || t, sk = '#E7C9A9';
       var st = 'stroke="rgba(0,0,0,.16)" stroke-width="1"';
       var s = '<svg viewBox="0 0 120 170" style="width:74px;height:auto;display:block">';
@@ -998,6 +999,14 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
         s += '<rect x="46" y="126" width="10" height="26" fill="' + sk + '" ' + st + '/>';
         s += '<rect x="64" y="126" width="10" height="26" fill="' + sk + '" ' + st + '/>';
       }
+      if (kind === 'male' && cCap) {
+        s += '<path d="M48.6,14.5 C48.6,6.6 53.4,2.6 60,2.6 C66.6,2.6 71.4,6.6 71.4,14.5 Z" fill="' + cCap + '" ' + st + '/>';
+        s += '<rect x="48.2" y="13.4" width="23.6" height="3" rx="1.5" fill="' + cCap + '" ' + st + '/>';
+      }
+      if (kind !== 'male' && cHg) {
+        s += '<path d="M44.5,18 C42.5,7.5 49,2 60,2 C71,2 77.5,7.5 75.5,18 C74,11.5 68.5,8.5 60,8.5 C51.5,8.5 46,11.5 44.5,18 Z" fill="' + cHg + '" ' + st + '/>';
+        s += '<path d="M70,4.5 C74,6 76.5,9.5 76.5,13 L72,12 C72.5,9 72,6.5 70,4.5 Z" fill="' + cHg + '" ' + st + '/>';
+      }
       return s + '</svg>';
     };
     var labCss = 'font-size:14px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;opacity:.75;margin-top:8px';
@@ -1009,8 +1018,8 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
     };
     var wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;gap:22px;align-items:flex-end;margin:10px 0 4px;flex-wrap:wrap';
-    wrap.appendChild(mk(fig('male', mT, mB), 'Male'));
-    if (!both) wrap.appendChild(mk(fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB), 'Female'));
+    wrap.appendChild(mk(fig('male', mT, mB, mCap), 'Male'));
+    wrap.appendChild(mk(fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB, '', fHg), 'Female'));
     host.appendChild(wrap);
   })();
 })();

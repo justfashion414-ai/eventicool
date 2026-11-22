@@ -485,7 +485,7 @@ const BottomSheet = ({ title, onClose, isDarkMode, children }: any) => {
 /* Dress-look mockups (user spec Nov 22 2026): simple SVG garments filled with
    the colours the couple picked, so guests see the look, not just swatches.
    Him is always shirt & trouser; her look is a gown or blouse & skirt. */
-const DressFigure = ({ kind, top, bottom, skin = '#E7C9A9' }: { kind: 'male' | 'gown' | 'blouse'; top: string; bottom: string; skin?: string }) => {
+const DressFigure = ({ kind, top, bottom, cap, headgear, skin = '#E7C9A9' }: { kind: 'male' | 'gown' | 'blouse'; top: string; bottom: string; cap?: string; headgear?: string; skin?: string }) => {
   const st = { stroke: 'rgba(0,0,0,.16)', strokeWidth: 1 };
   return (
     <svg viewBox="0 0 120 170" style={{ width: 74, height: 'auto', display: 'block' }}>
@@ -495,6 +495,10 @@ const DressFigure = ({ kind, top, bottom, skin = '#E7C9A9' }: { kind: 'male' | '
       {kind === 'male' && (<>
         <path d="M40,34 L80,34 L88,60 L78,66 L78,98 L42,98 L42,66 L32,60 Z" fill={top} {...st} />
         <path d="M42,98 L78,98 L76,152 L64,152 L60,112 L56,152 L44,152 Z" fill={bottom} {...st} />
+        {cap && (<>
+          <path d="M48.6,14.5 C48.6,6.6 53.4,2.6 60,2.6 C66.6,2.6 71.4,6.6 71.4,14.5 Z" fill={cap} {...st} />
+          <rect x="48.2" y="13.4" width="23.6" height="3" rx="1.5" fill={cap} {...st} />
+        </>)}
       </>)}
       {kind === 'gown' && (<>
         <path d="M46,34 L74,34 L72,62 L48,62 Z" fill={top} {...st} />
@@ -508,32 +512,37 @@ const DressFigure = ({ kind, top, bottom, skin = '#E7C9A9' }: { kind: 'male' | '
         <rect x={46} y={126} width={10} height={26} fill={skin} {...st} />
         <rect x={64} y={126} width={10} height={26} fill={skin} {...st} />
       </>)}
+      {kind !== 'male' && headgear && (<>
+        <path d="M44.5,18 C42.5,7.5 49,2 60,2 C71,2 77.5,7.5 75.5,18 C74,11.5 68.5,8.5 60,8.5 C51.5,8.5 46,11.5 44.5,18 Z" fill={headgear} {...st} />
+        <path d="M70,4.5 C74,6 76.5,9.5 76.5,13 L72,12 C72.5,9 72,6.5 70,4.5 Z" fill={headgear} {...st} />
+      </>)}
     </svg>
   );
 };
 
-const DressMockup = ({ outfit, isDarkMode }: { outfit: any; isDarkMode?: boolean }) => {
+const DressMockup = ({ outfit, isDarkMode, focus }: { outfit: any; isDarkMode?: boolean; focus?: 'male' | 'female' | null }) => {
   if (!outfit || typeof outfit !== 'object') return null;
   const male = outfit.male || {};
   const fem = outfit.female || {};
   const femStyle = fem.style || 'gown';
-  const both = outfit.mode !== 'split';
+  const mCap = male.cap || '';
+  const fHg = fem.headgear || '';
   const mT = male.top || '#B57D2C';
   const mB = male.bottom || mT;
   const fT = femStyle === 'gown' ? (fem.gown || mT) : (fem.top || mT);
   const fB = femStyle === 'gown' ? fT : (fem.bottom || mB);
   const lab: any = { fontSize: 14, letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 800, opacity: .75, marginTop: 8 };
-  const fig = (kind: 'male' | 'gown' | 'blouse', t: string, b: string, label: string) => (
+  const fig = (kind: 'male' | 'gown' | 'blouse', t: string, b: string, label: string, cap?: string, headgear?: string) => (
     <div style={{ textAlign: 'center' }}>
-      <DressFigure kind={kind} top={t} bottom={b} />
+      <DressFigure kind={kind} top={t} bottom={b} cap={cap} headgear={headgear} />
       <div style={lab}>{label}</div>
     </div>
   );
   return (
     <div className={`rounded-xl border px-4 py-3 ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ marginTop: 10 }}>
-      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        {fig('male', mT, mB, 'Male')}
-        {!both && fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB, 'Female')}
+      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-end', flexWrap: 'wrap', justifyContent: 'center' }}>
+        {focus !== 'female' && fig('male', mT, mB, 'Male', mCap)}
+        {focus !== 'male' && fig(femStyle === 'gown' ? 'gown' : 'blouse', fT, fB, 'Female', '', fHg)}
       </div>
     </div>
   );
@@ -546,19 +555,21 @@ const DressStudio = ({ open, onClose, colors, outfit, isDarkMode, onSave }: any)
   const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm outline-none bg-transparent ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`;
   const [o, setO] = useState<any>(null);
   const [slot, setSlot] = useState<string | null>(null);
+  const [focus, setFocus] = useState<'male' | 'female' | null>(null);
   useEffect(() => {
     if (open) {
-      setO(JSON.parse(JSON.stringify(outfit || { mode: 'both', male: { top: '', bottom: '', note: '' }, female: { style: 'gown', gown: '', top: '', bottom: '', note: '' } })));
+      setO(JSON.parse(JSON.stringify(outfit || { mode: 'both', male: { top: '', bottom: '', cap: '', note: '' }, female: { style: 'gown', gown: '', top: '', bottom: '', headgear: '', note: '' } })));
       setSlot(null);
+      setFocus(null);
     }
   }, [open, outfit]);
   if (!open || !o) return null;
   const both = o.mode !== 'split';
   const pal = (colors || []).map((c: any) => colorHexOf(c)).filter(Boolean);
   const set = (path: string, v: string) => setO((cur: any) => { const n = JSON.parse(JSON.stringify(cur)); const parts = path.split('.'); let t = n; parts.slice(0, -1).forEach((p: string) => { t = t[p]; }); t[parts[parts.length - 1]] = v; return n; });
-  const Slot = ({ label, value, path }: any) => (
+  const Slot = ({ label, value, path, onPick }: any) => (
     <div>
-      <button type="button" onClick={() => setSlot(slot === path ? null : path)} className={`flex items-center gap-2 px-3 py-2 rounded-full border text-[0.62rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ touchAction: 'manipulation' }}>
+      <button type="button" onClick={() => { if (onPick) onPick(); setSlot(slot === path ? null : path); }} className={`flex items-center gap-2 px-3 py-2 rounded-full border text-[0.62rem] font-black uppercase tracking-widest ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ touchAction: 'manipulation' }}>
         <span className="w-4 h-4 rounded-full border border-black/10 inline-block" style={{ background: value || 'transparent' }} />
         {label}
         <span className="opacity-60 normal-case tracking-normal">{value ? colorNameFor(value) : 'Pick'}</span>
@@ -576,40 +587,50 @@ const DressStudio = ({ open, onClose, colors, outfit, isDarkMode, onSave }: any)
   return (
     <BottomSheet title="Dress studio" onClose={onClose} isDarkMode={isDarkMode}>
       <p className="text-[10px] opacity-50 mb-3">Show guests the look, not just the colours: these mockups appear on the invite card and around your app.</p>
-      <DressMockup outfit={o} isDarkMode={isDarkMode} />
+      <DressMockup outfit={o} isDarkMode={isDarkMode} focus={both ? null : focus} />
       <div className="flex gap-2 mt-4 mb-4">
         <button type="button" onClick={() => setO({ ...o, mode: 'both' })} className={seg(both)} style={{ touchAction: 'manipulation' }}>One look for everyone</button>
         <button type="button" onClick={() => setO({ ...o, mode: 'split' })} className={seg(!both)} style={{ touchAction: 'manipulation' }}>Male &amp; female</button>
       </div>
-      <div className="rounded-xl border p-3 mb-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
-        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Male · shirt &amp; trouser</span>
+      {both ? (
+      <div className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
         <div className="flex flex-wrap gap-2">
-          <Slot label="Shirt" value={o.male?.top} path="male.top" />
-          <Slot label="Trouser" value={o.male?.bottom} path="male.bottom" />
+          <Slot label="Shirt" value={o.male?.top} path="male.top" onPick={() => setFocus('male')} />
+          <Slot label="Trouser" value={o.male?.bottom} path="male.bottom" onPick={() => setFocus('male')} />
+          <Slot label="Cap" value={o.male?.cap} path="male.cap" onPick={() => setFocus('male')} />
+          <Slot label="Gown" value={o.female?.gown} path="female.gown" onPick={() => { set('female.style', 'gown'); setFocus('female'); }} />
+          <Slot label="Blouse" value={o.female?.top} path="female.top" onPick={() => { set('female.style', 'blouse-skirt'); setFocus('female'); }} />
+          <Slot label="Skirt" value={o.female?.bottom} path="female.bottom" onPick={() => { set('female.style', 'blouse-skirt'); setFocus('female'); }} />
+          <Slot label="Head gear" value={o.female?.headgear} path="female.headgear" onPick={() => setFocus('female')} />
         </div>
       </div>
-      {!both && (
+      ) : (<>
+      <div className="rounded-xl border p-3 mb-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
+        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Male</span>
+        <div className="flex flex-wrap gap-2">
+          <Slot label="Shirt" value={o.male?.top} path="male.top" onPick={() => setFocus('male')} />
+          <Slot label="Trouser" value={o.male?.bottom} path="male.bottom" onPick={() => setFocus('male')} />
+          <Slot label="Cap" value={o.male?.cap} path="male.cap" onPick={() => setFocus('male')} />
+        </div>
+      </div>
       <div className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#22363E' : '#DAD8E3' }}>
         <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Female</span>
         <div className="flex gap-2 mb-2">
-          <button type="button" onClick={() => set('female.style', 'gown')} className={seg((o.female?.style || 'gown') === 'gown')} style={{ touchAction: 'manipulation' }}>Gown</button>
-          <button type="button" onClick={() => set('female.style', 'blouse-skirt')} className={seg(o.female?.style === 'blouse-skirt')} style={{ touchAction: 'manipulation' }}>Blouse &amp; skirt</button>
+          <button type="button" onClick={() => { set('female.style', 'gown'); setFocus('female'); }} className={seg((o.female?.style || 'gown') === 'gown')} style={{ touchAction: 'manipulation' }}>Gown</button>
+          <button type="button" onClick={() => { set('female.style', 'blouse-skirt'); setFocus('female'); }} className={seg(o.female?.style === 'blouse-skirt')} style={{ touchAction: 'manipulation' }}>Blouse &amp; skirt</button>
         </div>
         <div className="flex flex-wrap gap-2">
           {(o.female?.style || 'gown') === 'gown'
-            ? <Slot label="Gown" value={o.female?.gown} path="female.gown" />
-            : <><Slot label="Blouse" value={o.female?.top} path="female.top" /><Slot label="Skirt" value={o.female?.bottom} path="female.bottom" /></>}
+            ? <Slot label="Gown" value={o.female?.gown} path="female.gown" onPick={() => setFocus('female')} />
+            : <><Slot label="Blouse" value={o.female?.top} path="female.top" onPick={() => setFocus('female')} /><Slot label="Skirt" value={o.female?.bottom} path="female.bottom" onPick={() => setFocus('female')} /></>}
+          <Slot label="Head gear" value={o.female?.headgear} path="female.headgear" onPick={() => setFocus('female')} />
         </div>
       </div>
-      )}
+      </>)}
       <button type="button" onClick={() => {
         const next = JSON.parse(JSON.stringify(o));
         next.male = next.male || {}; next.female = next.female || {};
         next.male.note = ''; next.female.note = '';
-        if (next.mode !== 'split') {
-          next.female.top = next.male?.top || ''; next.female.bottom = next.male?.bottom || '';
-          next.female.gown = next.female.gown || next.male?.top || '';
-        }
         onSave(next); onClose();
       }} className="mt-4 w-full px-4 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Save the dress code</button>
     </BottomSheet>
@@ -6408,18 +6429,18 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
   const fmt = (d: { h: number; m: number; ap: string }) => `${d.h}:${String(d.m).padStart(2, '0')} ${d.ap}`;
   const [draft, setDraft] = useState(() => parse(value));
   useEffect(() => { if (open) setDraft(parse(value)); }, [open, value]);
-  const chipCls = (active: boolean) => `py-1.5 rounded-lg text-[0.72rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
+  const chipCls = (active: boolean) => `py-2.5 rounded-lg text-[0.9rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{String(value || '').trim() || fmt(parse(value))}</button>
       {open && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
-          <div className={`absolute z-[100] left-0 right-0 mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+          <div className={`absolute z-[100] left-0 w-[300px] max-w-[calc(100vw-32px)] mt-2 rounded-2xl border p-4 shadow-2xl ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
             <div className="flex gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Hour</p>
-                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-3 gap-2 max-h-[230px] overflow-y-auto pr-1">
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
                     <button key={h} type="button" onClick={() => setDraft((d: any) => ({ ...d, h }))} className={chipCls(draft.h === h)}>{h}</button>
                   ))}
@@ -6427,7 +6448,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Minute</p>
-                <div className="grid grid-cols-4 gap-1.5 max-h-[104px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-3 gap-2 max-h-[230px] overflow-y-auto pr-1">
                   {Array.from({ length: 12 }, (_, i) => i * 5).map((mm) => (
                     <button key={mm} type="button" onClick={() => setDraft((d: any) => ({ ...d, m: mm }))} className={chipCls(draft.m === mm)}>{String(mm).padStart(2, '0')}</button>
                   ))}
@@ -6437,7 +6458,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
             <div className="mt-3 flex items-center gap-2">
               <div className="flex flex-1 rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
                 {(['am', 'pm'] as const).map((ap) => (
-                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2 text-[0.65rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
+                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2.5 text-[0.78rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
                 ))}
               </div>
               <button type="button" onClick={() => { onChange(fmt(draft)); setOpen(false); }} className="px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
@@ -6744,7 +6765,7 @@ function MapPicker({ open, initial, onClose }: any) {
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/60" onClick={() => onClose(null)}>
+    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/85" onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl p-4" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
@@ -6762,7 +6783,7 @@ function MapPicker({ open, initial, onClose }: any) {
           </div>
         )}
         <div className="relative">
-          <div ref={mapEl} style={{ height: 340 }} className="w-full rounded-2xl overflow-hidden border border-[#DAD8E3] bg-[#e8e0d4]" />
+          <div ref={mapEl} style={{ height: 340, touchAction: 'none' }} className="w-full rounded-2xl overflow-hidden border border-[#DAD8E3] bg-[#e8e0d4]" />
           <div className="absolute right-2 bottom-2 flex flex-col rounded-lg overflow-hidden shadow" style={{ zIndex: 1000 }}>
             <button type="button" onClick={() => mapRef.current && mapRef.current.zoomIn()} className="w-9 h-9 bg-white text-slate-700 text-lg font-black border-b border-[#eee]" style={{ touchAction: 'manipulation' }}>+</button>
             <button type="button" onClick={() => mapRef.current && mapRef.current.zoomOut()} className="w-9 h-9 bg-white text-slate-700 text-lg font-black" style={{ touchAction: 'manipulation' }}>−</button>
