@@ -12,10 +12,12 @@
   var id = (q.get('i') || '').trim();
   var ivApp = (q.get('app') || '').trim();
   var ivAppQ = ivApp ? '&app=' + encodeURIComponent(ivApp) : '';
+  var ivG = (q.get('g') || '').trim();
+  var ivGQ = ivG ? '&g=' + encodeURIComponent(ivG) : '';
   if (id && !Object.keys(o).length) {
     try {
       var x = new XMLHttpRequest();
-      x.open('GET', '/api/invite?id=' + encodeURIComponent(id) + ivAppQ, false);
+      x.open('GET', '/api/invite?id=' + encodeURIComponent(id) + ivAppQ + ivGQ, false);
       x.send(null);
       if (x.status === 200) {
         var d = JSON.parse(x.responseText);

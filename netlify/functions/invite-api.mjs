@@ -84,15 +84,20 @@ export default async (req) => {
       // Open: a tap anywhere on the card counts. With a per-guest link the
       // invitee's own doc is stamped once, so the couple sees "when it was
       // opened" and not-opened before that.
+      let guestName = ''
       if (gref) {
         const g = await gref.get()
-        if (g.exists && !(g.data() || {}).openedAt) {
-          await gref.set({ openedAt: FieldValue.serverTimestamp() }, { merge: true })
+        if (g.exists) {
+          const gd = g.data() || {}
+          guestName = gd.name || ''
+          if (!gd.openedAt) {
+            await gref.set({ openedAt: FieldValue.serverTimestamp() }, { merge: true })
+          }
         }
       }
       await ref.set({ opens: FieldValue.increment(1), lastOpenAt: FieldValue.serverTimestamp() }, { merge: true })
       const after = await ref.get()
-      return json(200, { ok: true, opens: (after.data() || {}).opens ?? 0 })
+      return json(200, { ok: true, opens: (after.data() || {}).opens ?? 0, guest: { name: guestName } })
     }
 
     return json(405, { error: 'GET or POST only' })
