@@ -6696,6 +6696,28 @@ function QuickPostToFeedModal({ media, coupleName, events, isDarkMode, onClose, 
   );
 }
 
+/* Live place suggestions (user report Nov 22 2026): the map search bar now
+   fetches matching places while you type, Google-Maps style; tap one and the
+   pin jumps there. Runs on the Photon geocoder over the same OpenStreetMap
+   data that draws the map tiles (no key, no billing), with a Nominatim
+   fallback. Google's own live database would need a paid Google Maps key. */
+function normPlaces(j: any): any[] {
+  try {
+    if (Array.isArray(j) && j.length && j[0] && j[0].display_name) {
+      return j.map((r: any) => ({ lat: Number(r.lat), lng: Number(r.lon), label: String(r.display_name).split(',').slice(0, 3).join(', ') }));
+    }
+    if (j && Array.isArray(j.features)) {
+      return j.features.map((f: any) => {
+        const p = f.properties || {}; const c = (f.geometry && f.geometry.coordinates) || [];
+        const name = p.name || [p.street, p.housenumber].filter(Boolean).join(' ') || p.city || '';
+        const label = [name, p.city || p.county || p.state, p.country].filter(Boolean).slice(0, 3).join(', ');
+        return { lat: Number(c[1]), lng: Number(c[0]), label };
+      }).filter((r: any) => isFinite(r.lat) && isFinite(r.lng) && r.label);
+    }
+  } catch (e) { /* keep it empty */ }
+  return [];
+}
+
 function MapPicker({ open, initial, onClose }: any) {
   const [ready, setReady] = useState<boolean>(false);
   const [query, setQuery] = useState('');
@@ -6759,13 +6781,37 @@ function MapPicker({ open, initial, onClose }: any) {
   const search = async () => {
     const q = query.trim(); if (!q) return;
     setBusy(true);
-    try { const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(q)); const j = await r.json(); setResults(Array.isArray(j) ? j : []); } catch (e) { setResults([]); }
+    try {
+      try { const r = await fetch('https://photon.komoot.io/api/?limit=6&lang=en&q=' + encodeURIComponent(q)); setResults(normPlaces(await r.json())); }
+      catch (e) { const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=' + encodeURIComponent(q)); setResults(normPlaces(await r.json())); }
+    } catch (e) { setResults([]); }
     setBusy(false);
   };
 
+  /* Debounced live suggestions while typing. */
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 3) { setResults([]); return; }
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        let bias = '';
+        try { if (mapRef.current) { const c = mapRef.current.getCenter(); bias = '&lat=' + Number(c.lat).toFixed(4) + '&lon=' + Number(c.lng).toFixed(4); } } catch (e) {}
+        if (!bias) bias = '&lat=6.5244&lon=3.3792';
+        const r = await fetch('https://photon.komoot.io/api/?limit=6&lang=en' + bias + '&q=' + encodeURIComponent(q), { signal: ctl.signal });
+        setResults(normPlaces(await r.json()));
+      } catch (e: any) {
+        if (e && e.name === 'AbortError') return;
+        try { const r2 = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=' + encodeURIComponent(q), { signal: ctl.signal }); setResults(normPlaces(await r2.json())); } catch (e2) { setResults([]); }
+      }
+    }, 350);
+    return () => { try { ctl.abort(); } catch (e) {} clearTimeout(t); };
+  }, [query, open]);
+
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/85" onClick={() => onClose(null)}>
+    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/95 backdrop-blur-md" onClick={() => onClose(null)}>
       <div className="w-full sm:w-[560px] max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl p-4" onClick={(e: any) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-[0.7rem] uppercase tracking-widest font-black opacity-60">Pin the venue on the map</span>
@@ -6778,7 +6824,7 @@ function MapPicker({ open, initial, onClose }: any) {
         {results.length > 0 && (
           <div className="mb-2 rounded-xl border border-[#DAD8E3] overflow-hidden">
             {results.map((r: any, i: number) => (
-              <button key={i} type="button" onClick={() => { const nx = { lat: Number(r.lat), lng: Number(r.lon), label: String(r.display_name).split(',').slice(0, 3).join(', ') }; selRef.current = nx; setSel(nx); if (mapRef.current) mapRef.current.setView([nx.lat, nx.lng], 16); setResults([]); }} className="w-full text-left px-3 py-2.5 text-[0.78rem] text-slate-700 border-b border-[#F0EFF5] last:border-0" style={{ touchAction: 'manipulation' }}>{String(r.display_name)}</button>
+              <button key={i} type="button" onClick={() => { const nx = { lat: Number(r.lat), lng: Number(r.lng), label: String(r.label) }; selRef.current = nx; setSel(nx); if (mapRef.current) mapRef.current.setView([nx.lat, nx.lng], 16); setResults([]); setQuery(nx.label); }} className="w-full text-left px-3 py-2.5 text-[0.78rem] text-slate-700 border-b border-[#F0EFF5] last:border-0" style={{ touchAction: 'manipulation' }}>{String(r.label)}</button>
             ))}
           </div>
         )}
