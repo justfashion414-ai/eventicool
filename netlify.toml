@@ -22,6 +22,11 @@
   force = true
 
 [[redirects]]
+  from = "/app"
+  to = "/.netlify/functions/app-meta"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

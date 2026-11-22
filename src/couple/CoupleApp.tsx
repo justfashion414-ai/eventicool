@@ -315,6 +315,34 @@ export default function CoupleApp() {
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);
 
+  // The tab always shows the couple's own names and their first hero photo as
+  // the favicon (user direction Nov 22 2026), on mobile and desktop alike.
+  // Titles and icons come alive once the app's data is in; the share-card
+  // version is injected server-side, this keeps the open tab in step.
+  useEffect(() => {
+    try {
+      const b = String((lead as any)?.bride || '').trim();
+      const g = String((lead as any)?.groom || '').trim();
+      if (b && g) document.title = `${b} & ${g}`;
+      else if (b || g) document.title = b || g;
+      const hero = (Array.isArray((lead as any)?.heroImages) ? (lead as any).heroImages.filter(Boolean) : [])[0] as string | undefined;
+      if (!hero) return;
+      let icon = String(hero);
+      const cld = icon.match(/(res\.cloudinary\.com\/.+\/upload\/)/);
+      if (cld && !/f_png/.test(icon)) icon = icon.replace('/upload/', '/upload/f_png,w_64,c_fill/');
+      const setIcon = (rel: string, href: string, type?: string) => {
+        let el = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+        if (!el) { el = document.createElement('link'); el.rel = rel; document.head.appendChild(el); }
+        if (type) el.type = type;
+        el.href = href;
+      };
+      setIcon('icon', icon, cld ? 'image/png' : undefined);
+      let apple = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+      if (!apple) { apple = document.createElement('link'); apple.rel = 'apple-touch-icon'; document.head.appendChild(apple); }
+      apple.href = icon;
+    } catch { /* cosmetic only */ }
+  }, [lead]);
+
 
   // The service worker keeps every app working offline. The per-lead manifest
   // (and with it the browser's install prompt) is ONLY for a customer's own
