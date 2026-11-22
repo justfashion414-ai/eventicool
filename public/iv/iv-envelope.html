@@ -885,7 +885,7 @@ $("#rsvpForm").addEventListener("submit", e => {
   try {
     const q = new URLSearchParams(location.search);
     const ivId = q.get('i'), gid = q.get('g');
-    if (ivId && gid) fetch('/api/invite', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', id: ivId, app: q.get('app') || '', g: gid, name: name, attend: attend, note: note }) }).catch(function (e2) {});
+    if (ivId && gid) fetch('/api/invite?id=' + encodeURIComponent(ivId) + '&app=' + encodeURIComponent(q.get('app') || '') + '&g=' + encodeURIComponent(gid), { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reply', name: name, attend: attend, note: note }) }).catch(function (e2) {});
   } catch (err2) {}
   /* Thank you: a warm popup, and the button takes the guest to the app of the
      couple who sent this invite. */
@@ -913,9 +913,11 @@ try { const xc = $("#thxClose"); if (xc) xc.addEventListener('click', () => { co
   var f = function () {
     if (sent) return; sent = true;
     try {
-      fetch('/api/invite', {
+      /* The server reads id, app and g from the query string, so they ride on
+         the URL, not only in the body. */
+      fetch('/api/invite?id=' + encodeURIComponent(idv) + '&app=' + encodeURIComponent(q.get('app') || '') + '&g=' + encodeURIComponent(q.get('g') || ''), {
         method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'open', id: idv, app: q.get('app') || '', g: q.get('g') || '' })
+        body: JSON.stringify({ action: 'open' })
       }).catch(function () { sent = false; });
     } catch (e) { sent = false; }
   };
