@@ -264,5 +264,31 @@ export default async (req) => {
     return json(400, { ok: false, error: 'wrong', attemptsLeft: LOGIN_MAX_ATTEMPTS - fails });
   }
 
+  // ================= check =================
+  // No side effects: the forgot and sign-in screens read the lock state for an
+  // email here, so the buttons can stay disabled for the WHOLE lock without a
+  // wasted attempt, even after a refresh or a restart of the flow. The
+  // 10-minute "one code per email" window rides on the same reply.
+  if (op === 'check') {
+    const otpLockLeft = msLeft(lockUntilOf(await getLock('otp', email)));
+    const loginLockLeft = msLeft(lockUntilOf(await getLock('login', email)));
+    let canRequest = true, retryAfter = 0;
+    if (otpLockLeft > 0) {
+      canRequest = false;
+    } else {
+      const prev = await getOtp(email);
+      if (prev) {
+        const wait = RESEND_WINDOW_MS - (Date.now() - (prev.lastSentAt ? (prev.lastSentAt.toMillis ? prev.lastSentAt.toMillis() : Number(prev.lastSentAt)) : 0));
+        if (wait > 0) { canRequest = false; retryAfter = Math.ceil(wait / 1000); }
+      }
+    }
+    return json(200, {
+      ok: true,
+      otpLocked: otpLockLeft > 0, otpRetryAt: otpLockLeft > 0 ? Date.now() + otpLockLeft : 0,
+      loginLocked: loginLockLeft > 0, loginRetryAt: loginLockLeft > 0 ? Date.now() + loginLockLeft : 0,
+      canRequest, retryAfter,
+    });
+  }
+
   return json(400, { ok: false, error: 'unknown-op' });
 };

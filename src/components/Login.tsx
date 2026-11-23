@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mail, Lock, ArrowRight, LoaderCircle, Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react'
 import { signInAdmin } from '../auth'
-import { otpCall, lockTimeString, newPasswordOk, NEW_PASSWORD_HINT } from '../otpAuth'
+import { otpCall, newPasswordOk, NEW_PASSWORD_HINT, secUntil, mmssOf } from '../otpAuth'
 
 const RESEND_SECONDS = 600
 
@@ -12,7 +12,6 @@ export default function Login({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   // Password reset by emailed code: three screens (email, code, new password).
   const [code, setCode] = useState('')
@@ -22,13 +21,48 @@ export default function Login({ onDone }: { onDone: () => void }) {
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [resendIn, setResendIn] = useState(0)
+  // Locks the server answers with, held as wall-clock retry times. While one
+  // is live its button stays disabled on every screen of the flow, so going
+  // back, refreshing, or restarting the flow cannot squeeze in another try.
+  const [lockOtp, setLockOtp] = useState(0)
+  const [lockLogin, setLockLogin] = useState(0)
+  const [now, setNow] = useState(Date.now())
+  // The "password updated" note rides a toast, so it cannot outlive the
+  // moment or linger over a later sign-in.
+  const [toast, setToast] = useState('')
+  const toastTimer = useRef<number | null>(null)
   const tickRef = useRef<number | null>(null)
   const passRef = useRef<HTMLInputElement | null>(null)
 
+  const otpLockLeft = Math.max(0, Math.ceil((lockOtp - now) / 1000))
+  const loginLockLeft = Math.max(0, Math.ceil((lockLogin - now) / 1000))
+
+  const showToast = (m: string) => {
+    setToast(m)
+    if (toastTimer.current) window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(''), 4000)
+  }
+
   useEffect(() => {
-    tickRef.current = window.setInterval(() => setResendIn((s) => (s > 0 ? s - 1 : 0)), 1000)
+    tickRef.current = window.setInterval(() => {
+      setResendIn((s) => (s > 0 ? s - 1 : 0))
+      setNow(Date.now())
+    }, 1000)
     return () => { if (tickRef.current) window.clearInterval(tickRef.current) }
   }, [])
+
+  // The server is asked for the lock state as soon as a whole email is on the
+  // form, so the buttons reflect a lock even before the next attempt.
+  const checkLocks = async (em: string) => {
+    const v = em.trim()
+    if (!/^\S+@\S+\.\S+$/.test(v)) return
+    const r = await otpCall('check', { email: v })
+    if (r.status === 200) {
+      setLockOtp(Number(r.body?.otpRetryAt) || 0)
+      setLockLogin(Number(r.body?.loginRetryAt) || 0)
+    }
+  }
+  useEffect(() => { if (email.trim()) checkLocks(email) }, [step])
 
   const startResend = (seconds: number) => setResendIn(seconds)
 
@@ -39,6 +73,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
       setError('Enter your email and password.')
       return
     }
+    if (loginLockLeft > 0) return
     setBusy(true)
     try {
       await signInAdmin(email, password)
@@ -46,11 +81,16 @@ export default function Login({ onDone }: { onDone: () => void }) {
     } catch (err) {
       const code = (err as { code?: string }).code || ''
       const left = (err as { attemptsLeft?: number }).attemptsLeft
-      const detail = (err as { detail?: string }).detail
+      const retryAt = (err as { retryAt?: number }).retryAt
       if (code === 'eventicor/locked') {
-        setError(`Too many wrong attempts. Sign-in is locked ${detail || 'for 1 hour'}.`)
+        // The third wrong password fired the lock: from here sign-in stays
+        // closed, countdown live, until the hour is up.
+        setLockLogin(Number(retryAt) || Date.now() + 60 * 60 * 1000)
+        setError('')
       } else if (code === 'auth/invalid-credential' && typeof left === 'number') {
-        setError(`Wrong email or password. ${left} ${left === 1 ? 'attempt' : 'attempts'} left before a 1-hour lock.`)
+        // Tries left is all a wrong attempt says; the hour only arrives when
+        // the last one is spent.
+        setError(`Wrong email or password. ${left} ${left === 1 ? 'attempt' : 'attempts'} left.`)
       } else {
         setError(messages[code] || 'Sign-in failed. Try again.')
       }
@@ -62,7 +102,24 @@ export default function Login({ onDone }: { onDone: () => void }) {
   async function sendCode() {
     setError('')
     if (!email.trim()) { setError('Enter your email first.'); return }
+    if (otpLockLeft > 0) return
     setBusy(true)
+    // Locked or inside the 10-minute window the server already knows: ask
+    // before sending, so the buttons stay shut for the whole wait.
+    const c = await otpCall('check', { email })
+    if (c.status === 200) {
+      setLockOtp(Number(c.body?.otpRetryAt) || 0)
+      setLockLogin(Number(c.body?.loginRetryAt) || 0)
+      if (Number(c.body?.otpRetryAt) > 0) { setBusy(false); return }
+      if (!c.body?.canRequest) {
+        const wait = Math.max(1, Number(c.body?.retryAfter) || RESEND_SECONDS)
+        setError(`A code was already sent to this email. Request another in ${fmt(wait)}.`)
+        startResend(wait)
+        setStep('otp')
+        setBusy(false)
+        return
+      }
+    }
     const r = await otpCall('request', { email })
     setBusy(false)
     if (r.status === 200) {
@@ -78,7 +135,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
       return
     }
     if (r.status === 429 && r.body?.error === 'locked') {
-      setError(`Too many attempts. This is locked ${lockTimeString(r.body?.retryAt)}.`)
+      setLockOtp(Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000)
+      setError('')
       return
     }
     setError('Could not send the code. Check your connection and try again.')
@@ -97,13 +155,14 @@ export default function Login({ onDone }: { onDone: () => void }) {
       return
     }
     if (r.status === 429 && r.body?.error === 'locked') {
-      setError('Too many wrong codes. You can try again ' + lockTimeString(r.body?.retryAt) + '.')
+      setLockOtp(Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000)
+      setError('')
       return
     }
     if (r.status === 400 && r.body?.error === 'expired') { setError('That code has expired. Request a new one.'); return }
     if (r.status === 400 && r.body?.error === 'none') { setError('No code is waiting for this email yet. Request one first.'); return }
     const left = r.body?.attemptsLeft
-    setError(`That code is not right.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'try' : 'tries'} left before a 1-hour lock.` : ' Try again.'}`)
+    setError(`That code is not right.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ' Try again.'}`)
   }
 
   async function resetPassword() {
@@ -118,7 +177,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
       setNewPass('')
       setConfirmPass('')
       setPassword('')
-      setNotice('Password updated. Enter your new password to sign in.')
+      showToast('Password updated. Enter your new password to sign in.')
       setError('')
       setStep('login')
       setTimeout(() => passRef.current?.focus(), 50)
@@ -174,9 +233,14 @@ export default function Login({ onDone }: { onDone: () => void }) {
                 {error && (
                   <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>
                 )}
+                {otpLockLeft > 0 && (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+                    Too many attempts. You can try again in {mmssOf(otpLockLeft)}.
+                  </p>
+                )}
                 <button
                   type="submit"
-                  disabled={busy}
+                  disabled={busy || otpLockLeft > 0}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
                 >
                   {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -186,7 +250,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
               <button
                 type="button"
                 onClick={sendCode}
-                disabled={busy || resendIn > 0}
+                disabled={busy || resendIn > 0 || otpLockLeft > 0}
                 className="mt-4 w-full text-center text-sm font-medium text-slate-600 underline-offset-2 hover:underline disabled:no-underline disabled:opacity-50"
               >
                 {resendIn > 0 ? `Request a new code in ${fmt(resendIn)}` : 'Request a new code'}
@@ -269,6 +333,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
                       autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => checkLocks(email)}
                       className={inputCls}
                       placeholder="you@example.com"
                     />
@@ -277,9 +342,14 @@ export default function Login({ onDone }: { onDone: () => void }) {
                 {error && (
                   <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>
                 )}
+                {otpLockLeft > 0 && (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+                    Too many attempts. You can request a code again in {mmssOf(otpLockLeft)}.
+                  </p>
+                )}
                 <button
                   type="submit"
-                  disabled={busy}
+                  disabled={busy || otpLockLeft > 0}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
                 >
                   {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -304,6 +374,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
                       autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => checkLocks(email)}
                       className={inputCls}
                       placeholder="you@example.com"
                     />
@@ -324,22 +395,24 @@ export default function Login({ onDone }: { onDone: () => void }) {
                     />
                   </div>
                 </label>
-                {notice && (
-                  <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status">{notice}</p>
-                )}
                 {error && (
                   <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>
                 )}
+                {loginLockLeft > 0 && (
+                  <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+                    Too many wrong attempts. Sign-in opens again in {mmssOf(loginLockLeft)}.
+                  </p>
+                )}
                 <button
                   type="submit"
-                  disabled={busy}
+                  disabled={busy || loginLockLeft > 0}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
                 >
                   {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   {busy ? 'Signing in…' : 'Sign in'}
                 </button>
               </form>
-              <button onClick={() => { setNotice(''); setError(''); setStep('email') }} className="mt-4 text-sm font-medium text-slate-600 hover:underline">
+              <button onClick={() => { setError(''); setStep('email') }} className="mt-4 text-sm font-medium text-slate-600 hover:underline">
                 Forgot password?
               </button>
             </>
@@ -349,6 +422,11 @@ export default function Login({ onDone }: { onDone: () => void }) {
           Invited to an event? <a href="/guest" className="font-medium text-slate-900 underline">Enter your event code</a>
         </p>
       </div>
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg" role="status">
+          {toast}
+        </div>
+      )}
     </main>
   )
 }

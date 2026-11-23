@@ -29,3 +29,8 @@ export function lockTimeString(retryAt: number | undefined): string {
 export const NEW_PASSWORD_MIN = 6;
 export const newPasswordOk = (p: string) => p.length >= NEW_PASSWORD_MIN;
 export const NEW_PASSWORD_HINT = 'At least 6 characters.';
+
+/** Seconds until a wall-clock lock ends (0 once it has passed or is absent). */
+export const secUntil = (at: number | undefined) => Math.max(0, Math.ceil((((at || 0) as number) - Date.now()) / 1000));
+/** m:ss for the lock and resend countdowns. */
+export const mmssOf = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, Math.floor(s % 60))).padStart(2, '0')}`;

@@ -78,9 +78,10 @@ export async function signInAdmin(email: string, password: string) {
   // server-side, and the browser only ever learns what the server answers.
   const r = await otpCall('login', { email: email.trim(), password })
   if (r.status === 429 || r.body?.error === 'locked') {
-    const err: Error & { code?: string; detail?: string } = Object.assign(new Error('locked'), {
+    const err: Error & { code?: string; detail?: string; retryAt?: number } = Object.assign(new Error('locked'), {
       code: 'eventicor/locked',
       detail: lockTimeString(r.body?.retryAt),
+      retryAt: Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000,
     })
     throw err
   }

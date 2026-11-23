@@ -63,7 +63,7 @@ const InstallGuide = lazy(() => import('../components/InstallPage'));
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
 import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, updatePassword, signOut, debugState, signInWithCustomToken } from './lib/authShim';
-import { otpCall, lockTimeString } from '../otpAuth';
+import { otpCall, secUntil, mmssOf } from '../otpAuth';
 import { 
   collection, 
   query, 
@@ -963,7 +963,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Email/password admin auth state
   const [authScreen, setAuthScreen] = useState<null | 'signin' | 'forgot' | 'otp' | 'newpass'>(null);
   // A green confirmation after a successful reset, shown on the sign-in screen.
-  const [authNotice, setAuthNotice] = useState('');
+  // Locks the server answers with, held as wall-clock retry times. While one
+  // is live its button stays disabled on every screen of the auth flow, so
+  // going back, refreshing, or restarting the flow cannot squeeze in a try.
+  const [authLockOtp, setAuthLockOtp] = useState(0);
+  const [authLockLogin, setAuthLockLogin] = useState(0);
+  const handleCheckAuthLocks = async (email: string) => {
+    const v = email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(v)) return;
+    const r = await otpCall('check', { email: v });
+    if (r.status === 200) {
+      setAuthLockOtp(Number(r.body?.otpRetryAt) || 0);
+      setAuthLockLogin(Number(r.body?.loginRetryAt) || 0);
+    }
+  };
   // The short-lived server token a correct OTP code returns; the new password
   // step needs it, and it dies after one use.
   const otpTokenRef = useRef('');
@@ -2049,7 +2062,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       // hour, and the browser only ever learns what the server answers.
       const r = await otpCall('login', { email: email.trim(), password });
       if (r.status === 429 || r.body?.error === 'locked') {
-        setAuthError(`Too many wrong attempts. Sign-in is locked ${lockTimeString(r.body?.retryAt)}.`);
+        setAuthLockLogin(Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000);
+        setAuthError('');
         return;
       }
       if (!r.status || r.status >= 500) {
@@ -2058,7 +2072,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
       if (r.status !== 200 || !r.body?.token) {
         const left = r.body?.attemptsLeft;
-        setAuthError(`Email or password is incorrect.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'attempt' : 'attempts'} left before a 1-hour lock.` : ''}`);
+        setAuthError(`Email or password is incorrect.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'attempt' : 'attempts'} left.` : ''}`);
         return;
       }
       const cred = await signInWithCustomToken(auth, String(r.body.token));
@@ -2111,7 +2125,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // else gets the same confirmation, so the form cannot be used to probe.
   const handleForgotPassword = async (email: string) => {
     setAuthError('');
+    if (secUntil(authLockOtp) > 0) return;
     setAuthBusy(true);
+    // Locked or inside the 10-minute window the server already knows: ask
+    // before sending, so the send button stays shut for the whole wait.
+    const c = await otpCall('check', { email: email.trim() });
+    if (c.status === 200) {
+      setAuthLockOtp(Number(c.body?.otpRetryAt) || 0);
+      setAuthLockLogin(Number(c.body?.loginRetryAt) || 0);
+      if (Number(c.body?.otpRetryAt) > 0) { setAuthBusy(false); return; }
+      if (!c.body?.canRequest) {
+        setAuthBusy(false);
+        if (authScreen !== 'otp') {
+          const sec = Math.max(1, Number(c.body?.retryAfter) || 600);
+          setAuthError(`A code was already sent to this email. Request another in ${mmssOf(sec)}.`);
+        }
+        return;
+      }
+    }
     const r = await otpCall('request', { email: email.trim() });
     setAuthBusy(false);
     if (r.status === 200) {
@@ -2124,7 +2155,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return;
     }
     if (r.status === 429 && r.body?.error === 'locked') {
-      setAuthError(`Too many attempts. This is locked ${lockTimeString(r.body?.retryAt)}.`);
+      setAuthLockOtp(Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000);
+      setAuthError('');
       return;
     }
     setAuthError('Could not send the code. Check your connection and try again.');
@@ -2141,13 +2173,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       return;
     }
     if (r.status === 429 && r.body?.error === 'locked') {
-      setAuthError(`Too many wrong codes. You can try again ${lockTimeString(r.body?.retryAt)}.`);
+      setAuthLockOtp(Number(r.body?.retryAt) || Date.now() + 60 * 60 * 1000);
+      setAuthError('');
       return;
     }
     if (r.status === 400 && r.body?.error === 'expired') { setAuthError('That code has expired. Request a new one.'); return; }
     if (r.status === 400 && r.body?.error === 'none') { setAuthError('No code is waiting for this email yet. Request one first.'); return; }
     const left = r.body?.attemptsLeft;
-    setAuthError(`That code is not right.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'try' : 'tries'} left before a 1-hour lock.` : ''}`);
+    setAuthError(`That code is not right.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}`);
   };
 
   const handleResetPassword = async (email: string, p1: string, p2: string) => {
@@ -2161,7 +2194,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       otpTokenRef.current = '';
       setAuthPassword('');
       setAuthScreen('signin');
-      setAuthNotice('Password updated. Enter your new password to sign in.');
       return;
     }
     if (r.status === 429 && r.body?.error === 'locked') {
@@ -4066,7 +4098,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             onForgot={handleForgotPassword}
             onVerify={handleVerifyOtp}
             onReset={handleResetPassword}
-            notice={authNotice}
+            lockOtp={authLockOtp}
+            lockLogin={authLockLogin}
+            onCheckLock={handleCheckAuthLocks}
             busy={authBusy}
             error={authError}
             clearError={() => setAuthError('')}
@@ -4507,7 +4541,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onForgot={handleForgotPassword}
           onVerify={handleVerifyOtp}
           onReset={handleResetPassword}
-          notice={authNotice}
+          lockOtp={authLockOtp}
+          lockLogin={authLockLogin}
+          onCheckLock={handleCheckAuthLocks}
           busy={authBusy}
           error={authError}
           clearError={() => setAuthError('')}
@@ -7056,7 +7092,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
 }
 
 
-function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, notice, clearError, isDarkMode, coupleLabel }: {
+function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, lockOtp, lockLogin, onCheckLock, clearError, isDarkMode, coupleLabel }: {
   screen: 'signin' | 'forgot' | 'otp' | 'newpass';
   setScreen: (s: 'signin' | 'forgot' | 'otp' | 'newpass') => void;
   onClose: () => void;
@@ -7066,7 +7102,9 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   onReset: (email: string, p1: string, p2: string) => void;
   busy: boolean;
   error: string;
-  notice: string;
+  lockOtp: number;
+  lockLogin: number;
+  onCheckLock: (email: string) => void;
   clearError: () => void;
   isDarkMode: boolean;
   coupleLabel: string;
@@ -7092,6 +7130,31 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   // Back on sign-in (after a successful reset, or backing out) the password
   // field starts empty: only the email carries over.
   useEffect(() => { if (screen === 'signin') { setPassword(''); setP1(''); setP2(''); } }, [screen]);
+  // A second tick keeps the lock countdowns live. Locks shut their buttons for
+  // the whole hour on every screen, so going back, refreshing, or restarting
+  // the flow cannot squeeze in another try.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const otpLockLeft = Math.max(0, Math.ceil((lockOtp - nowTick) / 1000));
+  const loginLockLeft = Math.max(0, Math.ceil((lockLogin - nowTick) / 1000));
+  const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+  const blurCheck = () => { if (emailOk) onCheckLock(email); };
+  // The password-updated note rides a toast instead of sitting on the sign-in
+  // screen, so it cannot linger over a later sign-in.
+  const [authToast, setAuthToast] = useState('');
+  const prevScreenRef = useRef(screen);
+  useEffect(() => {
+    if (prevScreenRef.current === 'newpass' && screen === 'signin') {
+      setAuthToast('Password updated. Enter your new password to sign in.');
+      const t = window.setTimeout(() => setAuthToast(''), 4000);
+      prevScreenRef.current = screen;
+      return () => window.clearTimeout(t);
+    }
+    prevScreenRef.current = screen;
+  }, [screen]);
   const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const submit = () => {
     if (!email.trim() || !password) { return; }
@@ -7135,16 +7198,19 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
               className={`${inputCls} mb-4 text-center text-[1.4rem] tracking-[0.45em]`}
             />
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
+            {otpLockLeft > 0 && (
+              <p className="text-[0.85rem] font-bold text-[#C8932A] mb-4">Too many attempts. You can try again in {mmssOf(otpLockLeft)}.</p>
+            )}
             <button
               onClick={() => onVerify(email, code)}
-              disabled={busy || code.length !== 6}
+              disabled={busy || code.length !== 6 || otpLockLeft > 0}
               className={`${primaryBtn} mb-3`}
             >
               {busy ? 'Please wait…' : 'Continue'}
             </button>
             <button
               onClick={() => { clearError(); onForgot(email); }}
-              disabled={busy || resendIn > 0 || !email.trim()}
+              disabled={busy || resendIn > 0 || !email.trim() || otpLockLeft > 0}
               className={backBtn}
             >
               {resendIn > 0 ? `Request a new code in ${mmss(resendIn)}` : 'Request a new code'}
@@ -7222,15 +7288,19 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
               type="email"
               value={email}
               onChange={(e) => { setEmail(e.target.value); clearError(); }}
+              onBlur={blurCheck}
               onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && !busy) onForgot(email); }}
               placeholder="you@example.com"
               autoComplete="email"
               className={`${inputCls} mb-4`}
             />
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
+            {otpLockLeft > 0 && (
+              <p className="text-[0.85rem] font-bold text-[#C8932A] mb-4">Too many attempts. You can request a code again in {mmssOf(otpLockLeft)}.</p>
+            )}
             <button
               onClick={() => onForgot(email)}
-              disabled={busy || !email.trim()}
+              disabled={busy || !email.trim() || otpLockLeft > 0}
               className={`${primaryBtn} mb-3`}
             >
               {busy ? 'Sending…' : 'Send code'}
@@ -7255,6 +7325,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onBlur={blurCheck}
               placeholder="you@example.com"
               autoComplete="email"
               className={`${inputCls} mb-4`}
@@ -7279,16 +7350,16 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            {notice && (
-              <p className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">{notice}</p>
-            )}
             <button onClick={() => { clearError(); setScreen('forgot'); }} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
               Forgot password?
             </button>
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] my-3">{error}</p>}
+            {loginLockLeft > 0 && (
+              <p className="text-[0.85rem] font-bold text-[#C8932A] mb-3">Too many wrong attempts. You can try again in {mmssOf(loginLockLeft)}.</p>
+            )}
             <button
               onClick={submit}
-              disabled={busy || !email.trim() || !password}
+              disabled={busy || !email.trim() || !password || loginLockLeft > 0}
               className={`${primaryBtn} mt-3`}
             >
               {busy ? 'Please wait…' : 'Sign in'}
@@ -7296,6 +7367,11 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
           </>
         )}
       </div>
+      {authToast && (
+        <div className="fixed top-5 left-1/2 z-[400] -translate-x-1/2 rounded-full px-5 py-2.5 text-[0.85rem] font-bold shadow-lg bg-[#14262D] text-white" role="status">
+          {authToast}
+        </div>
+      )}
     </div>
   );
 }
