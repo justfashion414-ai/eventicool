@@ -8871,6 +8871,15 @@ function AdminDashboardModal({
   const [partnerDelete, setPartnerDelete] = useState<any>(null);
   const [partnerLogoBusy, setPartnerLogoBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  // The push-permission switch the Settings tab shows reads this browser's
+  // own permission state, held locally in the dashboard: portal state is out
+  // of scope in here and referencing it crashes the whole dashboard.
+  const [dashPushPerm, setDashPushPerm] = useState<'granted' | 'denied' | 'default' | 'unsupported'>(() => (typeof window !== 'undefined' && 'Notification' in window ? (Notification.permission as 'granted' | 'denied' | 'default') : 'unsupported'));
+  useEffect(() => {
+    const refresh = () => setDashPushPerm(('Notification' in window) ? (Notification.permission as 'granted' | 'denied' | 'default') : 'unsupported');
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
   // Storage reader: reconciled against Cloudinary so it always shows the real
   // bytes this app's media occupies, not only the uploads made since tracking
   // started. The dashboard syncs when it opens and shortly after any upload.
@@ -11379,10 +11388,10 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Notifications</h3>
                     <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once your app is on your home screen.</p>
                     <div className="flex items-center gap-3 flex-wrap">
-                      <button type="button" role="switch" aria-checked={pushPerm === 'granted'} aria-label="Push notifications" disabled={pushBusy} onClick={async () => { if (pushPerm === 'granted') { showToast('Notifications are on for this device', 'success'); return; } setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); setPushPerm(r === 'granted' ? 'granted' : r === 'denied' ? 'denied' : pushPerm); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 disabled:opacity-60 ${pushPerm === 'granted' ? 'bg-[var(--ann-accent)]' : isDarkMode ? 'bg-[#22363E]' : 'bg-[#DAD8E3]'}`}>
-                        <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${pushPerm === 'granted' ? 'translate-x-5' : 'translate-x-0'}`} />
+                      <button type="button" role="switch" aria-checked={dashPushPerm === 'granted'} aria-label="Push notifications" disabled={pushBusy} onClick={async () => { if (dashPushPerm === 'granted') { showToast('Notifications are on for this device', 'success'); return; } setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); setDashPushPerm(r === 'granted' ? 'granted' : r === 'denied' ? 'denied' : dashPushPerm); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 disabled:opacity-60 ${dashPushPerm === 'granted' ? 'bg-[var(--ann-accent)]' : isDarkMode ? 'bg-[#22363E]' : 'bg-[#DAD8E3]'}`}>
+                        <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${dashPushPerm === 'granted' ? 'translate-x-5' : 'translate-x-0'}`} />
                       </button>
-                      <span className="text-[0.7rem] font-black uppercase tracking-widest opacity-70">{pushPerm === 'granted' ? 'On for this device' : pushPerm === 'denied' ? 'Blocked. Allow notifications in your browser settings' : pushPerm === 'unsupported' ? 'Not supported on this device' : 'Off'}</span>
+                      <span className="text-[0.7rem] font-black uppercase tracking-widest opacity-70">{dashPushPerm === 'granted' ? 'On for this device' : dashPushPerm === 'denied' ? 'Blocked. Allow notifications in your browser settings' : dashPushPerm === 'unsupported' ? 'Not supported on this device' : 'Off'}</span>
                     </div>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>

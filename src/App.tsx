@@ -17,6 +17,11 @@ type AdminState = 'loading' | 'admin' | 'must-change' | 'not-admin' | 'signed-ou
 // "not an admin" answer ever kicks anyone out.
 const CACHED_ADMIN_KEY = 'ev-admin-console-email'
 
+// The retry button on the admin access-error screen belongs to the installed
+// app only: opened as a web page (via a link), the screen explains itself and
+// a page refresh is the way back, no button.
+const IS_PWA = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true)
+
 function navigate(to: string) {
   window.history.pushState({}, '', to)
   window.dispatchEvent(new PopStateEvent('popstate'))
@@ -100,12 +105,16 @@ export default function App() {
           <span className="max-w-xs text-sm text-slate-600">
             We could not verify your access just now. You are still signed in. Check your connection and try again.
           </span>
-          <button
-            onClick={retryAdminCheck}
-            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-          >
-            Try again
-          </button>
+          {IS_PWA ? (
+            <button
+              onClick={retryAdminCheck}
+              className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              Try again
+            </button>
+          ) : (
+            <p className="text-xs text-slate-500">You can refresh the page to try again.</p>
+          )}
         </main>
       )
     }
