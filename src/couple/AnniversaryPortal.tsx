@@ -7581,6 +7581,46 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     }, () => setMyMusic([]));
     return () => { try { unsub(); } catch { /* gone */ } };
   }, []);
+  // The admin console's music-library uploader, copied exactly: one signed
+  // XHR to Cloudinary with live progress. Proven to work on phones where the
+  // chunked uploader stalls.
+  const uploadMusicTrack = (file: File): Promise<string> => {
+    const fld = 'eventicor-music'
+    const eps = [`/api/upload-signature?folder=${encodeURIComponent(fld)}`, `/.netlify/functions/upload-signature?folder=${encodeURIComponent(fld)}`]
+    const tryOne = (ep: string): Promise<string> => new Promise<string>(async (resolve, reject) => {
+      try {
+        const res = await fetch(ep, { credentials: ep.startsWith('http') ? 'omit' : 'include' })
+        if (!res.ok) { reject(new Error('no signature')); return }
+        const sig = await res.json()
+        if (!sig?.signature || !sig?.cloudName || !sig?.apiKey) { reject(new Error('bad signature')); return }
+        const form = new FormData()
+        form.append('file', file, file.name)
+        form.append('api_key', sig.apiKey)
+        form.append('timestamp', String(sig.timestamp))
+        form.append('signature', sig.signature)
+        form.append('folder', sig.folder || fld)
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${sig.cloudName}/video/upload`)
+        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setMusicPct(Math.min(99, Math.round((ev.loaded / ev.total) * 100))) }
+        xhr.onload = () => {
+          try {
+            const j = JSON.parse(xhr.responseText)
+            if (xhr.status >= 200 && xhr.status < 300 && j.secure_url) { setMusicPct(100); resolve(j.secure_url as string) }
+            else reject(new Error('upload failed'))
+          } catch { reject(new Error('upload failed')) }
+        }
+        xhr.onerror = () => reject(new Error('upload failed'))
+        xhr.send(form)
+      } catch (err) { reject(err instanceof Error ? err : new Error('upload failed')) }
+    })
+    return (async () => {
+      let last: any = null
+      for (const ep of eps) {
+        try { return await tryOne(ep) } catch (err) { last = err }
+      }
+      throw last || new Error('upload failed')
+    })()
+  }
   const onMyMusic = async (e: any) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -7591,7 +7631,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
     if (DEMO) { const msg = 'Uploads work in your real app. Pick from the library here'; setMusicMsg(msg); showToast(msg, 'error'); return; }
     setMusicMsg(''); setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
     try {
-      const url = await uploadToCloudinaryWithProgressInner(file, 'eventicor-music', (p: number) => setMusicPct(p), APP_ID);
+      const url = await uploadMusicTrack(file);
       setMusicPct(100);
       await addDoc(collection(db, scopedPath('music')), { name: base, url, createdAt: serverTimestamp() });
       recordMediaUsage(file.size || 0, 'audio');
@@ -8128,7 +8168,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 )}
                 {musicMsg && <p className="text-xs font-semibold text-[#e05a4e] mt-2 m-0">{musicMsg}</p>}
               </div>
-              <input ref={myMusicInputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" className="sr-only" onChange={onMyMusic} />
+              <input ref={myMusicInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onMyMusic} />
             </InvSec>
           </>
         );
