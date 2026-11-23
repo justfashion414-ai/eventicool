@@ -330,3 +330,8 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 /* footer brand: tagline above a much bigger giant wordmark, with a real gap between them */
 #ev-l .ftag{text-align:center;color:var(--mut);font-size:18px;letter-spacing:.02em;margin-top:48px}
 #ev-l .giant{font:400 clamp(90px,22.5vw,320px)/.78 "Playfair Display",serif;margin-top:22px}
+
+/* nav logo: the app's E mark replaces the old rotated square */
+#ev-l .logo svg{width:24px;height:24px;flex:none;display:block}
+/* giant footer wordmark: much bigger than before, bleeding past both edges */
+#ev-l .giant{font:400 clamp(100px,26vw,430px)/.78 "Playfair Display",serif;margin-top:22px}

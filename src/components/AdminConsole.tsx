@@ -74,6 +74,7 @@ const slugOf = (b: string, g: string) => `${b}-${g}`.toLowerCase().replace(/[^a-
 
 interface EvDoc {
   id: string
+  whatsapp?: string
   title?: string
   bride?: string
   groom?: string
@@ -91,6 +92,7 @@ interface EvDoc {
 interface Site {
   id: string
   couple: string
+  whatsapp?: string
   slug: string
   plan?: string
   status?: string
@@ -99,7 +101,7 @@ interface Site {
   contact?: string
   city?: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; whatsapp?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
 interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
@@ -267,6 +269,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         since: fmtDate(ev.createdAt),
         contact: ev.contact || '',
         city: ev.city || '',
+        whatsapp: ev.whatsapp || '',
       })),
     [events],
   )
@@ -879,6 +882,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         since: new Date(l.activatedAt as number).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         contact: l.email || '',
         city: l.city || '',
+        whatsapp: l.whatsapp || '',
         _lead: l,
       }))
     const allRows: (Site & { _lead?: LeadDoc })[] = [...sites, ...leadSites]
@@ -896,18 +900,19 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div className="ov">
             <table className="tb">
               <thead>
-                <tr><th>COUPLE</th><th>EMAIL</th><th>STATE</th><th>PLAN</th><th>STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th></th></tr>
+                <tr><th>COUPLE</th><th>EMAIL</th><th>WHATSAPP</th><th>STATE</th><th>PLAN</th><th>STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th></th></tr>
               </thead>
               <tbody>
                 {events === null ? (
-                  <tr><td colSpan={9}><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading events…</div></td></tr>
+                  <tr><td colSpan={10}><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading events…</div></td></tr>
                 ) : L.length === 0 ? (
-                  <tr><td colSpan={9}>No apps match.</td></tr>
+                  <tr><td colSpan={10}>No apps match.</td></tr>
                 ) : (
                   L.map((s) => s._lead ? (
                     <tr key={s.id}>
                       <td><b>{s.couple}</b><small>{s.status === 'live' ? 'Paid app' : s.status === 'suspended' ? 'Paid app · suspended' : 'Paid app · revoked'}{s.city ? ` · ${s.city}` : ''}</small></td>
                       <td><small>{s.contact || '—'}</small></td>
+                      <td><small>{s.whatsapp || '—'}</small></td>
                       <td><small>{s.city || '—'}</small></td>
                       <td>{s.plan ? PL[s.plan]?.name || s.plan : '—'}</td>
                       <td>{s.status === 'live' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(31,138,91,.16)', color: '#1f8a5b' }}>{`Active · renews ${new Date(s._lead!.renewsAt || (s._lead!.activatedAt as number) + 365 * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}</span> : s.status === 'suspended' ? <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(214,140,0,.16)', color: '#a36a00' }}>Suspended</span> : <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: 'rgba(0,0,0,.08)', color: 'var(--mut)' }}>Revoked</span>}</td>
@@ -925,6 +930,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                     <tr key={s.id}>
                       <td><b>{s.couple}</b><small>{s.slug}.eventicor.com</small></td>
                       <td><small>{s.contact || '—'}</small></td>
+                      <td><small>{s.whatsapp || '—'}</small></td>
                       <td><small>{s.city || '—'}</small></td>
                       <td>{s.plan ? PL[s.plan]?.name || s.plan : '—'}</td>
                       <td>{pill(s.status)}</td>
@@ -1305,9 +1311,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const mine = (leads || []).filter((l) => (!!l.email || l.source === 'landing') && !l.activatedAt)
     const demo = user?.uid === 'demo' && mine.length === 0
       ? ([
-          { id: 'demo-cust-1', bride: 'Ada', groom: 'Obinna', email: 'ada.obinna@example.com', city: 'Lagos', template: 'halo', accent: 'blush', plan: 'Complete', status: 'trial', createdAt: now - 8 * 3600e3, expiresAt: now + 16 * 3600e3 },
-          { id: 'demo-cust-2', bride: 'Tunde', groom: 'Sade', email: 'tunde.sade@example.com', city: 'Abuja', template: 'classic', accent: 'midnight', plan: 'Essential', status: 'trial', createdAt: now - 26 * 3600e3, expiresAt: now - 2 * 3600e3 },
-          { id: 'demo-cust-3', bride: 'Ngozi', groom: 'Chike', email: 'ngozi.chike@example.com', city: 'Enugu', template: 'book', accent: 'royal', plan: 'Legacy', status: 'trial', createdAt: now - 50 * 3600e3, expiresAt: now - 26 * 3600e3 },
+          { id: 'demo-cust-1', bride: 'Ada', groom: 'Obinna', email: 'ada.obinna@example.com', whatsapp: '08031234501', city: 'Lagos', template: 'halo', accent: 'blush', plan: 'Complete', status: 'trial', createdAt: now - 8 * 3600e3, expiresAt: now + 16 * 3600e3 },
+          { id: 'demo-cust-2', bride: 'Tunde', groom: 'Sade', email: 'tunde.sade@example.com', whatsapp: '08031234502', city: 'Abuja', template: 'classic', accent: 'midnight', plan: 'Essential', status: 'trial', createdAt: now - 26 * 3600e3, expiresAt: now - 2 * 3600e3 },
+          { id: 'demo-cust-3', bride: 'Ngozi', groom: 'Chike', email: 'ngozi.chike@example.com', whatsapp: '08031234503', city: 'Enugu', template: 'book', accent: 'royal', plan: 'Legacy', status: 'trial', createdAt: now - 50 * 3600e3, expiresAt: now - 26 * 3600e3 },
         ] as LeadDoc[])
       : []
     const rows = [...mine, ...demo].sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt))
@@ -1362,7 +1368,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             ) : (
             <div className="ov">
               <table className="tb">
-                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th>ACTIONS</th></tr></thead>
+                <thead><tr><th>COUPLE</th><th>EMAIL</th><th>WHATSAPP</th><th>CITY</th><th>PLAN</th><th>PLAN STATUS</th><th>TEMPLATE</th><th>CREATED</th><th>APP LINK</th><th>ACTIONS</th></tr></thead>
                 <tbody>
                   {shown.map((l) => {
                     const st = planStatus(l)
@@ -1377,6 +1383,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                           )}
                         </td>
                         <td><small>{l.email || '—'}</small></td>
+                        <td><small>{l.whatsapp || '—'}</small></td>
                         <td><small>{l.city || '—'}</small></td>
                         <td>{l.plan ? PL[l.plan]?.name || l.plan : 'No plan picked'}</td>
                         <td><span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: st.label === 'Suspended' ? 'rgba(214,140,0,.16)' : st.live ? 'rgba(31,138,91,.16)' : 'rgba(0,0,0,.08)', color: st.label === 'Suspended' ? '#a36a00' : st.live ? '#1f8a5b' : 'var(--mut)' }}>{st.label}</span></td>
