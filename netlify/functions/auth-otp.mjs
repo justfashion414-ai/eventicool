@@ -361,7 +361,7 @@ export default async (req) => {
         lastSentAt: FieldValue.serverTimestamp(),
       });
     }
-    return json(200, { ok: true });
+    return json(200, { ok: true, resendAfter: sec.resendMinutes * 60 });
   }
 
   // ================= recover-verify =================
