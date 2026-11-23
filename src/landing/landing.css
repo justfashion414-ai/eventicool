@@ -272,3 +272,42 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .totop{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:45;width:52px;height:52px;border-radius:50%;background:var(--acc);color:var(--on,#fff);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px #17162e3d;border:0;cursor:pointer;opacity:0;transform:translateY(14px);pointer-events:none;transition:opacity .25s ease,transform .25s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #ev-l .totop.on{opacity:1;transform:none;pointer-events:auto}
 #ev-l .totop:active{transform:scale(.94)}
+
+/* Plan checklist icons: the landing plan cards carry the same per-topic icons as the payment flow cards (Nov 23 2026). */
+#ev-l .pfl{padding-left:0}
+#ev-l .pfl li{display:flex;gap:10px;align-items:flex-start;list-style:none;margin:0 0 10px;font-size:15.5px;line-height:1.5}
+#ev-l .pfli{flex:0 0 26px;width:26px;height:26px;border-radius:99px;background:var(--soft);color:var(--acc);display:inline-flex;align-items:center;justify-content:center;margin-top:2px}
+#ev-l .pfli svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* The family album: a book cover the chapters are pinned to (Nov 23 2026). Three chapters pinned by default, the + tile adds more, the cover grows downward, and it stops at eight chapters. */
+#ev-l .chs{display:block;overflow:visible;padding:0;margin:34px 0 0}
+#ev-l .lifebook{position:relative;border-radius:26px;background:linear-gradient(150deg,#262250,#17162e 55%,#1c1940);border:1px solid #3a3768;box-shadow:0 30px 70px #17162e40;padding:30px 26px 36px;overflow:hidden}
+#ev-l .lifebook::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,#ffffff05 0 2px,transparent 2px 7px);pointer-events:none}
+#ev-l .lb-spine{position:absolute;left:0;top:0;bottom:0;width:16px;background:linear-gradient(90deg,#0d0c1e,#17162e);border-right:1px solid #ffffff1c;z-index:2}
+#ev-l .lb-spine::after{content:"";position:absolute;left:7px;top:10%;bottom:10%;width:2px;background:repeating-linear-gradient(180deg,#d8b06a99 0 7px,transparent 7px 15px)}
+#ev-l .lb-plate{position:relative;z-index:2;margin:2px auto 30px;max-width:430px;text-align:center;border:1.5px solid #d8b06a;border-radius:14px;padding:13px 18px 11px;background:#17162ecc;box-shadow:0 10px 26px #00000042}
+#ev-l .lb-plate b{font:italic 500 23px "Playfair Display",Georgia,serif;color:#f4ead2;display:block;line-height:1.2}
+#ev-l .lb-plate small{font-size:10.5px;font-weight:800;letter-spacing:.3em;color:#d8b06a;text-transform:uppercase;display:block;margin-top:3px}
+#ev-l .lb-grid{position:relative;z-index:2;display:grid;grid-template-columns:repeat(3,1fr);gap:34px 26px;max-width:880px;margin:0 auto;padding-top:6px}
+#ev-l .lifebook .chp2{position:relative;width:auto;aspect-ratio:auto;overflow:visible;border-radius:4px;background:#fff;padding:9px 9px 0;box-shadow:0 16px 32px #00000059;transform:rotate(var(--r,0deg))}
+#ev-l .lifebook .chp2 .pim{position:relative;aspect-ratio:3/4;overflow:hidden;border-radius:2px;background:#efe9dd}
+#ev-l .lifebook .chp2 svg{position:absolute;inset:0;width:100%;height:100%}
+#ev-l .lifebook .chp2 .to{padding:10px 4px 13px;text-align:center}
+#ev-l .lifebook .chp2 .to h3{font-size:19px;line-height:1.2}
+#ev-l .lifebook .chp2 .to small{font-size:13px}
+#ev-l .pinp{position:absolute;top:-10px;left:50%;transform:translateX(-50%);width:18px;height:18px;border-radius:99px;background:radial-gradient(circle at 35% 30%,#ff9090,#d63a3a 60%,#8f1f1f);box-shadow:0 3px 5px #00000066;z-index:3}
+#ev-l .pinp::after{content:"";position:absolute;left:50%;top:100%;width:2px;height:7px;background:linear-gradient(#00000066,transparent);transform:translateX(-50%)}
+#ev-l .lifebook .chp2.pop{animation:pop .6s cubic-bezier(.3,1.5,.5,1)}
+#ev-l .chadd{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;min-height:230px;border:2px dashed #ffffff3d;border-radius:10px;background:#ffffff08;color:#cfcdea;cursor:pointer;touch-action:manipulation}
+#ev-l .chadd .pl{width:52px;height:52px;border-radius:99px;background:var(--acc);color:#fff;font-size:26px;font-weight:800;display:grid;place-items:center;box-shadow:0 10px 24px #00000059;line-height:1}
+#ev-l .chadd b{font-size:16px}
+#ev-l .chadd small{font-size:12.5px;opacity:.75}
+#ev-l .chadd:hover{border-color:#d8b06a66;color:#fff}
+@media (max-width:760px){
+#ev-l .lb-grid{grid-template-columns:repeat(2,1fr);gap:26px 16px}
+#ev-l .lifebook{padding:24px 14px 26px;border-radius:20px}
+#ev-l .lb-plate{margin-bottom:22px;padding:10px 12px 8px}
+#ev-l .lb-plate b{font-size:19px}
+#ev-l .lifebook .chp2 .to h3{font-size:15.5px}
+#ev-l .lifebook .chp2 .to small{font-size:11px}
+#ev-l .chadd{min-height:180px}
+}
