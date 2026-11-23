@@ -332,7 +332,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
                       type="email"
                       autoComplete="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setLockOtp(0); setLockLogin(0) }}
                       onBlur={() => checkLocks(email)}
                       className={inputCls}
                       placeholder="you@example.com"
@@ -373,7 +373,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
                       type="email"
                       autoComplete="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setLockOtp(0); setLockLogin(0) }}
                       onBlur={() => checkLocks(email)}
                       className={inputCls}
                       placeholder="you@example.com"

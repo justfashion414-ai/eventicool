@@ -4104,6 +4104,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             lockOtp={authLockOtp}
             lockLogin={authLockLogin}
             onCheckLock={handleCheckAuthLocks}
+            clearLocks={() => { setAuthLockOtp(0); setAuthLockLogin(0); }}
             busy={authBusy}
             error={authError}
             clearError={() => setAuthError('')}
@@ -4547,6 +4548,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           lockOtp={authLockOtp}
           lockLogin={authLockLogin}
           onCheckLock={handleCheckAuthLocks}
+          clearLocks={() => { setAuthLockOtp(0); setAuthLockLogin(0); }}
           busy={authBusy}
           error={authError}
           clearError={() => setAuthError('')}
@@ -7095,7 +7097,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
 }
 
 
-function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, lockOtp, lockLogin, onCheckLock, clearError, isDarkMode, coupleLabel }: {
+function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, lockOtp, lockLogin, onCheckLock, clearLocks, clearError, isDarkMode, coupleLabel }: {
   screen: 'signin' | 'forgot' | 'otp' | 'newpass';
   setScreen: (s: 'signin' | 'forgot' | 'otp' | 'newpass') => void;
   onClose: () => void;
@@ -7108,6 +7110,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   lockOtp: number;
   lockLogin: number;
   onCheckLock: (email: string) => void;
+  clearLocks: () => void;
   clearError: () => void;
   isDarkMode: boolean;
   coupleLabel: string;
@@ -7327,7 +7330,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); clearLocks(); }}
               onBlur={blurCheck}
               placeholder="you@example.com"
               autoComplete="email"
