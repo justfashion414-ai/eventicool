@@ -4143,6 +4143,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             screen={authScreen ?? 'signin'}
             setScreen={setAuthScreen}
             coupleLabel={demoHeader()}
+            authSecPolicy={authSecPolicy}
             onClose={leaveAdminPage}
             onSignIn={handleAdminLogin}
             onForgot={handleForgotPassword}
@@ -4594,6 +4595,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           screen={authScreen}
           setScreen={setAuthScreen}
           coupleLabel={demoHeader()}
+          authSecPolicy={authSecPolicy}
           onClose={() => { setAuthScreen(null); setAuthError(''); shortcutLoginRef.current = false; }}
           onSignIn={handleAdminLogin}
           onForgot={handleForgotPassword}
@@ -7168,7 +7170,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
 }
 
 
-function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, lockOtp, lockLogin, onCheckLock, clearLocks, clearError, isDarkMode, coupleLabel }: {
+function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, lockOtp, lockLogin, onCheckLock, clearLocks, clearError, isDarkMode, coupleLabel, authSecPolicy }: {
   screen: 'signin' | 'forgot' | 'otp' | 'newpass';
   setScreen: (s: 'signin' | 'forgot' | 'otp' | 'newpass') => void;
   onClose: () => void;
@@ -7185,6 +7187,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   clearError: () => void;
   isDarkMode: boolean;
   coupleLabel: string;
+  authSecPolicy: any;
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
