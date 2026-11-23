@@ -326,3 +326,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 /* add-chapter tile: hard override - fill the grid column, centered content, clear dashed frame */
 #ev-l .lb-grid .chadd{width:100% !important;min-width:0;display:grid !important;place-items:center !important;align-content:center !important;justify-self:stretch !important;row-gap:9px;border:2px dashed #ffffff96 !important;background:#ffffff10 !important;text-align:center !important;border-radius:10px}
 #ev-l .chadd .plus{margin:0 !important}
+
+/* footer brand: tagline above a much bigger giant wordmark, with a real gap between them */
+#ev-l .ftag{text-align:center;color:var(--mut);font-size:18px;letter-spacing:.02em;margin-top:48px}
+#ev-l .giant{font:400 clamp(96px,24vw,340px)/.78 "Playfair Display",serif;margin-top:26px}
