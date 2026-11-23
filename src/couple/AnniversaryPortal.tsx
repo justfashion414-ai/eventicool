@@ -7838,6 +7838,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [musicPct, setMusicPct] = useState(0);
   const [musicUpName, setMusicUpName] = useState('');
   const [musicMsg, setMusicMsg] = useState('');
+  const [musicFormOpen, setMusicFormOpen] = useState(false);
+  const [musicName, setMusicName] = useState('');
+  const [musicFile, setMusicFile] = useState<File | null>(null);
   const myMusicInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (DEMO) { setMyMusic([]); return; }
@@ -7888,14 +7891,24 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       throw last || new Error('upload failed')
     })()
   }
-  const onMyMusic = async (e: any) => {
+  const onMyMusic = (e: any) => {
     const file = e.target.files && e.target.files[0];
-    e.target.value = '';
+    try { e.target.value = ''; } catch { /* already cleared */ }
     if (!file) return;
-    if (file.size > 50 * 1024 * 1024) { const msg = 'That track is over 50 MB. Try a smaller mp3'; setMusicMsg(msg); showToast(msg, 'error'); return; }
-    if (!DEMO && storageBlocked()) { setMusicMsg(STORAGE_FULL_MESSAGE); showToast(STORAGE_FULL_MESSAGE, 'error'); return; }
-    const base = String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
+    if (!/^audio\//.test(file.type || '') && !/\.(mp3|m4a|aac|ogg|oga|wav|webm)$/i.test(String(file.name || ''))) { const msg = 'That file is not an audio track. Use mp3, m4a, wav or ogg'; setMusicMsg(msg); showToast(msg, 'error'); setMusicFile(null); return; }
+    if (file.size > 50 * 1024 * 1024) { const msg = 'That track is over 50 MB. Try a smaller mp3'; setMusicMsg(msg); showToast(msg, 'error'); setMusicFile(null); return; }
+    if (!DEMO && storageBlocked()) { setMusicMsg(STORAGE_FULL_MESSAGE); showToast(STORAGE_FULL_MESSAGE, 'error'); setMusicFile(null); return; }
+    setMusicFile(file);
+    setMusicName((prev: string) => prev.trim() || String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track');
+    setMusicMsg('');
+  };
+  // Custom uploads are this app's own music: they land in apps/<appId>/music,
+  // never in the shared Eventicor library (musicLib comes from /api/music-library).
+  const startMyMusicUpload = async () => {
+    const file = musicFile;
+    if (!file) { const msg = 'Choose an audio file first'; setMusicMsg(msg); showToast(msg, 'error'); return; }
     if (DEMO) { const msg = 'Uploads work in your real app. Pick from the library here'; setMusicMsg(msg); showToast(msg, 'error'); return; }
+    const base = musicName.trim().slice(0, 60) || String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
     setMusicMsg(''); setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
     try {
       const url = await uploadMusicTrack(file);
@@ -7904,6 +7917,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       recordMediaUsage(file.size || 0, 'audio');
       setF({ ...f, music: url });
       closeMusicDropdown();
+      setMusicFile(null); setMusicName(''); setMusicFormOpen(false);
       showToast('Your track is in. Guests hear it when the card opens', 'success');
     } catch (err: any) {
       const msg = 'Could not upload that track. Try again' + (err && err.message ? ': ' + String(err.message).slice(0, 80) : '');
@@ -8373,7 +8387,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               </div>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={onInvitePhotos} />
             </InvSec>
-            <InvSec id="music" title="Music">
+            <InvSec id="music" title="Eventicor library">
               <div className="relative">
                 {musicOpen && <div className="fixed inset-0 z-20" onClick={closeMusicDropdown} />}
                 <button type="button" onClick={() => { if (musicOpen) stopInvitePreview(); setMusicOpen(!musicOpen) }} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
@@ -8410,20 +8424,6 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       </div>
                       );
                     })}
-                    <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`}>
-                      {musicUploading ? (
-                        <div className="px-3.5 py-3">
-                          <div className="flex items-center justify-between text-xs opacity-70 mb-1.5"><span className="truncate pr-2">Uploading {musicUpName}…</span><span>{musicPct}%</span></div>
-                          <div className={`h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}><div className="h-full rounded-full bg-[var(--ann-accent)] transition-all" style={{ width: musicPct + '%' }} /></div>
-                        </div>
-                      ) : (
-                        <button type="button" onClick={() => myMusicInputRef.current?.click()} className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left text-sm hover:bg-[var(--ann-accent)]/5" style={{ touchAction: 'manipulation' }}>
-                          <Upload className="w-4 h-4 opacity-60 shrink-0" />
-                          <span>Upload from my device</span>
-                          <span className="ml-auto text-[0.58rem] font-black uppercase tracking-widest opacity-40">mp3 · up to 50MB</span>
-                        </button>
-                      )}
-                    </div>
                   </div>
                 )}
                 {musicUploading && (
@@ -8434,6 +8434,30 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   </div>
                 )}
                 {musicMsg && <p className="text-xs font-semibold text-[#e05a4e] mt-2 m-0">{musicMsg}</p>}
+                {!musicFormOpen ? (
+                  <button type="button" onClick={() => { setMusicFormOpen(true); setMusicMsg(''); }} className={`mt-2 w-full flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-sm font-semibold hover:bg-[var(--ann-accent)]/5 ${isDarkMode ? 'border-[#22363E] bg-[#0B171C]' : 'border-[#DAD8E3] bg-white'}`} style={{ touchAction: 'manipulation' }}>
+                    <Upload className="w-4 h-4 opacity-60 shrink-0" />
+                    <span className="truncate">Upload your music</span>
+                    <span className="ml-auto shrink-0 text-[0.55rem] font-black uppercase tracking-widest opacity-40 text-right leading-tight">This app only</span>
+                  </button>
+                ) : (
+                  <div className={`mt-2 rounded-xl border p-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <div className="flex items-center mb-2">
+                      <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-60 m-0">Your music</p>
+                      <button type="button" onClick={() => { if (!musicUploading) { setMusicFormOpen(false); setMusicFile(null); setMusicMsg(''); } }} className="ml-auto text-xs opacity-50" style={{ touchAction: 'manipulation' }}>Cancel</button>
+                    </div>
+                    <input type="text" value={musicName} onChange={(e) => setMusicName(e.target.value)} placeholder="Name this track, e.g. First dance" className={inputCls + ' mb-2'} />
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => myMusicInputRef.current?.click()} disabled={musicUploading} className={`flex-1 min-w-0 truncate rounded-lg border px-3 py-2.5 text-sm text-left ${isDarkMode ? 'border-[#22363E] bg-[#0B171C]' : 'border-[#DAD8E3] bg-white'} disabled:opacity-40`} style={{ touchAction: 'manipulation' }}>
+                        {musicFile ? musicFile.name : 'Choose file'}
+                      </button>
+                      <button type="button" onClick={startMyMusicUpload} disabled={musicUploading || !musicFile} className="rounded-lg px-4 py-2.5 text-sm font-black text-white bg-[var(--ann-accent)] disabled:opacity-40" style={{ touchAction: 'manipulation' }}>
+                        {musicUploading ? 'Uploading…' : 'Upload'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] opacity-50 mt-1.5 m-0">mp3, m4a, wav or ogg · up to 50MB · plays only in this app, never added to the Eventicor library</p>
+                  </div>
+                )}
               </div>
               <input ref={myMusicInputRef} type="file" accept="audio/*" className="sr-only" onChange={onMyMusic} />
             </InvSec>
