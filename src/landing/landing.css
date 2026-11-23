@@ -322,3 +322,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 /* add-chapter tile: fill the grid column, center everything, visible dashed frame */
 #ev-l .lb-grid .chadd{width:100%;display:grid;place-items:center;align-content:center;row-gap:9px;border:2px dashed #ffffff80;background:#ffffff0f;text-align:center}
 #ev-l .chadd .plus{margin:0}
+
+/* add-chapter tile: hard override - fill the grid column, centered content, clear dashed frame */
+#ev-l .lb-grid .chadd{width:100% !important;min-width:0;display:grid !important;place-items:center !important;align-content:center !important;justify-self:stretch !important;row-gap:9px;border:2px dashed #ffffff96 !important;background:#ffffff10 !important;text-align:center !important;border-radius:10px}
+#ev-l .chadd .plus{margin:0 !important}
