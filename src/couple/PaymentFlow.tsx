@@ -9,9 +9,9 @@ import { doc, getDoc } from 'firebase/firestore';
 // doc the Eventicor admin sets in the console.
 const DEFAULT_PAYMENT = { accountName: 'Michael Ogunnaike', bankName: 'Moniepoint', accountNumber: '5070133907', whatsapp: '2349030064109' };
 const PLANS = [
-  { id: 'essential', name: 'Essential', amount: 30000, features: ['Your wedding app with your names, city and hero photos', 'Guest wall: posts, comments and reactions', 'Photo albums and video reels', 'Wedding countdown, events and details', 'Online for one year'] },
-  { id: 'complete', name: 'Complete', amount: 50000, features: ['Everything in Essential', 'Photographer and videographer accounts', 'Vendor accounts with their own uploads', 'Private albums with admin approval', 'Online for one year'] },
-  { id: 'legacy', name: 'Legacy', amount: 100000, features: ['Everything in Complete', 'Priority WhatsApp support', 'Longest archive keep after the wedding', 'Online for one year'] },
+  { id: 'essential', name: 'Essential', amount: 30000, features: ['5 GB of photos and videos', 'Unlimited guests', 'Your own unique address', 'Downloadable app on Android and iPhone with your name and branded logo', 'Feed and reels with views, comments and likes', 'Unique website link and a QR code to scan and join', 'Your unique link for each invitee', 'Photographer and videographer bulk uploads', 'Email notifications', 'Journey timeline and photo carousel', 'Online for 12 months'] },
+  { id: 'complete', name: 'Complete', amount: 50000, features: ['Everything in Essential', '10 GB of photos and videos', 'Email and push notifications', 'Photographer and videographer bulk uploads', 'Memory book PDF', 'Online for 12 months'] },
+  { id: 'legacy', name: 'Legacy', amount: 100000, features: ['Everything in Complete', '20 GB of photos and videos', 'Email, push and WhatsApp notifications', 'Archive mode, read-only forever', 'Online for 24 months', 'Priority support'] },
 ] as const;
 
 const ng = (n: number) => '₦' + n.toLocaleString('en-NG');

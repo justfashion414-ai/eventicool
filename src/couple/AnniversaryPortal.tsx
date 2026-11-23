@@ -8435,7 +8435,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 )}
                 {musicMsg && <p className="text-xs font-semibold text-[#e05a4e] mt-2 m-0">{musicMsg}</p>}
               </div>
-              <input ref={myMusicInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={onMyMusic} />
+              <input ref={myMusicInputRef} type="file" accept="audio/*" className="sr-only" onChange={onMyMusic} />
             </InvSec>
           </>
         );

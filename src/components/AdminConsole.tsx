@@ -230,7 +230,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [sf, setSf] = useState<'all' | 'live' | 'draft' | 'suspended'>('all')
   const [sq, setSq] = useState('')
   // orders filter
-  const [of, setOf] = useState<'all' | 'paid' | 'pending' | 'failed'>('all')
+  const [of, setOf] = useState<'all' | 'paid' | 'pending'>('all')
   // delete confirmation
   const [delText, setDelText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -242,6 +242,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [platCustom, setPlatCustom] = useState('')
   const [paySaved, setPaySaved] = useState('')
   const [payView, setPayView] = useState<LeadDoc | null>(null)
+  const [payConfirm, setPayConfirm] = useState<LeadDoc | null>(null)
   const [musicLib, setMusicLib] = useState<MusicDoc[] | null>(null)
   const [musicName, setMusicName] = useState('')
   const [musicLink, setMusicLink] = useState('')
@@ -734,7 +735,31 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const draftCount = sites.filter((s) => s.status === 'draft').length
   const suspCount = sites.filter((s) => s.status === 'suspended').length
 
+  // Orders analytics: computed from the customer leads this console loads, so
+  // every number moves the moment a payment is confirmed in Customers.
+  function orderStats() {
+    const rows = leads || []
+    const planPrice = (pl?: string) => {
+      const n = cat?.prices[(pl || '').toLowerCase() as 'essential' | 'complete' | 'legacy']
+      return typeof n === 'number' && n > 0 ? n : 0
+    }
+    const amt = (l: LeadDoc) => { const a = Number(l.lastPayment?.amount || 0); return a > 0 ? a : planPrice(l.lastPayment?.plan || l.plan) }
+    const customers = rows.filter((l) => !!l.email)
+    const paid = customers.filter((l) => !!l.activatedAt).sort((a, b) => (b.activatedAt || 0) - (a.activatedAt || 0))
+    const pending = customers.filter((l) => !l.activatedAt && l.lastPayment?.status === 'submitted').sort((a, b) => (b.lastPayment?.submittedAt || 0) - (a.lastPayment?.submittedAt || 0))
+    const trialCount = customers.filter((l) => !l.activatedAt).length
+    const now = Date.now()
+    const day0 = new Date(); day0.setHours(0, 0, 0, 0)
+    const sum = (from: number) => paid.filter((l) => (l.activatedAt || 0) >= from).reduce((t, l) => t + amt(l), 0)
+    return {
+      today: sum(day0.getTime()), week: sum(now - 7 * 864e5), month: sum(now - 30 * 864e5), all: sum(0),
+      paidCount: paid.length, trialCount, pendingCount: pending.length, paid, pending, amt,
+      conv: paid.length + trialCount > 0 ? Math.round((paid.length / (paid.length + trialCount)) * 100) : 0,
+    }
+  }
+
   function overview() {
+    const st = orderStats()
     const attention: { n: number; one: string; many: string; go: SecId }[] = [
       { n: draftCount, one: 'app waiting to be set up', many: 'apps waiting to be set up', go: 'sites' as const },
       { n: suspCount, one: 'suspended app to review', many: 'suspended apps to review', go: 'sites' as const },
@@ -744,7 +769,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         {head(`${greeting}, ${name}`, 'Here’s how Eventicor is doing today.')}
         <div className="g4">
           <div className="k"><small>Couples’ apps</small><b>{events === null ? '…' : sites.length}</b><span>{liveCount} live</span></div>
-          <div className="k"><small>Orders paid</small><b>₦0</b><span>No orders yet</span></div>
+          <div className="k"><small>Orders paid</small><b>{leads === null ? '…' : ng(st.all)}</b><span>{st.paidCount} payment{st.paidCount === 1 ? '' : 's'}</span></div>
           <div className="k"><small>Templates available</small><b>{cat ? Object.values(cat.templates).filter(Boolean).length : '…'}</b><span>of {Object.keys(TP).length}</span></div>
           <div className="k"><small>Leads</small><b>{leads === null ? '…' : (leads || []).filter((l) => (l.expiresAt || 0) > Date.now() && !l.email && l.source !== 'landing').length}</b><span>Sample apps live</span></div>
         </div>
@@ -916,24 +941,48 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   }
 
   function orders() {
+    const st = orderStats()
+    const day = (ms?: number) => (ms ? new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+    const rows = [...st.paid.map((l) => ({ l, paid: true })), ...st.pending.map((l) => ({ l, paid: false }))]
+    const filtered = of === 'paid' ? rows.filter((r) => r.paid) : of === 'pending' ? rows.filter((r) => !r.paid) : rows
     return (
       <>
-        {head('Orders', 'Every payment, from every provider, in one place.')}
+        {head('Orders', 'Your money and growth at a glance. The numbers come from the payments you confirm in Customers, so they move the moment you confirm.')}
         <div className="g4">
-          <div className="k"><small>Paid</small><b>₦0</b></div>
-          <div className="k"><small>Pending</small><b>0</b></div>
-          <div className="k"><small>Failed</small><b>0</b></div>
+          <div className="k"><small>Made today</small><b>{leads === null ? '…' : ng(st.today)}</b><span>since midnight</span></div>
+          <div className="k"><small>Made this week</small><b>{leads === null ? '…' : ng(st.week)}</b><span>last 7 days</span></div>
+          <div className="k"><small>Made this month</small><b>{leads === null ? '…' : ng(st.month)}</b><span>last 30 days</span></div>
+          <div className="k"><small>On free trial</small><b>{leads === null ? '…' : st.trialCount}</b><span>{st.paidCount} now paying</span></div>
+        </div>
+        <div className="g4">
+          <div className="k"><small>Conversion rate</small><b>{st.conv}%</b><span>of sign-ups now paying</span></div>
+          <div className="k"><small>Total collected</small><b>{leads === null ? '…' : ng(st.all)}</b><span>across {st.paidCount} payment{st.paidCount === 1 ? '' : 's'}</span></div>
+          <div className="k"><small>Awaiting your confirm</small><b>{leads === null ? '…' : st.pendingCount}</b><span>receipts submitted</span></div>
         </div>
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
-            {(['all', 'paid', 'pending', 'failed'] as const).map((k) => (
+            {(['all', 'paid', 'pending'] as const).map((k) => (
               <button key={k} className={`chip ${of === k ? 'on' : ''}`} onClick={() => setOf(k)}>{k[0].toUpperCase() + k.slice(1)}</button>
             ))}
           </div>
           <div className="ov">
             <table className="tb">
-              <thead><tr><th>ORDER</th><th>COUPLE</th><th>PLAN</th><th>AMOUNT</th><th>VIA</th><th>STATUS</th><th></th></tr></thead>
-              <tbody><tr><td colSpan={7}>No orders yet. Payments appear here once couples check out.</td></tr></tbody>
+              <thead><tr><th>COUPLE</th><th>PLAN</th><th>AMOUNT</th><th>DATE</th><th>STATUS</th></tr></thead>
+              <tbody>
+                {leads === null ? (
+                  <tr><td colSpan={5}>Loading…</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={5}>{of === 'pending' ? 'Nothing waiting. When a couple submits a receipt it shows here until you confirm it.' : 'No payments yet. Receipts you confirm in Customers appear here.'}</td></tr>
+                ) : filtered.map(({ l, paid }) => (
+                  <tr key={l.id}>
+                    <td>{leadName(l)}</td>
+                    <td>{l.lastPayment?.plan || l.plan || '—'}</td>
+                    <td>{ng(st.amt(l))}</td>
+                    <td>{paid ? day(l.activatedAt) : day(l.lastPayment?.submittedAt)}</td>
+                    <td>{paid ? 'Paid' : 'Waiting for you'}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </div>
@@ -970,19 +1019,19 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!plat) return <div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div>
     return (
       <>
-        {head('Settings', 'Rules every app on Eventicor follows. Changes here reach every app, its feed and its landing page.')}
+        {head('Settings', 'Rules every app on Eventicor follows. Changes here reach every app, its feed and its landing page. One Save settings button saves everything here.')}
         <div className="card">
           <h3>Feed pagination</h3>
           <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How many posts show in every app's feed before a Next page button loads the older ones. Eventicor manages the feed for all apps; the apps do not set this themselves.</p>
           <p style={{ color: 'var(--ink)', fontSize: 13.5, fontWeight: 600, margin: '0 0 12px' }}>Right now: {plat.feedPageSize === 0 ? 'All posts show' : `${plat.feedPageSize} posts show`} per page.</p>
           <div className="row" style={{ flexWrap: 'wrap' }}>
             {[...new Set([plat.feedPageSize, 0, 10, 20, 30, 50])].sort((a, b) => a - b).map((n) => (
-              <button key={n} className={`chip ${plat.feedPageSize === n ? 'on' : ''}`} onClick={() => { if (plat.feedPageSize !== n) { setPlat({ ...plat, feedPageSize: n }); savePlat(n === 0 ? 'Feed pagination: all posts show on every app' : `Feed pagination: ${n} posts per page on every app`) } }}>{n === 0 ? 'Show all' : n}</button>
+              <button key={n} className={`chip ${plat.feedPageSize === n ? 'on' : ''}`} onClick={() => { if (plat.feedPageSize !== n) setPlat({ ...plat, feedPageSize: n }) }}>{n === 0 ? 'Show all' : n}</button>
             ))}
           </div>
           <div className="row" style={{ marginTop: 10 }}>
             <input value={platCustom} placeholder="Any number" style={{ width: 130 }} onChange={(e) => setPlatCustom(e.target.value.replace(/[^0-9]/g, ''))} />
-            <button className="btn g" disabled={busy} onClick={() => { const n = Math.floor(Number(platCustom)); if (n >= 1 && n <= 500) { setPlat({ ...plat, feedPageSize: n }); setPlatCustom(''); savePlat(`Feed pagination: ${n} posts per page on every app`) } else say('Enter a number between 1 and 500') }}>Apply</button>
+            <button className="btn g" disabled={busy} onClick={() => { const n = Math.floor(Number(platCustom)); if (n >= 1 && n <= 500) { setPlat({ ...plat, feedPageSize: n }); setPlatCustom('') } else say('Enter a number between 1 and 500') }}>Apply</button>
           </div>
         </div>
         <div className="card">
@@ -997,7 +1046,6 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               </div>
             </div>
           ))}
-          <button className="btn" disabled={busy} onClick={() => savePlat('Updated the storage included with each plan')}>Save storage</button>
         </div>
         <div className="card">
           <h3>Invitees per plan</h3>
@@ -1011,7 +1059,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               </div>
             </div>
           ))}
-          <button className="btn" disabled={busy} onClick={() => savePlat('Updated the invitee limit for each plan')}>Save invitee limits</button>
+          <button className="btn g" disabled={busy} onClick={() => savePlat('Updated the platform settings: feed pagination, storage and invitee limits')}>Save settings</button>
+          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>One save for this whole page: feed pagination, storage and invitee limits save together.</small>
         </div>
         {platSaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '4px 0 0' }}>{platSaved}</p>}
       </>
@@ -1281,7 +1330,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                         <td>
                           <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                             {!l.activatedAt && !l.id.startsWith('demo-cust') && (
-                              <button className="chip" disabled={busy} style={{ fontWeight: 700 }} onClick={() => confirmPayment(l)}>Confirm payment</button>
+                              <button className="chip" disabled={busy} style={{ fontWeight: 700 }} onClick={() => setPayConfirm(l)}>Confirm payment</button>
                             )}
                             <button className="chip" onClick={() => { try { navigator.clipboard?.writeText(appLink(l)); say('App link copied'); } catch { say('Could not copy the link') } }}>Copy link</button>
                             <button className="chip" onClick={() => window.open(appLink(l), '_blank')}>Open</button>
@@ -1618,11 +1667,27 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               </a>
             )}
             {!payView.activatedAt ? (
-              <button className="btn g" style={{ width: '100%', marginTop: 12 }} disabled={busy} onClick={() => { confirmPayment(payView); setPayView(null) }}>Confirm payment</button>
+              <button className="btn g" style={{ width: '100%', marginTop: 12 }} disabled={busy} onClick={() => setPayConfirm(payView)}>Confirm payment</button>
             ) : (
               <p style={{ color: '#1f8a5b', fontSize: 13, margin: '12px 0 0' }}>Payment already confirmed; the account is active.</p>
             )}
             <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => setPayView(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {payConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 95, background: 'rgba(10,10,22,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setPayConfirm(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 400, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: 19 }}>Confirm this payment?</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '8px 0 0' }}>
+              {leadName(payConfirm)} · {payConfirm.lastPayment?.plan || payConfirm.plan || '—'} · {ng(payConfirm.lastPayment?.amount || 0)}
+            </p>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 0' }}>Confirming activates their app for one year.</p>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button className="btn" style={{ flex: 1 }} onClick={() => setPayConfirm(null)}>Cancel</button>
+              <button className="btn g" style={{ flex: 1 }} disabled={busy} onClick={() => { const l = payConfirm; if (!l) return; setPayConfirm(null); if (payView && payView.id === l.id) setPayView(null); confirmPayment(l) }}>Confirm payment</button>
+            </div>
           </div>
         </div>
       )}
