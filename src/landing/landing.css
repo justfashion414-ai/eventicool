@@ -329,4 +329,4 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 
 /* footer brand: tagline above a much bigger giant wordmark, with a real gap between them */
 #ev-l .ftag{text-align:center;color:var(--mut);font-size:18px;letter-spacing:.02em;margin-top:48px}
-#ev-l .giant{font:400 clamp(96px,24vw,340px)/.78 "Playfair Display",serif;margin-top:26px}
+#ev-l .giant{font:400 clamp(90px,22.5vw,320px)/.78 "Playfair Display",serif;margin-top:22px}
