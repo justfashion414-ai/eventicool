@@ -3226,6 +3226,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <span>Install</span>
                 </button>
               )}
+              {isPWAInstalled && (
+                <button
+                  onClick={() => window.location.reload()}
+                  className={`w-8 h-8 rounded-full grid place-items-center border active:scale-90 transition-transform ${isDarkMode ? 'border-[#22363E] text-white/75' : 'border-[#DAD8E3] text-[#41545C]'}`}
+                  title="Refresh"
+                  aria-label="Refresh app"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
+              )}
               <div className={`w-8 h-8 rounded-full overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'} bg-[var(--ann-accent)] flex items-center justify-center text-[0.65rem] text-white font-black`}>
                 {avatar ? <img src={avatar} className="w-full h-full object-cover" /> : <span>{displayName ? displayName[0].toUpperCase() : 'Y'}</span>}
               </div>
@@ -5163,20 +5173,57 @@ function MediaLightbox({ post, initialIndex, isDarkMode, onClose }: any) {
 function MediaCarousel({ urls, mediaTypes, eventName, onOpenMedia }: { urls: string[]; mediaTypes?: string[]; eventName?: string; onOpenMedia: (i: number) => void }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [slide, setSlide] = useState(0);
+  const slideRef = useRef(0);
+  const pausedRef = useRef(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
 
   const handleScroll = () => {
     const el = trackRef.current;
     if (!el || el.clientWidth === 0) return;
-    setSlide(Math.min(urls.length - 1, Math.max(0, Math.round(el.scrollLeft / el.clientWidth))));
+    const s = Math.min(urls.length - 1, Math.max(0, Math.round(el.scrollLeft / el.clientWidth)));
+    slideRef.current = s;
+    setSlide(s);
   };
   const goTo = (i: number) => {
     const el = trackRef.current;
     if (!el) return;
+    slideRef.current = i;
     el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
   };
 
+  // Gentle auto-glide: with several images the carousel drifts one by one so
+  // nobody misses the rest, wrapping back to the first after the last.
+  // Holding a finger (or the mouse) pauses it; letting go resumes. Only runs
+  // while the post is on screen, so the feed stays quiet.
+  useEffect(() => {
+    if (urls.length < 2) return;
+    const el = wrapRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') { setInView(true); return; }
+    const ob = new IntersectionObserver((es) => setInView(es[0]?.isIntersecting === true), { threshold: 0.35 });
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, [urls.length]);
+  useEffect(() => {
+    if (urls.length < 2 || !inView) return;
+    const t = window.setInterval(() => {
+      if (pausedRef.current || document.hidden) return;
+      goTo((slideRef.current + 1) % urls.length);
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [urls.length, inView]);
+
   return (
-    <div className="mt-[10px] relative rounded-[18px] overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black shadow-md">
+    <div
+      ref={wrapRef}
+      onTouchStart={() => { pausedRef.current = true; }}
+      onTouchEnd={() => { pausedRef.current = false; }}
+      onTouchCancel={() => { pausedRef.current = false; }}
+      onMouseDown={() => { pausedRef.current = true; }}
+      onMouseUp={() => { pausedRef.current = false; }}
+      onMouseLeave={() => { pausedRef.current = false; }}
+      className="mt-[10px] relative rounded-[18px] overflow-hidden border border-[#DAD8E3] dark:border-[#22363E] bg-black shadow-md"
+    >
       {eventName && slide === 0 && (
         <span className="absolute bottom-3 left-3 z-20 px-2.5 py-[3px] rounded-full bg-black/40 text-white text-[13px] pointer-events-none">{eventName}</span>
       )}

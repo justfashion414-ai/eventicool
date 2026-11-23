@@ -169,34 +169,41 @@ export default function InstallPage({ guideOnly, names, installable: installable
       setDeferred(null)
       setInstallMsg('')
       setWaiting(false)
-      onInstallStart?.()
-      if (!onInstallStart) setSelfToast('Installing…')
+      // The "Installing…" toast waits for the visitor to accept Chrome's own
+      // dialog: tapping the button alone never shows it, and dismissing the
+      // dialog leaves nothing on screen. appinstalled then swaps it for
+      // "App installed!".
+      const fireInstalling = () => { onInstallStart?.(); if (!onInstallStart) setSelfToast('Installing…') }
       p.prompt()
         .then(async () => {
           const { outcome } = await p.userChoice
-          if (outcome !== 'accepted') {
-            if (!onInstallStart) setSelfToast(null)
-            onInstallDismiss?.()
-          }
+          if (outcome === 'accepted') fireInstalling()
+          else onInstallDismiss?.()
         })
-        .catch(() => {
-          if (!onInstallStart) setSelfToast(null)
-          onInstallDismiss?.()
-        })
+        .catch(() => onInstallDismiss?.())
       return
     }
-    // Chrome offers its install popup a moment after the page loads; wait for it.
+    // Chrome offers its install popup a moment after the page loads; wait for
+    // it. No toast yet: it appears only once the dialog's Install is accepted.
     setInstallMsg('')
     setWaiting(true)
-    onInstallStart?.()
-    if (!onInstallStart) setSelfToast('Installing…')
+    if (!onInstallStart) setSelfToast(null)
   }
   useEffect(() => {
     if (!waiting) return
     if (deferred) {
-      deferred.prompt()
+      const p = deferred
       setDeferred(null)
       setWaiting(false)
+      // Same rule as above: the toast belongs to the dialog's Install tap.
+      const fireInstalling = () => { onInstallStart?.(); if (!onInstallStart) setSelfToast('Installing…') }
+      p.prompt()
+        .then(async () => {
+          const { outcome } = await p.userChoice
+          if (outcome === 'accepted') fireInstalling()
+          else onInstallDismiss?.()
+        })
+        .catch(() => onInstallDismiss?.())
       return
     }
     const t = window.setTimeout(() => {
