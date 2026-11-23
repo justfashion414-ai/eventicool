@@ -67,6 +67,20 @@ service cloud.firestore {
         allow read, write: if isAdminIn(app);
         match /guests/{gid} { allow read, write: if isAdminIn(app); }
       }
+      // Guest problem reports (Nov 23 2026): a signed-in guest (including
+      // anonymous) may create one with their saved profile name; only the
+      // app's admins read, update or delete them.
+      match /reports/{rid} {
+        allow read: if isAdminIn(app);
+        allow create: if request.auth != null
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 60;
+        allow update, delete: if isAdminIn(app);
+      }
     }
   }
 }
