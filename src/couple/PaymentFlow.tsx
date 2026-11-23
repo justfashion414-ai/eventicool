@@ -14,6 +14,11 @@ const PLANS = [
   { id: 'legacy', name: 'Legacy', amount: 100000, features: ['Everything in Complete', '20 GB of photos and videos', 'Email, push and WhatsApp notifications', 'Archive mode, read-only forever', 'Online for 24 months', 'Priority support'] },
 ] as const;
 
+// The tag line and notification channels each plan card shows on the landing
+// page; the payment cards render the same so the two places always match.
+const PLAN_TAGS: Record<string, string> = { essential: 'A beautiful, simple start', complete: 'Everything most couples need', legacy: 'The most space, made to last' };
+const PLAN_CHANNELS: Record<string, [string, boolean][]> = { essential: [['Email', true], ['Push', false], ['WhatsApp', false]], complete: [['Email', true], ['Push', true], ['WhatsApp', false]], legacy: [['Email', true], ['Push', true], ['WhatsApp', true]] };
+
 const ng = (n: number) => '₦' + n.toLocaleString('en-NG');
 const pillBtn = (accent: string): React.CSSProperties => ({ display: 'inline-block', background: accent, color: '#fff', textDecoration: 'none', padding: '14px 15px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' });
 
@@ -60,6 +65,7 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
 
   const [pay, setPay] = useState({ ...DEFAULT_PAYMENT });
   const [gb, setGb] = useState<Record<string, number>>({ essential: 5, complete: 10, legacy: 20 });
+  const [iv, setIv] = useState<Record<string, number>>({});
   const [step, setStep] = useState<1 | 2 | 3 | 4>(() => {
     const n = Number(boot.step);
     return (n === 2 || n === 3 || n === 4) && PLANS.some((x) => x.id === boot.planId) ? n : 1;
@@ -98,6 +104,13 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
             if (Number.isFinite(v) && v > 0) next[k] = v;
           }
           setGb(next);
+          const ivs = (snap.data() as any).invitees || {};
+          const nextIv: Record<string, number> = { ...iv };
+          for (const k of ['essential', 'complete', 'legacy'] as const) {
+            const v = Number(ivs[k]);
+            if (Number.isFinite(v) && v > 0) nextIv[k] = v;
+          }
+          setIv(nextIv);
         }
       } catch { /* the defaults stay */ }
     })();
@@ -193,6 +206,26 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
 
   const card: React.CSSProperties = { background: '#fff', borderRadius: 18, padding: 16, border: '1px solid #ece5da', textAlign: 'left' };
   const gbOf = (id: string) => `${gb[id] || 5}GB`;
+  // The same live details the landing page shows: the storage each plan
+  // carries and the invitee count from the platform settings, worked into the
+  // feature list the same way the landing does it.
+  const inviteeLine = (id: string) => {
+    const n = Number(iv[id]);
+    return Number.isFinite(n) && n > 0 ? `${n} trackable invitees, personalized link` : '';
+  };
+  const effFeatures = (p: (typeof PLANS)[number]) => {
+    let feats: string[] = p.features.map((f) => (/\d+ GB of photos and videos/.test(f) ? `${gb[p.id] || 5} GB of photos and videos` : String(f)));
+    const line = inviteeLine(p.id);
+    if (line) {
+      const gi = feats.indexOf('Unlimited guests');
+      if (gi >= 0) feats[gi] = line;
+      else {
+        const g = feats.findIndex((f) => / GB of photos and videos/.test(f));
+        feats = g >= 0 ? [...feats.slice(0, g + 1), line, ...feats.slice(g + 1)] : [line, ...feats];
+      }
+    }
+    return feats;
+  };
 
   return (
     <div style={{ width: '100%', maxWidth: 430 }}>
@@ -213,9 +246,21 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
                   <span style={{ color: accent, fontWeight: 700, fontSize: 16 }}>{ng(p.amount)}</span>
                 </div>
                 <small style={{ color: '#93a4ab', display: 'block', marginTop: 2 }}>{gbOf(p.id)} storage</small>
+                <p style={{ color: '#8a7a63', fontSize: 12.5, marginTop: 3, fontStyle: 'italic' }}>{PLAN_TAGS[p.id]}</p>
                 <ul style={{ margin: '10px 0 0', paddingLeft: 18, color: '#5a6970', fontSize: 13.5, lineHeight: 1.6 }}>
-                  {(more === p.id ? ([...p.features.slice(0, p.id === 'legacy' ? 1 : 3), `${gbOf(p.id)} of storage`, ...p.features.slice(p.id === 'legacy' ? 1 : 3)] as string[]) : ([...p.features.slice(0, 3), `${gbOf(p.id)} of storage`] as string[])).map((f) => <li key={f}>{f}</li>)}
+                  {(more === p.id ? effFeatures(p) : effFeatures(p).slice(0, 3)).map((f) => <li key={f}>{f}</li>)}
                 </ul>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.12em', color: '#93a4ab', marginBottom: 6 }}>NOTIFICATIONS</div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {PLAN_CHANNELS[p.id].map(([label, on]) => (
+                      <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: on ? '#1d2b30' : '#b9b2a6' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 999, background: on ? accent : '#d9d2c6', display: 'inline-block' }} />
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                   <button type="button" style={{ ...pillBtn(accent), flex: 1, opacity: nav && nav !== p.id ? 0.55 : 1 }} disabled={!!nav} onClick={() => { if (nav) return; setPlan(p); setMore(''); setNav(p.id); window.setTimeout(() => { setStep(2); setDeadline(Date.now() + 300000); setNav(''); }, NAV_MS); }}>
                     {nav === p.id ? <><span className="pf-spin" />SETTING UP…</> : <>CHOOSE {p.name.toUpperCase()}</>}

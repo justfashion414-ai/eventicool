@@ -1151,6 +1151,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
   const [pushNudge, setPushNudge] = useState(false);
+  // Push permission as the browser holds it right now: the settings toggle
+  // mirrors it, and a prompt banner only shows while it is not granted yet.
+  const [pushPerm, setPushPerm] = useState<'granted' | 'denied' | 'default' | 'unsupported'>(() => (typeof window !== 'undefined' && 'Notification' in window ? (Notification.permission as 'granted' | 'denied' | 'default') : 'unsupported'));
+  useEffect(() => {
+    const refresh = () => setPushPerm(('Notification' in window) ? (Notification.permission as 'granted' | 'denied' | 'default') : 'unsupported');
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
   const [pushBusy, setPushBusy] = useState(false);
   // Private feed gate: when the admin turns the feed private, every non-admin
   // viewer is held at the entry banner and must type the access code (checked
@@ -3604,7 +3612,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 </div>
               ) : feedSubTab === 'post' ? (
                 <div className="border-t-[6px] border-[#D0CEDB] dark:border-[#1E323A]">
-                  {uploadingPost && <UploadingPostCard up={uploadingPost} isDarkMode={isDarkMode} />}
+                  {uploadingPost && uploadingPost.videoOrientation !== 'portrait' && <UploadingPostCard up={uploadingPost} isDarkMode={isDarkMode} />}
                   {(() => {
                     const regularPosts = posts.filter((p) => {
                       if (p.id === 'jubilee_documentary') return false;
@@ -3730,6 +3738,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <ReelsFeed
                   sample={sampleMode}
                   bannerSpace={sampleMode ? 80 : 0}
+                  uploading={uploadingPost}
                   onAvatarClick={(u: string) => setAvatarZoom(u)}
                   reels={(() => {
                     const filteredReels = posts.filter((p) => {
@@ -4452,6 +4461,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           text: newPostText,
                           localMediaUrls: attachedMedia.map((m) => m.url),
                           mediaTypes: attachedMedia.map((m) => m.type || 'image'),
+                          videoOrientation: attachedMedia.length === 1 && attachedMedia[0].type === 'video' ? (attachedMedia[0].orientation || null) : null,
                           pending: pendingFlag,
                           uploadProgress: 0
                         });
@@ -4509,7 +4519,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         // approval get one offer to switch notifications on.
                         try {
                           pingPostCreated();
-                          if (pendingFlag && !sessionStorage.getItem('ev-push-asked')) { sessionStorage.setItem('ev-push-asked', '1'); setPushNudge(true); }
+                          if (pendingFlag && pushPerm !== 'granted' && !sessionStorage.getItem('ev-push-asked')) { sessionStorage.setItem('ev-push-asked', '1'); setPushNudge(true); }
                         } catch { /* the push is best effort */ }
 
                       } catch (err: any) {
@@ -5568,9 +5578,42 @@ function PostAdCard({ ad, isDarkMode }: { ad: AdItem; isDarkMode: boolean; [key:
   );
 }
 
-function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick, bannerSpace, sample }: any) {
+// The portrait video a guest just sent, uploading in place on the Reels
+// screen: the reel shows right where it will live, with the live percentage.
+function UploadingReelCard({ up }: { up: any }) {
+  const pct = typeof up.uploadProgress === 'number' ? up.uploadProgress : 0;
+  const url = (up.localMediaUrls || [])[0] || '';
+  return (
+    <div className="snap-start snap-always w-full h-full rounded-[20px] relative bg-black flex items-center justify-center overflow-hidden select-none shadow-2xl border border-[#DAD8E3] dark:border-[#22363E]">
+      {url && <video src={url} className="w-full h-full object-cover" muted playsInline autoPlay loop />}
+      <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-3">
+        <span className="w-10 h-10 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
+        <p className="text-white font-black text-sm tracking-wide">{pct >= 99 ? 'Finishing up…' : `Uploading your reel… ${pct}%`}</p>
+        <div className="w-2/3 h-1.5 rounded-full bg-white/25 overflow-hidden">
+          <div className="h-full bg-white transition-all duration-200" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete, onLike, onLove, onShare, onComment, onAvatarClick, bannerSpace, sample, uploading }: any) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Fill exactly from under the pinned toggle to the very bottom of the
+  // screen, so every reel sits flush and the page cannot scroll past the
+  // last one (nothing overflowing top or bottom).
+  const [topPx, setTopPx] = useState(0);
+  useEffect(() => {
+    try { window.scrollTo(0, 0); } catch { /* ignore */ }
+    const measure = () => {
+      const el = containerRef.current;
+      if (el) setTopPx(Math.max(0, el.getBoundingClientRect().top));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // Snap-locked reels: the next video is only seen when swiping up.
   // The Post/Reels toggle is pinned above this container, outside the scroll.
@@ -5604,9 +5647,10 @@ function ReelsFeed({ reels, isDarkMode, isAdmin, user, onSwitchToPost, onDelete,
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      style={{ height: `calc(100dvh - ${150 + (bannerSpace || 0)}px)`, minHeight: 420 }}
+      style={{ height: topPx > 0 ? `calc(100dvh - ${Math.round(topPx)}px)` : `calc(100dvh - ${150 + (bannerSpace || 0)}px)`, minHeight: 420, overscrollBehavior: 'contain' }}
       className="w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar relative rounded-[20px]"
     >
+      {uploading && uploading.videoOrientation === 'portrait' && <UploadingReelCard up={uploading} />}
       {reels.map((reel: any, idx: number) => (
         <ReelCard
           key={reel.id}
@@ -11265,7 +11309,7 @@ function AdminDashboardModal({
                     </button>
                     <p className="text-[0.7rem] opacity-50 mb-6">You confirm your current password first. At least 8 characters.</p>
                     <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Auto sign-out</span>
-                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out. The length you set is enforced on the server too.</p>
+                    <p className="text-sm opacity-60 mb-3">How long your admin session stays open before it signs you out.</p>
                     <div className="flex items-center gap-2 flex-wrap">
                       <BrandedSessionSelect value={sessionDraft} onChange={(m: number) => setSessionDraft(m)} isDarkMode={isDarkMode} inputCls={inputCls} />
                       <button type="button" onClick={() => handleUpdateSession(sessionDraft)} disabled={sessionBusy} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest ${sessionBusy ? 'bg-slate-200 text-slate-400' : 'bg-[var(--ann-accent)] text-white'}`}>{sessionBusy ? 'Saving…' : 'Save'}</button>
@@ -11287,7 +11331,12 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Notifications</h3>
                     <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once your app is on your home screen.</p>
-                    <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button type="button" role="switch" aria-checked={pushPerm === 'granted'} aria-label="Push notifications" disabled={pushBusy} onClick={async () => { if (pushPerm === 'granted') { showToast('Notifications are on for this device', 'success'); return; } setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); setPushPerm(r === 'granted' ? 'granted' : r === 'denied' ? 'denied' : pushPerm); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 disabled:opacity-60 ${pushPerm === 'granted' ? 'bg-[var(--ann-accent)]' : isDarkMode ? 'bg-[#22363E]' : 'bg-[#DAD8E3]'}`}>
+                        <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${pushPerm === 'granted' ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                      <span className="text-[0.7rem] font-black uppercase tracking-widest opacity-70">{pushPerm === 'granted' ? 'On for this device' : pushPerm === 'denied' ? 'Blocked. Allow notifications in your browser settings' : pushPerm === 'unsupported' ? 'Not supported on this device' : 'Off'}</span>
+                    </div>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
