@@ -4179,6 +4179,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         story={STORY}
         weddingDetails={DETAILS}
         onSaveWedding={updateWedding}
+        idDraft={idDraft}
+        setIdDraft={setIdDraft}
+        saveCoupleIdentity={saveCoupleIdentity}
         vendors={vendors}
         partners={partners}
         blockedUids={blockedUids}
@@ -9069,7 +9072,10 @@ function AdminDashboardModal({
   onDeletePost,
   onTogglePin,
   partners = DEMO_PARTNERS,
-  onAdminDemoPost
+  onAdminDemoPost,
+  idDraft,
+  setIdDraft,
+  saveCoupleIdentity,
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
   const [revokeArmed, setRevokeArmed] = useState(false);
