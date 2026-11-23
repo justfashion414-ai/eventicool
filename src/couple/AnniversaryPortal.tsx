@@ -7197,13 +7197,13 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   const [p2, setP2] = useState('');
   const [show1, setShow1] = useState(false);
   const [show2, setShow2] = useState(false);
-  // Ten minutes between code sends, ticked here; the server enforces the real
-  // window either way, so the countdown can only be conservative.
-  const RESEND = 600;
+  // Between code sends, ticked here from the login-security policy the parent
+  // passes down (admin Settings card); the server enforces the real window
+  // either way, so the countdown can only be conservative.
   const [resendIn, setResendIn] = useState(0);
   useEffect(() => {
     if (screen !== 'otp') return;
-    setResendIn(RESEND);
+    setResendIn(Math.max(60, (Number(authSecPolicy?.resendMinutes) || 10) * 60));
     const t = window.setInterval(() => setResendIn((s) => (s > 0 ? s - 1 : 0)), 1000);
     return () => window.clearInterval(t);
   }, [screen]);

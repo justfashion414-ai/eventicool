@@ -21,6 +21,9 @@ export default function Login({ onDone }: { onDone: () => void }) {
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [resendIn, setResendIn] = useState(0)
+  // The login-security numbers the console Settings card owns; the check op
+  // hands them back so the countdown and copy follow what the admin saved.
+  const [secPolicy, setSecPolicy] = useState<any>(null)
   // Locks the server answers with, held as wall-clock retry times. While one
   // is live its button stays disabled on every screen of the flow, so going
   // back, refreshing, or restarting the flow cannot squeeze in another try.
@@ -107,12 +110,14 @@ export default function Login({ onDone }: { onDone: () => void }) {
     // Locked or inside the 10-minute window the server already knows: ask
     // before sending, so the buttons stay shut for the whole wait.
     const c = await otpCall('check', { email })
+    const pol: any = (c.status === 200 && c.body?.policy) || secPolicy
+    if (pol) setSecPolicy(pol)
     if (c.status === 200) {
       setLockOtp(Number(c.body?.otpRetryAt) || 0)
       setLockLogin(Number(c.body?.loginRetryAt) || 0)
       if (Number(c.body?.otpRetryAt) > 0) { setBusy(false); return }
       if (!c.body?.canRequest) {
-        const wait = Math.max(1, Number(c.body?.retryAfter) || RESEND_SECONDS)
+        const wait = Math.max(1, Number(c.body?.retryAfter) || (Number(pol?.resendMinutes) || 10) * 60)
         setError(`A code was already sent to this email. Request another in ${fmt(wait)}.`)
         startResend(wait)
         setStep('otp')
@@ -123,12 +128,12 @@ export default function Login({ onDone }: { onDone: () => void }) {
     const r = await otpCall('request', { email })
     setBusy(false)
     if (r.status === 200) {
-      startResend(RESEND_SECONDS)
+      startResend(Math.max(60, (Number(pol?.resendMinutes) || 10) * 60))
       setStep('otp')
       return
     }
     if (r.status === 429 && r.body?.error === 'rate') {
-      const wait = Math.max(1, Number(r.body?.retryAfter) || RESEND_SECONDS)
+      const wait = Math.max(1, Number(r.body?.retryAfter) || (Number(pol?.resendMinutes) || 10) * 60)
       setError(`A code was already sent to this email. Request another in ${fmt(wait)}.`)
       startResend(wait)
       setStep('otp')
@@ -214,7 +219,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
               </div>
               <h1 className="text-xl font-bold text-slate-900">Check your email</h1>
               <p className="mt-1 text-sm text-slate-500">
-                If <span className="font-medium text-slate-700">{email}</span> is on an admin account, a 6-digit code is waiting there. The code stops working in 10 minutes.
+                If <span className="font-medium text-slate-700">{email}</span> is on an admin account, a 6-digit code is waiting there. The code stops working in {secPolicy?.codeExpiryMinutes ? `${secPolicy.codeExpiryMinutes} minutes` : '10 minutes'}.
               </p>
               <form onSubmit={(e) => { e.preventDefault(); verifyCode() }} className="mt-6 space-y-4">
                 <label className="block">
