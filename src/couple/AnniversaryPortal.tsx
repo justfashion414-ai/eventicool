@@ -2234,7 +2234,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // effects only re-run when saved data actually changes. A fresh object per
   // render used to reset the details form while the couple was still typing,
   // so edits in Events & details snapped back before they could save.
-  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents]);
+  const leadWedDate = leadOverride()?.weddingDate as string | undefined;
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents, leadWedDate]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
   const DETAILS: any = useMemo(() => withDerivedHashtag(withGiftDefaults(cfgDetails || detailsData())), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
@@ -2244,7 +2245,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // reception, else the latest saved event date. Until they save anything,
   // the seeded date shows.
   {
-    const ov = DEMO ? leadOverride() : null;
+    // The lead's wedding day wins on real apps too, not just samples: a couple
+    // who has not saved an events doc yet still shows THEIR chosen date.
+    const ov = leadOverride();
     const church = EVENTS.find((e: any) => e.id === 'church');
     const reception = EVENTS.find((e: any) => e.id === 'reception');
     const latestDate = EVENTS.map((e: any) => e.date).filter(Boolean).sort().pop() as string | undefined;

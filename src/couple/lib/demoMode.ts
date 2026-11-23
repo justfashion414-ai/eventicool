@@ -59,7 +59,9 @@ export const DEMO_PHOTOS = [
 export function demoEvents(): any[] {
   const T = (t: string) => demoText(t);
   const rel = (days: number) => {
-    const d = new Date(`${DEMO_WEDDING_DATE}T12:00:00`);
+    // Seeded stages anchor to the couple's own wedding day when the app has
+    // one (a bound lead), so the journey never disagrees with the countdown.
+    const d = new Date(`${demoWeddingDate()}T12:00:00`);
     d.setDate(d.getDate() - days);
     return d.toISOString().slice(0, 10);
   };
