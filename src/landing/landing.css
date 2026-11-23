@@ -335,3 +335,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .logo svg{width:24px;height:24px;flex:none;display:block}
 /* giant footer wordmark: much bigger than before, bleeding past both edges */
 #ev-l .giant{font:400 clamp(100px,26vw,430px)/.78 "Playfair Display",serif;margin-top:22px}
+
+/* footer wordmark: raised clear of the floating back-to-top button and made bigger still (user direction Nov 23 2026) */
+#ev-l .giant{font:400 clamp(110px,28vw,470px)/.78 "Playfair Display",serif;margin:22px 0 96px}
+#ev-l [data-adm]{cursor:pointer}
