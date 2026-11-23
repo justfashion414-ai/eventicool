@@ -238,6 +238,8 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   // Platform-wide settings (platform/settings): the feed pagination and the
   // storage each plan carries. Every app reads them; only this console edits them.
   const [plat, setPlat] = useState<{ feedPageSize: number; storage: { essential: number; complete: number; legacy: number }; invitees: { essential: number; complete: number; legacy: number } } | null>(null)
+  // Login security: the numbers the sign-in enforces, owned by this console.
+  const [loginSec, setLoginSec] = useState<{ loginMaxAttempts: number; otpMaxAttempts: number; lockMinutes: number; codeExpiryMinutes: number; resendMinutes: number } | null>(null)
   const [platSaved, setPlatSaved] = useState('')
   const [platCustom, setPlatCustom] = useState('')
   const [paySaved, setPaySaved] = useState('')
@@ -322,6 +324,12 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         const di = (d && d.invitees) || {}
         setPlat(d && d.feedPageSize !== undefined ? { feedPageSize: num(d.feedPageSize, 0), storage: { essential: num(st.essential, 5), complete: num(st.complete, 10), legacy: num(st.legacy, 20) }, invitees: { essential: invNum(di.essential, 0), complete: invNum(di.complete, 0), legacy: invNum(di.legacy, 0) } } : fallback)
       } catch { if (alive) setPlat(fallback) }
+      try {
+        const s: any = await consoleCall('get', { collection: 'platform', id: 'security' })
+        if (!alive) return
+        const num1 = (v: unknown, def: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 1 ? n : def }
+        setLoginSec(s ? { loginMaxAttempts: num1(s.loginMaxAttempts, 3), otpMaxAttempts: num1(s.otpMaxAttempts, 5), lockMinutes: num1(s.lockMinutes, 60), codeExpiryMinutes: num1(s.codeExpiryMinutes, 10), resendMinutes: num1(s.resendMinutes, 10) } : { loginMaxAttempts: 3, otpMaxAttempts: 5, lockMinutes: 60, codeExpiryMinutes: 10, resendMinutes: 10 })
+      } catch { if (alive) setLoginSec({ loginMaxAttempts: 3, otpMaxAttempts: 5, lockMinutes: 60, codeExpiryMinutes: 10, resendMinutes: 10 }) }
     })()
     return () => { alive = false }
   }, [])
@@ -1016,6 +1024,25 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         say(e?.message || 'Could not save the settings')
       } finally { setBusy(false) }
     }
+    const setSecField = (k: 'loginMaxAttempts' | 'otpMaxAttempts' | 'lockMinutes' | 'codeExpiryMinutes' | 'resendMinutes', v: string) => {
+      if (!loginSec) return
+      const n = Math.floor(Number(v.replace(/[^0-9]/g, '')) || 0)
+      setLoginSec({ ...loginSec, [k]: n })
+    }
+    const saveSec = async () => {
+      if (!loginSec || busy) return
+      setBusy(true)
+      try {
+        const cl = (v: number, lo: number, hi: number, def: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? Math.max(lo, Math.min(hi, n)) : def }
+        const data = { loginMaxAttempts: cl(sec.loginMaxAttempts, 1, 10, 3), otpMaxAttempts: cl(sec.otpMaxAttempts, 1, 10, 5), lockMinutes: cl(sec.lockMinutes, 5, 1440, 60), codeExpiryMinutes: cl(sec.codeExpiryMinutes, 5, 60, 10), resendMinutes: cl(sec.resendMinutes, 1, 60, 10), updatedAt: Date.now() }
+        setLoginSec({ loginMaxAttempts: data.loginMaxAttempts, otpMaxAttempts: data.otpMaxAttempts, lockMinutes: data.lockMinutes, codeExpiryMinutes: data.codeExpiryMinutes, resendMinutes: data.resendMinutes })
+        await consoleCall('set', { collection: 'platform', id: 'security', data })
+        logAudit('Updated the login security settings: attempt limits, lock length and code timing')
+        say('Login security saved. The very next sign-in and reset already follow it.')
+      } catch (e: any) {
+        say(e?.message || 'Could not save the login security settings')
+      } finally { setBusy(false) }
+    }
     if (!plat) return <div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div>
     return (
       <>
@@ -1060,8 +1087,36 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             </div>
           ))}
           <button className="btn g" disabled={busy} onClick={() => savePlat('Updated the platform settings: feed pagination, storage and invitee limits')}>Save settings</button>
-          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>One save for this whole page: feed pagination, storage and invitee limits save together.</small>
+          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>One save for these three cards: feed pagination, storage and invitee limits save together.</small>
         </div>
+        {loginSec && (
+          <div className="card">
+            <h3>Login security</h3>
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How the sign-in protects every app: wrong passwords and wrong reset codes count toward a lock, a lock lasts as long as you set, and a reset code expires. Enforced on the server, so what you save here takes hold on the very next attempt, and no one can weaken it from a browser.</p>
+            <div className="rw">
+              <div style={{ flex: 1 }}><b>Wrong passwords before sign-in locks</b><small>counts per email</small></div>
+              <div className="row"><input value={String(loginSec.loginMaxAttempts)} style={{ width: 90 }} aria-label="Wrong passwords before sign-in locks" onChange={(e) => setSecField('loginMaxAttempts', e.target.value)} /><small style={{ width: 60 }}>tries</small></div>
+            </div>
+            <div className="rw">
+              <div style={{ flex: 1 }}><b>Wrong codes before a password reset locks</b><small>counts per email</small></div>
+              <div className="row"><input value={String(loginSec.otpMaxAttempts)} style={{ width: 90 }} aria-label="Wrong codes before a password reset locks" onChange={(e) => setSecField('otpMaxAttempts', e.target.value)} /><small style={{ width: 60 }}>tries</small></div>
+            </div>
+            <div className="rw">
+              <div style={{ flex: 1 }}><b>How long a lock lasts</b><small>sign-in and reset locks</small></div>
+              <div className="row"><input value={String(loginSec.lockMinutes)} style={{ width: 90 }} aria-label="How long a lock lasts in minutes" onChange={(e) => setSecField('lockMinutes', e.target.value)} /><small style={{ width: 60 }}>minutes</small></div>
+            </div>
+            <div className="rw">
+              <div style={{ flex: 1 }}><b>A reset code stops working after</b><small>the code and the reset token</small></div>
+              <div className="row"><input value={String(loginSec.codeExpiryMinutes)} style={{ width: 90 }} aria-label="Reset code expiry in minutes" onChange={(e) => setSecField('codeExpiryMinutes', e.target.value)} /><small style={{ width: 60 }}>minutes</small></div>
+            </div>
+            <div className="rw">
+              <div style={{ flex: 1 }}><b>One code per email per</b><small>the resend window</small></div>
+              <div className="row"><input value={String(loginSec.resendMinutes)} style={{ width: 90 }} aria-label="Resend window in minutes" onChange={(e) => setSecField('resendMinutes', e.target.value)} /><small style={{ width: 60 }}>minutes</small></div>
+            </div>
+            <button className="btn g" disabled={busy} onClick={saveSec}>Save login security</button>
+            <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>Saves separately from the cards above, and is live the moment it saves: the next sign-in or reset already follows it.</small>
+          </div>
+        )}
         {platSaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '4px 0 0' }}>{platSaved}</p>}
       </>
     )

@@ -969,6 +969,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // going back, refreshing, or restarting the flow cannot squeeze in a try.
   const [authLockOtp, setAuthLockOtp] = useState(0);
   const [authLockLogin, setAuthLockLogin] = useState(0);
+  // The live login-security policy from the server's check op, so the screens' copy follows the admin's numbers.
+  const [authSecPolicy, setAuthSecPolicy] = useState<any>(null);
   const handleCheckAuthLocks = async (email: string) => {
     const v = email.trim();
     if (!/^\S+@\S+\.\S+$/.test(v)) return;
@@ -976,6 +978,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (r.status === 200) {
       setAuthLockOtp(Number(r.body?.otpRetryAt) || 0);
       setAuthLockLogin(Number(r.body?.loginRetryAt) || 0);
+      if (r.body?.policy) setAuthSecPolicy(r.body.policy);
     }
   };
   // The short-lived server token a correct OTP code returns; the new password
@@ -2136,6 +2139,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     if (c.status === 200) {
       setAuthLockOtp(Number(c.body?.otpRetryAt) || 0);
       setAuthLockLogin(Number(c.body?.loginRetryAt) || 0);
+      if (c.body?.policy) setAuthSecPolicy(c.body.policy);
       if (Number(c.body?.otpRetryAt) > 0) { setAuthBusy(false); return; }
       if (!c.body?.canRequest) {
         setAuthBusy(false);
@@ -7256,7 +7260,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
             </div>
             <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Check your email</h2>
             <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-              If {email.trim()} is on an admin account, a 6-digit code is waiting there. The code stops working in 10 minutes.
+              If {email.trim()} is on an admin account, a 6-digit code is waiting there. The code stops working in {authSecPolicy?.codeExpiryMinutes ? `${authSecPolicy.codeExpiryMinutes} minutes` : '10 minutes'}.
             </p>
             <label className={labelCls}>Enter the code</label>
             <input

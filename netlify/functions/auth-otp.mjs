@@ -1,19 +1,27 @@
 // auth-otp: password reset by emailed OTP code, plus server-mediated admin
 // sign-in with a per-email lockout. Actions:
-//   request {email}             send a 6-digit code to the email (one per
-//                               10 minutes per email). The reply NEVER says
+//   request {email}             send a 6-digit code to the email (one per the
+//                               admin's resend window). The reply NEVER says
 //                               whether the account exists.
-//   verify  {email, code}       check the code. 5 wrong codes lock the whole
-//                               reset action for 1 hour. On success returns a
+//   verify  {email, code}       check the code. Wrong codes past the admin's
+//                               limit lock the whole reset action for the
+//                               admin's lock length. On success returns a
 //                               short-lived single-use reset token.
 //   reset   {email,token,password}  set the new password with that token.
 //   login   {email, password}   the real password check happens HERE, not in
-//                               the browser: 3 wrong attempts lock sign-in for
-//                               that email for 1 hour. On success returns a
-//                               Firebase custom token the browser exchanges
-//                               for its session.
+//                               the browser: wrong passwords past the admin's
+//                               limit lock sign-in for that email. On success
+//                               returns a Firebase custom token the browser
+//                               exchanges for its session.
+//   check   {email}             no-side-effect read of the lock state plus
+//                               the live policy, for the screens' copy and
+//                               disabled buttons.
 // Every counter and lock lives in Firestore (authOtp, authLock) and is only
 // ever written by this function, so a browser cannot weaken or reset them.
+// The limits themselves are the Eventicor admin's: the platform/security doc
+// is written only from the admin console (the proxy's platform-admin gate
+// refuses everyone else) and is read FRESH here on every request, so a save
+// takes hold on the very next attempt.
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -32,12 +40,30 @@ function init() {
 // Public web API key (it ships in the client bundle anyway); overridable by env.
 const WEB_KEY = process.env.FIREBASE_WEB_API_KEY || 'AIzaSyDmme_nhjckYtzT9mEEt2GCKZFuPb0SmKM';
 
-const OTP_TTL_MS = 10 * 60 * 1000;        // a code stops working after 10 minutes
-const RESEND_WINDOW_MS = 10 * 60 * 1000;  // one code per email per 10 minutes
-const OTP_MAX_ATTEMPTS = 5;               // wrong codes before the reset locks
-const LOGIN_MAX_ATTEMPTS = 3;             // wrong passwords before sign-in locks
-const LOCK_MS = 60 * 60 * 1000;           // every lock lasts 1 hour
-const TOKEN_TTL_MS = 10 * 60 * 1000;      // the reset token after a good code
+// ---- Login security policy: the Eventicor admin owns these numbers ----
+const SEC_DEFAULTS = { loginMaxAttempts: 3, otpMaxAttempts: 5, lockMinutes: 60, codeExpiryMinutes: 10, resendMinutes: 10 };
+const SEC_CLAMPS = {
+  loginMaxAttempts: [1, 10],   // wrong passwords before sign-in locks
+  otpMaxAttempts: [1, 10],     // wrong codes before the reset locks
+  lockMinutes: [5, 1440],      // how long every lock lasts
+  codeExpiryMinutes: [5, 60],  // a code, and the reset token, stop working after this
+  resendMinutes: [1, 60],      // one code per email per this many minutes
+};
+async function loadSec(db) {
+  const out = { ...SEC_DEFAULTS };
+  try {
+    const snap = await db.collection('platform').doc('security').get();
+    const d = snap.exists ? (snap.data() || {}) : {};
+    for (const k of Object.keys(SEC_DEFAULTS)) {
+      const n = Math.floor(Number(d[k]));
+      if (Number.isFinite(n)) {
+        const [lo, hi] = SEC_CLAMPS[k];
+        out[k] = Math.max(lo, Math.min(hi, n));
+      }
+    }
+  } catch { /* the defaults stand on any read failure */ }
+  return out;
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -102,13 +128,13 @@ async function zeptoSend(to, subject, html) {
   return { ok: false, why: detail };
 }
 
-function otpEmail(code) {
+function otpEmail(code, mins) {
   const digits = String(code).split('').join(' ');
   return `<!doctype html><html><body style="margin:0;background:#f6f5fa;font-family:Arial,Helvetica,sans-serif">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px">
     <div style="background:#ffffff;border:1px solid #e6e4ef;border-radius:16px;padding:32px 28px;text-align:center">
       <div style="font-size:22px;font-weight:bold;color:#141f4e;letter-spacing:.5px">Eventicor</div>
-      <p style="margin:18px 0 6px;font-size:15px;color:#5a6970">Use this code to reset your password. It works once and stops working in 10 minutes.</p>
+      <p style="margin:18px 0 6px;font-size:15px;color:#5a6970">Use this code to reset your password. It works once and stops working in ${mins} minutes.</p>
       <div style="margin:22px auto;font-size:40px;font-weight:800;letter-spacing:10px;color:#141f4e">${digits}</div>
       <p style="margin:0 0 14px;font-size:13px;color:#8a90a6">If you did not request a password reset you can ignore this email; your password is unchanged.</p>
     </div>
@@ -141,6 +167,11 @@ export default async (req) => {
 
   try { init(); } catch (e) { return json(500, { ok: false, error: 'server not configured' }); }
   const db = getFirestore();
+  const sec = await loadSec(db); // fresh every request: a console save is live immediately
+  const LOCK_MS = sec.lockMinutes * 60000;
+  const OTP_TTL_MS = sec.codeExpiryMinutes * 60000;
+  const RESEND_WINDOW_MS = sec.resendMinutes * 60000;
+  const TOKEN_TTL_MS = sec.codeExpiryMinutes * 60000;
 
   // ================= request =================
   if (op === 'request') {
@@ -157,7 +188,7 @@ export default async (req) => {
     try { await getAuth().getUserByEmail(email); } catch (e) { exists = !(e && e.code === 'auth/user-not-found'); }
     if (exists) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
-      const sent = await zeptoSend(email, 'Your Eventicor password reset code', otpEmail(code));
+      const sent = await zeptoSend(email, 'Your Eventicor password reset code', otpEmail(code, sec.codeExpiryMinutes));
       if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300) });
       await db.collection('authOtp').doc(email).set({
         email,
@@ -284,6 +315,7 @@ export default async (req) => {
     }
     return json(200, {
       ok: true,
+      policy: { codeExpiryMinutes: sec.codeExpiryMinutes, resendMinutes: sec.resendMinutes, otpMaxAttempts: sec.otpMaxAttempts, loginMaxAttempts: sec.loginMaxAttempts, lockMinutes: sec.lockMinutes },
       otpLocked: otpLockLeft > 0, otpRetryAt: otpLockLeft > 0 ? Date.now() + otpLockLeft : 0,
       loginLocked: loginLockLeft > 0, loginRetryAt: loginLockLeft > 0 ? Date.now() + loginLockLeft : 0,
       canRequest, retryAfter,
