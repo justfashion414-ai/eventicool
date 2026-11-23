@@ -60,10 +60,11 @@ export default async (req) => {
   }
 
 
-  // Public read of the platform-wide settings (feed pagination and the storage
-  // included with each plan). The landing page shows the admin-set storage with
-  // every plan, so the values must be readable without signing in. Only these
-  // two fields leave the server, nothing else in the doc.
+  // Public read of the platform-wide settings (feed pagination, the storage
+  // included with each plan and the invitee cap per plan). The landing page
+  // shows the admin-set storage and invitee numbers with every plan, so the
+  // values must be readable without signing in. Only these three fields leave
+  // the server, nothing else in the doc.
   if (body.op === 'get-settings') {
     try {
       init()
@@ -76,7 +77,13 @@ export default async (req) => {
         const g = Number(st[k])
         if (Number.isFinite(g) && g > 0) storage[k] = g
       }
-      return json(200, { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage })
+      const iv = d.invitees || {}
+      const invitees = { essential: 0, complete: 0, legacy: 0 }
+      for (const k of ['essential', 'complete', 'legacy']) {
+        const n = Number(iv[k])
+        if (Number.isFinite(n) && n > 0) invitees[k] = Math.floor(n)
+      }
+      return json(200, { feedPageSize: Number.isFinite(fps) && fps > 0 ? Math.floor(fps) : 0, storage, invitees })
     } catch (e) {
       return json(500, { error: String(e?.message || e) })
     }

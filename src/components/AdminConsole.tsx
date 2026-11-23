@@ -974,8 +974,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         <div className="card">
           <h3>Feed pagination</h3>
           <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '0 0 12px' }}>How many posts show in every app's feed before a Next page button loads the older ones. Eventicor manages the feed for all apps; the apps do not set this themselves.</p>
+          <p style={{ color: 'var(--ink)', fontSize: 13.5, fontWeight: 600, margin: '0 0 12px' }}>Right now: {plat.feedPageSize === 0 ? 'All posts show' : `${plat.feedPageSize} posts show`} per page.</p>
           <div className="row" style={{ flexWrap: 'wrap' }}>
-            {[0, 10, 20, 30, 50].map((n) => (
+            {[...new Set([plat.feedPageSize, 0, 10, 20, 30, 50])].sort((a, b) => a - b).map((n) => (
               <button key={n} className={`chip ${plat.feedPageSize === n ? 'on' : ''}`} onClick={() => { if (plat.feedPageSize !== n) { setPlat({ ...plat, feedPageSize: n }); savePlat(n === 0 ? 'Feed pagination: all posts show on every app' : `Feed pagination: ${n} posts per page on every app`) } }}>{n === 0 ? 'Show all' : n}</button>
             ))}
           </div>
