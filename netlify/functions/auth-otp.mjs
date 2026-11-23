@@ -217,7 +217,7 @@ export default async (req) => {
       await getAuth().updateUserByEmail(email, { password });
     } catch (e) {
       if (e && e.code === 'auth/user-not-found') return json(400, { ok: false, error: 'token' });
-      return json(502, { ok: false, error: 'reset-failed' });
+      return json(502, { ok: false, error: 'reset-failed', detail: String((e && (e.code + ' ' + e.message)) || e).slice(0, 300) });
     }
     // Single use: the token dies with the doc.
     await db.collection('authOtp').doc(email).delete();
