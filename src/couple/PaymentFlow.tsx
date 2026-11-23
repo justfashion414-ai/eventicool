@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 
 // The payment flow every plan choice runs through, shared by the trial-ended
@@ -79,6 +79,29 @@ export default function PaymentFlow({ accent, appName, email, appId, titles = ['
   const [receiptUrl, setReceiptUrl] = useState(() => String(boot.receiptUrl || ''));
   const [sent, setSent] = useState(() => !!boot.sent);
   const [busy, setBusy] = useState('');
+  // The phone's back button walks the payment steps and a refresh reopens the
+  // step that was showing: each step writes itself into the history entry.
+  const pfStepRef = useRef(0);
+  const pfBootedRef = useRef(false);
+  useEffect(() => {
+    const st: any = (window.history.state || {}) as any;
+    const saved = typeof st.pfStep === 'number' && st.pfStep >= 1 && st.pfStep <= 4 ? st.pfStep : null;
+    if (saved && saved !== step) { pfStepRef.current = saved; pfBootedRef.current = true; setStep(saved as 1 | 2 | 3 | 4); }
+    else { pfStepRef.current = step; try { window.history.replaceState({ ...st, pfStep: step }, ''); } catch {} }
+    const onPop = () => {
+      const s: any = (window.history.state || {}) as any;
+      if (typeof s.pfStep === 'number' && s.pfStep !== pfStepRef.current) { pfStepRef.current = s.pfStep; setStep(s.pfStep as 1 | 2 | 3 | 4); }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (pfBootedRef.current) { pfBootedRef.current = false; return; }
+    if (pfStepRef.current === step) return;
+    pfStepRef.current = step;
+    try { window.history.pushState({ ...((window.history.state || {}) as any), pfStep: step }, ''); } catch {}
+  }, [step]);
   const [toast, setToast] = useState('');
   const [vi, setVi] = useState(0);
   const [nav, setNav] = useState(''); // button-level loading before a step change
@@ -238,39 +261,67 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
       )}
       {step === 1 && (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 22 }}>
-            {PLANS.map((p) => (
-              <div key={p.id} style={card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                  <b style={{ fontSize: 16.5 }}>{p.name}</b>
-                  <span style={{ color: accent, fontWeight: 700, fontSize: 16 }}>{ng(p.amount)}</span>
-                </div>
-                <small style={{ color: '#93a4ab', display: 'block', marginTop: 2 }}>{gbOf(p.id)} storage</small>
-                <p style={{ color: '#8a7a63', fontSize: 12.5, marginTop: 3, fontStyle: 'italic' }}>{PLAN_TAGS[p.id]}</p>
-                <ul style={{ margin: '10px 0 0', paddingLeft: 18, color: '#5a6970', fontSize: 13.5, lineHeight: 1.6 }}>
-                  {(more === p.id ? effFeatures(p) : effFeatures(p).slice(0, 3)).map((f) => <li key={f}>{f}</li>)}
-                </ul>
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.12em', color: '#93a4ab', marginBottom: 6 }}>NOTIFICATIONS</div>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    {PLAN_CHANNELS[p.id].map(([label, on]) => (
-                      <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: on ? '#1d2b30' : '#b9b2a6' }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 999, background: on ? accent : '#d9d2c6', display: 'inline-block' }} />
-                        {label}
-                      </span>
-                    ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 24 }}>
+            {PLANS.map((p) => {
+              const featured = p.id === 'complete';
+              const showingAll = more === p.id;
+              const feats = showingAll ? effFeatures(p) : effFeatures(p).slice(0, 3);
+              return (
+              <div key={p.id} style={{ position: 'relative' }}>
+                {featured && (
+                  <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', zIndex: 2, whiteSpace: 'nowrap', background: `linear-gradient(135deg, ${accent}, #C8932A)`, color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '.14em', textTransform: 'uppercase', padding: '6px 16px', borderRadius: 999, boxShadow: '0 8px 20px rgba(29,43,48,0.28)' }}>
+                    Most couples choose this
+                  </div>
+                )}
+                <div style={featured ? { borderRadius: 26, padding: 2, background: `linear-gradient(135deg, ${accent}, #C8932A 55%, #f0d9a8)`, boxShadow: '0 18px 44px rgba(29,43,48,0.16)' } : undefined}>
+                  <div style={{ position: 'relative', background: '#fffdf8', borderRadius: featured ? 24 : 26, padding: featured ? '26px 20px 20px' : '22px 20px 18px', border: featured ? 'none' : '1px solid #ece5da', boxShadow: featured ? 'none' : '0 10px 30px rgba(29,43,48,0.07)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                      <div>
+                        <b style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 19, color: '#1d2b30', fontWeight: 600, display: 'block' }}>{p.name}</b>
+                        <p style={{ color: '#8a7a63', fontSize: 12.5, marginTop: 4, fontStyle: 'italic' }}>{PLAN_TAGS[p.id]}</p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 24, fontWeight: 700, color: accent, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{ng(p.amount)}</div>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.14em', textTransform: 'uppercase', color: '#b9b2a6', marginTop: 3 }}>one-time</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: '#f3eee4', border: '1px solid #e7dfcf', borderRadius: 999, padding: '5px 11px' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: accent, display: 'inline-block' }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#5a6970' }}>{gbOf(p.id)} storage</span>
+                    </div>
+                    <div style={{ height: 1, background: '#efe8dc', margin: '14px 0' }} />
+                    <div>
+                      {feats.map((f) => (
+                        <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+                          <span style={{ width: 17, height: 17, borderRadius: 999, background: '#f3ecdd', color: accent, fontSize: 10, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, lineHeight: 1 }}>✓</span>
+                          <span style={{ fontSize: 13.5, color: '#2c3a40', fontWeight: 600, lineHeight: 1.45 }}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.14em', color: '#b9b2a6', marginBottom: 8 }}>NOTIFICATIONS</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {PLAN_CHANNELS[p.id].map(([label, on]) => (
+                          <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, border: '1px solid #e7dfcf', background: '#faf7f1', fontSize: 11.5, fontWeight: 700, color: on ? '#1d2b30' : '#b9b2a6' }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 999, background: on ? accent : '#d9d2c6', display: 'inline-block' }} />
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+                      <button type="button" style={{ ...pillBtn(accent), flex: 1, opacity: nav && nav !== p.id ? 0.55 : 1, background: featured ? `linear-gradient(135deg, ${accent}, #C8932A)` : 'transparent', color: featured ? '#fff' : accent, border: featured ? 'none' : `1.5px solid ${accent}`, boxShadow: featured ? '0 10px 24px rgba(29,43,48,0.25)' : 'none' }} disabled={!!nav} onClick={() => { if (nav) return; setPlan(p); setMore(''); setNav(p.id); window.setTimeout(() => { setStep(2); setDeadline(Date.now() + 300000); setNav(''); }, NAV_MS); }}>
+                        {nav === p.id ? <><span className="pf-spin" />SETTING UP…</> : <>CHOOSE {p.name.toUpperCase()}</>}
+                      </button>
+                      <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: '#8a7a63', border: 'none', padding: '13px 10px' }} onClick={() => setMore(showingAll ? '' : p.id)}>
+                        {showingAll ? 'LESS' : 'SEE MORE'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                  <button type="button" style={{ ...pillBtn(accent), flex: 1, opacity: nav && nav !== p.id ? 0.55 : 1 }} disabled={!!nav} onClick={() => { if (nav) return; setPlan(p); setMore(''); setNav(p.id); window.setTimeout(() => { setStep(2); setDeadline(Date.now() + 300000); setNav(''); }, NAV_MS); }}>
-                    {nav === p.id ? <><span className="pf-spin" />SETTING UP…</> : <>CHOOSE {p.name.toUpperCase()}</>}
-                  </button>
-                  <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: accent, border: `1.5px solid ${accent}`, padding: '13px 14px' }} onClick={() => setMore(more === p.id ? '' : p.id)}>
-                    {more === p.id ? 'LESS' : 'SEE MORE'}
-                  </button>
-                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           {note && <p style={{ color: '#5a6970', fontSize: 13, lineHeight: 1.55, textAlign: 'center', marginTop: 14 }}>{note}</p>}
         </>

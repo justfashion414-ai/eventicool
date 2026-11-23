@@ -1012,9 +1012,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // The admin dashboard lives on #admin: the address never leaves /app, so a
   // refresh always reopens inside the couple app, never the landing page.
   const goAdminPage = () => {
-    if (window.location.hash !== '#admin') {
-      try { window.history.pushState({}, '', window.location.pathname + window.location.search + '#admin'); } catch {}
-    }
     setRoute('/admin');
     setIsAdminDashboardOpen(true);
   };
@@ -1084,9 +1081,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // cover the app the moment isAdminModalOpen goes false (user report Nov 20).
     wasAdminOpenOnLoadRef.current = false;
     setIsAdminDashboardOpen(false);
-    if (window.location.hash === '#admin') {
-      try { window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
-    }
     setRoute('/');
   };
   useEffect(() => {
@@ -1301,28 +1295,47 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   useEffect(() => {
     try { localStorage.setItem(lsKey('last-tab'), activeTab); } catch {}
   }, [activeTab]);
-  // The phone's back button walks the app's own history instead of quitting the app.
-  const viewStackRef = useRef<string[]>([]);
-  const prevSigRef = useRef<string | null>(null);
+  // The phone's back button walks the app's own history instead of quitting
+  // the app, and a refresh reopens exactly the page that was showing. Every
+  // view change writes itself into the browser history entry, so the browser
+  // keeps the trail and hands it back on back and on reload.
+  const viewSigRef = useRef<string>('');
   const restoringRef = useRef(false);
-  const viewSig = `${activeTab}|${isAdminModalOpen ? 'a' : ''}|${activeMediaIndex ? 'm' : ''}`;
+  const viewUrl = (sig: string) => window.location.pathname + window.location.search + (sig.split('|')[2] === 'a' ? '#admin' : '');
+  const applyView = (sig: string) => {
+    restoringRef.current = true;
+    const parts = sig.split('|');
+    setActiveTab((cur: string) => (parts[0] && parts[0] !== cur ? parts[0] : cur));
+    setFeedSubTab((cur: string) => (parts[1] && parts[1] !== cur ? (parts[1] as any) : cur));
+    setIsAdminDashboardOpen(parts[2] === 'a');
+    const mPart = parts[3] || '';
+    setActiveMediaIndex(mPart ? { postId: mPart.slice(0, mPart.lastIndexOf(':')), index: Number(mPart.slice(mPart.lastIndexOf(':') + 1)) || 0 } : null);
+  };
+  const viewSig = `${activeTab}|${feedSubTab}|${isAdminModalOpen ? 'a' : ''}|${activeMediaIndex ? `${activeMediaIndex.postId}:${activeMediaIndex.index}` : ''}`;
   useEffect(() => {
-    if (restoringRef.current) { restoringRef.current = false; prevSigRef.current = viewSig; return; }
-    if (prevSigRef.current && prevSigRef.current !== viewSig) viewStackRef.current.push(prevSigRef.current);
-    prevSigRef.current = viewSig;
+    if (restoringRef.current) { restoringRef.current = false; viewSigRef.current = viewSig; return; }
+    if (!viewSigRef.current) {
+      // First paint: claim this history entry with the view, or restore the
+      // view a refresh is landing back on.
+      viewSigRef.current = viewSig;
+      const st: any = (window.history.state || null) as any;
+      if (st && typeof st.view === 'string' && st.view !== viewSig) { applyView(st.view); return; }
+      try { window.history.replaceState({ ...st, evApp: 1, view: viewSig }, '', window.location.href); } catch {}
+      return;
+    }
+    if (viewSigRef.current !== viewSig) {
+      viewSigRef.current = viewSig;
+      try { window.history.pushState({ evApp: 1, view: viewSig }, '', viewUrl(viewSig)); } catch {}
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewSig]);
   useEffect(() => {
-    try { window.history.pushState({ evApp: 1 }, ''); } catch {}
     const onPop = () => {
-      const prev = viewStackRef.current.pop();
-      if (prev !== undefined) {
-        restoringRef.current = true;
-        const parts = prev.split('|');
-        setActiveTab((cur: string) => (parts[0] !== cur ? parts[0] : cur));
-        setIsAdminDashboardOpen(parts[1] === 'a');
-        if (parts[2] !== 'm') setActiveMediaIndex(null);
-        try { window.history.pushState({ evApp: 1 }, ''); } catch {}
+      const st: any = (window.history.state || null) as any;
+      if (st && typeof st.view === 'string' && typeof st.pfStep !== 'number' && st.view !== viewSigRef.current) {
+        applyView(st.view);
+        // Heal a stale address so the URL always matches the view being restored.
+        try { window.history.replaceState({ ...st, evApp: 1, view: st.view }, '', viewUrl(st.view)); } catch {}
       }
     };
     window.addEventListener('popstate', onPop);
@@ -1365,9 +1378,6 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if (storedAdminUi && storedAdminUi.open) {
         setIsAdminDashboardOpen(true);
         setRoute('/admin');
-        if (window.location.hash !== '#admin') {
-          try { window.history.replaceState({}, '', window.location.pathname + window.location.search + '#admin'); } catch {}
-        }
       }
     } catch {}
   }, [user, isAdmin]);
@@ -4146,6 +4156,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onRestorePost={handleRestorePost}
         onPermanentDelete={handlePermanentDelete}
         currentUserEmail={DEMO ? 'preview@eventicor.name.ng' : user?.email}
+        accountName={demoHeader()}
         profileAvatar={avatar}
         onSaveSecretPath={saveSecretPath}
         adminPermissions={DEMO ? { canUploadImages: true, canDeletePosts: true, canSetAccessCode: true } : adminPermissions}
@@ -8831,6 +8842,7 @@ function AdminDashboardModal({
   onRestorePost,
   onPermanentDelete,
   currentUserEmail,
+  accountName,
   profileAvatar,
   onSaveSecretPath,
   onSignOut,
@@ -9113,6 +9125,17 @@ function AdminDashboardModal({
     const n = (myAdminDoc as any)?.name;
     if (n && String(n).trim()) return String(n).trim();
     return (currentUserEmail || 'Admin').split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+  })();
+
+  // The account name shown for the signed-in admin: their saved name, else
+  // the app's own name (the name used when the app was created), else the
+  // email. New couples see their app name, not a bare email address.
+  const accountLabel = (() => {
+    const n = (myAdminDoc as any)?.name;
+    if (n && String(n).trim()) return String(n).trim();
+    const a = String(accountName || '').trim();
+    if (a && !/^amara & daniel$/i.test(a)) return a;
+    return currentUserEmail || 'Admin';
   })();
 
   const openAlbumPopup = (kind: 'photo' | 'video', target: any = null) => {
@@ -10080,10 +10103,13 @@ function AdminDashboardModal({
                 </button>
                 <p className="font-display text-white text-base font-medium">{demoHeader()}</p>
                 <div className="relative ml-auto">
-                  <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{(currentUserEmail || 'A').charAt(0).toUpperCase()}</span>}</button>
+                  <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-8 h-8 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black text-[0.8rem]" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{accountLabel.charAt(0).toUpperCase()}</span>}</button>
                   {profileMenuOpen && (
                     <div className={`absolute right-0 top-10 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                      <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
+                      <div className="px-3 py-2">
+                          <p className="text-[0.85rem] font-black break-all">{accountLabel}</p>
+                          <p className="text-[0.7rem] opacity-55 break-all">{currentUserEmail}</p>
+                        </div>
                       <button onClick={handleAdminSignOut} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[0.85rem] font-bold text-left text-[#C4453B] hover:bg-[#C4453B]/10">
                         <LogOut className="w-4 h-4" />
                         <span>Sign out</span>
@@ -10163,10 +10189,13 @@ function AdminDashboardModal({
                     <p className="text-[0.66rem] uppercase tracking-widest text-white/40 font-black mt-0.5">Couple dashboard</p>
                   </div>
                   <div className="relative shrink-0">
-                    <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-9 h-9 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{(currentUserEmail || 'A').charAt(0).toUpperCase()}</span>}</button>
+                    <button onClick={() => setProfileMenuOpen((v) => !v)} className="w-9 h-9 rounded-full overflow-hidden bg-[var(--ann-accent)] text-white grid place-items-center font-black" aria-label="Profile">{profileAvatar ? <img src={profileAvatar} className="w-full h-full object-cover" alt="Profile" /> : <span>{accountLabel.charAt(0).toUpperCase()}</span>}</button>
                     {profileMenuOpen && (
                       <div className={`absolute right-0 top-11 w-56 rounded-2xl border p-2 shadow-2xl z-[130] ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
-                        <p className="px-3 py-2 text-[0.72rem] opacity-60 break-all">{currentUserEmail}</p>
+                        <div className="px-3 py-2">
+                          <p className="text-[0.85rem] font-black break-all">{accountLabel}</p>
+                          <p className="text-[0.7rem] opacity-55 break-all">{currentUserEmail}</p>
+                        </div>
                         <button onClick={handleAdminSignOut} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[0.85rem] font-bold text-left text-[#C4453B] hover:bg-[#C4453B]/10">
                           <LogOut className="w-4 h-4" />
                           <span>Sign out</span>
