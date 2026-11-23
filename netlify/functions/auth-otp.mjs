@@ -45,8 +45,8 @@ const SEC_DEFAULTS = { loginMaxAttempts: 3, otpMaxAttempts: 5, lockMinutes: 60, 
 const SEC_CLAMPS = {
   loginMaxAttempts: [1, 10],   // wrong passwords before sign-in locks
   otpMaxAttempts: [1, 10],     // wrong codes before the reset locks
-  lockMinutes: [5, 1440],      // how long every lock lasts
-  codeExpiryMinutes: [5, 60],  // a code, and the reset token, stop working after this
+  lockMinutes: [1, 1440],      // how long every lock lasts
+  codeExpiryMinutes: [1, 60],  // a code, and the reset token, stop working after this
   resendMinutes: [1, 60],      // one code per email per this many minutes
 };
 async function loadSec(db) {

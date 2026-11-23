@@ -1034,7 +1034,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       setBusy(true)
       try {
         const cl = (v: number, lo: number, hi: number, def: number) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? Math.max(lo, Math.min(hi, n)) : def }
-        const data = { loginMaxAttempts: cl(sec.loginMaxAttempts, 1, 10, 3), otpMaxAttempts: cl(sec.otpMaxAttempts, 1, 10, 5), lockMinutes: cl(sec.lockMinutes, 5, 1440, 60), codeExpiryMinutes: cl(sec.codeExpiryMinutes, 5, 60, 10), resendMinutes: cl(sec.resendMinutes, 1, 60, 10), updatedAt: Date.now() }
+        const data = { loginMaxAttempts: cl(loginSec.loginMaxAttempts, 1, 10, 3), otpMaxAttempts: cl(loginSec.otpMaxAttempts, 1, 10, 5), lockMinutes: cl(loginSec.lockMinutes, 1, 1440, 60), codeExpiryMinutes: cl(loginSec.codeExpiryMinutes, 1, 60, 10), resendMinutes: cl(loginSec.resendMinutes, 1, 60, 10), updatedAt: Date.now() }
         setLoginSec({ loginMaxAttempts: data.loginMaxAttempts, otpMaxAttempts: data.otpMaxAttempts, lockMinutes: data.lockMinutes, codeExpiryMinutes: data.codeExpiryMinutes, resendMinutes: data.resendMinutes })
         await consoleCall('set', { collection: 'platform', id: 'security', data })
         logAudit('Updated the login security settings: attempt limits, lock length and code timing')
