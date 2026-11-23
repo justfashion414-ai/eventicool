@@ -214,7 +214,8 @@ export default async (req) => {
     const password = String(body.password || '');
     if (password.length < 6) return json(400, { ok: false, error: 'weak' });
     try {
-      await getAuth().updateUserByEmail(email, { password });
+      const u = await getAuth().getUserByEmail(email);
+      await getAuth().updateUser(u.uid, { password });
     } catch (e) {
       if (e && e.code === 'auth/user-not-found') return json(400, { ok: false, error: 'token' });
       return json(502, { ok: false, error: 'reset-failed', detail: String((e && (e.code + ' ' + e.message)) || e).slice(0, 300) });
