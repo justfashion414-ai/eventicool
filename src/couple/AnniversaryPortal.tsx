@@ -7843,6 +7843,22 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         <p className="font-display text-[0.95rem] font-bold m-0">{bride} &amp; {groom}</p>
         <p className="text-[0.6rem] font-bold uppercase tracking-[0.25em] text-[#8a879b] mt-1 m-0">Wedding memories, kept for life</p>
       </div>
+      {/* Guest push nudge: offered once per visit after a post that
+          waits for approval, so the guest hears back the moment it
+          goes live. Permission is asked only from this tap. */}
+      {pushNudge && (
+        <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setPushNudge(false)}>
+          <div className={`w-full max-w-[340px] rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 mx-auto rounded-full bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center mb-3"><Bell className="w-6 h-6" /></div>
+            <h3 className="font-black font-display text-lg mb-1">Never miss it</h3>
+            <p className="text-sm opacity-60 mb-5">Get a notification the moment the couple approves your post.</p>
+            <div className="flex flex-col gap-2">
+              <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
+              <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8734,6 +8750,7 @@ function AdminDashboardModal({
   const [partnerEditing, setPartnerEditing] = useState<any>(null);
   const [partnerDelete, setPartnerDelete] = useState<any>(null);
   const [partnerLogoBusy, setPartnerLogoBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   // Storage reader: reconciled against Cloudinary so it always shows the real
   // bytes this app's media occupies, not only the uploads made since tracking
   // started. The dashboard syncs when it opens and shortly after any upload.
@@ -11778,22 +11795,6 @@ function AdminDashboardModal({
                       })}
                       {realPosts.length === 0 && <p className="opacity-50 text-sm">Nothing recorded yet.</p>}
                       {realPosts.length > 30 && <p className="opacity-40 text-xs pt-2">Older records than these 30 are not kept.</p>}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* Guest push nudge: offered once per visit after a post that
-                  waits for approval, so the guest hears back the moment it
-                  goes live. Permission is asked only from this tap. */}
-              {pushNudge && (
-                <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setPushNudge(false)}>
-                  <div className={`w-full max-w-[340px] rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
-                    <div className="w-12 h-12 mx-auto rounded-full bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center mb-3"><Bell className="w-6 h-6" /></div>
-                    <h3 className="font-black font-display text-lg mb-1">Never miss it</h3>
-                    <p className="text-sm opacity-60 mb-5">Get a notification the moment the couple approves your post.</p>
-                    <div className="flex flex-col gap-2">
-                      <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
-                      <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
                     </div>
                   </div>
                 </div>
