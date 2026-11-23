@@ -279,6 +279,7 @@ const detailsData = (): any => {
     d.receptionVenue = 'Venue to be confirmed \u00b7 ' + ov.city;
   }
   d.hashtag = derivedHashtag();
+  d.giftInfo = { ...(d.giftInfo || {}), accountName: derivedAccountName() };
   return d;
 };
 
@@ -296,6 +297,19 @@ const derivedHashtag = (): string => {
 const withDerivedHashtag = (d: any): any => {
   if (!d || typeof d !== 'object') return d;
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
+  return d;
+};
+// The gifts account name is the couple's own from the moment their app is
+// created: the demo placeholder never shows as the account name, and an empty
+// name beside a saved account number fills with their names too. An account
+// name the couple typed themselves always wins.
+const derivedAccountName = (): string => demoHeader();
+const withDerivedAccountName = (d: any): any => {
+  if (!d || typeof d !== 'object') return d;
+  const gi = d.giftInfo || {};
+  if ((gi.accountName && /^amara\s*&\s*daniel$/i.test(String(gi.accountName))) || (!gi.accountName && gi.accountNumber)) {
+    return { ...d, giftInfo: { ...gi, accountName: derivedAccountName() } };
+  }
   return d;
 };
 
@@ -1005,6 +1019,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Secret way in: the admin picks where the hidden entrance to their dashboard
   // sits. Cached on this device at sign-in so it keeps working signed-out.
   const [secretPath, setSecretPath] = useState<string>(() => { try { return (JSON.parse(localStorage.getItem(lsKey('secret-path')) || 'null') || {}).v || 'default'; } catch { return 'default'; } });
+  // The secret way in is the app's choice, not a per-device one: app_config
+  // carries it so the admin's change reaches every visitor live.
+  const adminSecretPathMigratedRef = useRef(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdminModalOpen, setIsAdminDashboardOpen] = useState(false);
@@ -1071,7 +1088,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setSecretPath(v);
     try { localStorage.setItem(lsKey('secret-path'), JSON.stringify({ v })) } catch {}
     if (DEMO || !user || user.isAnonymous) { showToast('Your secret way in is set. Guests never see it.', 'success'); return; }
-    setDoc(doc(db, scopedPath('admins'), user.email || ''), { secretPath: v }, { merge: true })
+    // The choice goes to app_config, where every visitor reads it live; the
+    // admin's own doc keeps it so this device remembers after sign-out.
+    setDoc(doc(db, scopedPath('app_config'), 'main'), { secretPath: v }, { merge: true })
+      .then(() => setDoc(doc(db, scopedPath('admins'), user.email || ''), { secretPath: v }, { merge: true }))
       .then(() => showToast('Your secret way in is set. Guests never see it.', 'success'))
       .catch(() => showToast('Could not save that. Try again', 'error'));
   };
@@ -1753,6 +1773,21 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         const sp = String((admDoc as any).secretPath || 'default');
         setSecretPath(sp);
         try { localStorage.setItem(lsKey('secret-path'), JSON.stringify({ v: sp })) } catch {}
+        // One-time carry-over: apps set up before the secret way in moved to
+        // app_config keep it only on the admin's own doc. Copy it over once,
+        // so every visitor follows the admin's choice live from now on.
+        if ((admDoc as any).secretPath && !adminSecretPathMigratedRef.current) {
+          adminSecretPathMigratedRef.current = true;
+          (async () => {
+            try {
+              const cfgRef = doc(db, scopedPath('app_config'), 'main');
+              const cfgSnap = await getDoc(cfgRef);
+              if (!cfgSnap.exists() || !cfgSnap.data().secretPath) {
+                await setDoc(cfgRef, { secretPath: (admDoc as any).secretPath }, { merge: true });
+              }
+            } catch {}
+          })();
+        }
         const mins = Number(snap.data().sessionMinutes);
         if (mins >= 5) sessionMinutesRef.current = Math.min(mins, 10080);
         // Idle session window: lastActiveAt (written while the admin works)
@@ -1956,6 +1991,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (data.accent && ACCENT_VARS[data.accent]) {
           setAccentKey(data.accent);
           try { localStorage.setItem(lsKey('accent'), data.accent); } catch {}
+        }
+        // The admin's secret way in follows the app's current choice live, so
+        // a device that opened the app before the change picks it up too.
+        if (typeof data.secretPath === 'string' && data.secretPath) {
+          setSecretPath(data.secretPath);
+          try { localStorage.setItem(lsKey('secret-path'), JSON.stringify({ v: data.secretPath })) } catch {}
         }
         if (data.heroImageLabels && typeof data.heroImageLabels === 'object') setHeroImageLabels(data.heroImageLabels);
         if (Array.isArray(data.events) && data.events.length) setCfgEvents(data.events);
@@ -2290,7 +2331,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const leadWedDate = leadOverride()?.weddingDate as string | undefined;
   const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents, leadWedDate]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = useMemo(() => withDerivedHashtag(withGiftDefaults(cfgDetails || detailsData())), [cfgDetails]);
+  const DETAILS: any = useMemo(() => withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || detailsData()))), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
@@ -9510,7 +9551,7 @@ function AdminDashboardModal({
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] }));
+  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag(withDerivedAccountName({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] })));
   const [detColors, setDetColors] = useState<string[]>(() => {
     try { const v = JSON.parse(localStorage.getItem(lsKey('dress-colors')) || 'null'); if (Array.isArray(v)) return v; } catch { /* private mode */ }
     return (weddingDetails && weddingDetails.dressColors) || [];
@@ -9536,7 +9577,7 @@ function AdminDashboardModal({
   const [weddingBusy, setWeddingBusy] = useState(false);
   useEffect(() => { setEvDraft(events); }, [events]);
   useEffect(() => { setStoryDraft(story); }, [story]);
-  useEffect(() => { setDetDraft(withDerivedHashtag(weddingDetails)); }, [weddingDetails]);
+  useEffect(() => { setDetDraft(withDerivedHashtag(withDerivedAccountName(weddingDetails))); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
   // One page, one save (Nov 20 2026 direction): every edit on Events & photos
