@@ -45,8 +45,9 @@ import {
   Minimize2,
   Mail,
   Images
-, Handshake, Banknote, Copy } from 'lucide-react';
+, Handshake, Banknote, Copy, Pin, Bell } from 'lucide-react';
 import { db, auth } from './lib/firebase';
+import { enablePush, pingPostCreated, pingPostApproved } from './pushClient';
 import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
@@ -1146,6 +1147,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   }, []);
   const [residents, setResidents] = useState<any[]>([]);
   const [approveGuestPosts, setApproveGuestPosts] = useState<boolean>(true);
+  const [pushNudge, setPushNudge] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   // Private feed gate: when the admin turns the feed private, every non-admin
   // viewer is held at the entry banner and must type the access code (checked
   // on the server) before posts and reels show again. feedGateGen changes
@@ -2584,9 +2587,31 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     try {
       await updateDoc(doc(db, scopedPath('posts'), postId), { pending: false });
       showToast('Approved. Guests can now see it', 'success');
+      // Tell the author their memory is live (fire and forget).
+      try {
+        const tk = await auth?.currentUser?.getIdToken?.();
+        if (tk) pingPostApproved(postId, tk);
+      } catch { /* the push is best effort */ }
     } catch (err) {
       console.error(err);
       showToast('Could not approve the post.', 'error');
+    }
+  };
+
+  // Pinning: a pinned post sits permanently at the top of the feed, ahead of
+  // anything newer, until the couple unpins it.
+  const togglePin = async (p: any) => {
+    try {
+      if (p.pinned) {
+        await updateDoc(doc(db, scopedPath('posts'), p.id), { pinned: false, pinnedAt: null });
+        showToast('Unpinned. It sits back in date order.', 'success');
+      } else {
+        await updateDoc(doc(db, scopedPath('posts'), p.id), { pinned: true, pinnedAt: Date.now() });
+        showToast('Pinned. It stays at the top of the feed.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Could not pin that post.', 'error');
     }
   };
 
@@ -2863,6 +2888,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     }
     return () => { window.clearTimeout(bail); unsubs.forEach((u) => { try { u(); } catch { /* already closed */ } }); };
   }, [isAdmin, user?.uid]);
+
+  // Web push: the service worker must be registered before any subscription
+  // can be created. Registration is silent; permission is only ever asked
+  // from an explicit tap (the Settings card, or the guest nudge after posting).
+  useEffect(() => {
+    if (DEMO) return;
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }, []);
 
   // Wake refresh: when the app has sat in the background a long while and the
   // visitor comes back, the Firestore connection can be dormant with every
@@ -3609,6 +3642,15 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       );
                     }
 
+                    // Pinned posts sit permanently at the top of the feed,
+                    // ahead of anything newer; the rest stay newest first.
+                    regularPosts.sort((a, b) => {
+                      const pt = (x: any) => (x.pinned ? Number(x.pinnedAt?.toMillis?.() ?? x.pinnedAt ?? 0) : 0);
+                      if (pt(a) !== pt(b)) return pt(b) - pt(a);
+                      const ta = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                      const tb = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                      return tb - ta;
+                    });
                     const pagedPosts = feedPageSize > 0 ? regularPosts.slice(0, feedPage * feedPageSize) : regularPosts;
                     const activePostAds = shuffledPostAds.length > 0 ? shuffledPostAds : postAds;
                     const feedElements: React.ReactNode[] = [];
@@ -4456,6 +4498,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         setUploadingPost(null);
 
                         showToast(pendingFlag ? 'Shared! Your post will be approved soon' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'), 'success');
+                        // Feed activity: every new post feeds the 10-posts
+                        // admin notification. Guests whose post waits for
+                        // approval get one offer to switch notifications on.
+                        try {
+                          pingPostCreated();
+                          if (pendingFlag && !sessionStorage.getItem('ev-push-asked')) { sessionStorage.setItem('ev-push-asked', '1'); setPushNudge(true); }
+                        } catch { /* the push is best effort */ }
 
                       } catch (err: any) {
                         console.error("Post error:", err);
@@ -10200,12 +10249,14 @@ function AdminDashboardModal({
                                 {p.authorName || 'A guest'}
                                 <span className="ml-2 px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-[0.6rem] font-black uppercase tracking-widest opacity-70">{t}</span>
                                 {evName && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-[0.6rem] font-black uppercase tracking-widest opacity-70">{evName}</span>}
+                                {p.pinned && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.6rem] font-black uppercase tracking-widest shrink-0 inline-flex items-center gap-1"><Pin className="w-2.5 h-2.5 fill-current" />Pinned</span>}
                                 {(postCountByKey[authorKey] || 1) > 1 && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] dark:text-[#4FC3CF] text-[0.6rem] font-black uppercase tracking-widest shrink-0">{postCountByKey[authorKey]} posts</span>}
                               </p>
                               <small className="block opacity-50 truncate">{p.text || p.caption || 'Shared a memory'}</small>
                               <small className="block opacity-40">{(p.likeCount || 0) + (p.loveCount || 0)} likes · {p.commentCount || 0} comments · {relTime(when)}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
+                              <button onClick={() => togglePin(p)} className={`px-4 py-2 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${p.pinned ? 'border-[var(--ann-accent)]/50 text-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E] opacity-80'}`}>{p.pinned ? 'Unpin' : 'Pin'}</button>
                               {(adminPermissions ? adminPermissions.canDeletePosts : true) && (
                                 <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove</button>
                               )}
@@ -11188,6 +11239,11 @@ function AdminDashboardModal({
               {activeAdminTab === 'settings' && (
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Notifications</h3>
+                    <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once Eventicor is on your home screen.</p>
+                    <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
+                  </div>
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Guest access code</h3>
                     <p className="text-sm opacity-60 mb-4">One code for everything: guests enter it to post, and the same code opens the private feed when the feed is private. Revoking wipes it everywhere at once, live.</p>
                     <div className="flex items-center gap-3 flex-wrap mb-4">
@@ -11722,6 +11778,22 @@ function AdminDashboardModal({
                       })}
                       {realPosts.length === 0 && <p className="opacity-50 text-sm">Nothing recorded yet.</p>}
                       {realPosts.length > 30 && <p className="opacity-40 text-xs pt-2">Older records than these 30 are not kept.</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Guest push nudge: offered once per visit after a post that
+                  waits for approval, so the guest hears back the moment it
+                  goes live. Permission is asked only from this tap. */}
+              {pushNudge && (
+                <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setPushNudge(false)}>
+                  <div className={`w-full max-w-[340px] rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+                    <div className="w-12 h-12 mx-auto rounded-full bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center mb-3"><Bell className="w-6 h-6" /></div>
+                    <h3 className="font-black font-display text-lg mb-1">Never miss it</h3>
+                    <p className="text-sm opacity-60 mb-5">Get a notification the moment the couple approves your post.</p>
+                    <div className="flex flex-col gap-2">
+                      <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
+                      <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
                     </div>
                   </div>
                 </div>

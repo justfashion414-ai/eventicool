@@ -14,7 +14,14 @@ const markSeen = () => { try { localStorage.setItem(KEY, '1') } catch { /* priva
 export default function IntroLogo() {
   const [show, setShow] = useState(false)
   const [fade, setFade] = useState(false)
-  const [size] = useState(() => Math.round(Math.min(220, Math.max(96, window.innerWidth * 0.42))))
+  // Sized to the screen. On phones the horizontal wordmark is far wider than
+  // the viewport, so narrow screens get the stacked mark instead, sized from
+  // its widest line (the tagline) so everything fits with a margin either side.
+  const [cfg] = useState(() => {
+    const w = window.innerWidth
+    if (w < 700) return { variant: 'stacked', size: Math.round(Math.min(150, Math.max(88, (w - 36) / 3))) }
+    return { variant: 'horizontal', size: Math.round(Math.min(220, Math.max(96, w * 0.42))) }
+  })
   useEffect(() => {
     if (readSeen()) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { markSeen(); return }
@@ -27,7 +34,7 @@ export default function IntroLogo() {
   if (!show) return null
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 99999, background: '#0B2A21', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: fade ? 0 : 1, transition: 'opacity .6s ease' }}>
-      {React.createElement('eventicor-logo', { theme: 'dark', tagline: true, size })}
+      {React.createElement('eventicor-logo', { theme: 'dark', tagline: true, ...cfg })}
     </div>
   )
 }
