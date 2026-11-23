@@ -4035,6 +4035,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           // never kicks the admin out of moderation.
           setPostToDelete(id);
         }}
+        onTogglePin={togglePin}
         onAdminDemoPost={(p: any) => setPosts((prev: any[]) => [p, ...prev])}
         isDarkMode={isDarkMode}
         heroImages={heroImages}
@@ -4686,6 +4687,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Loading install guide…</div>}>
             <InstallGuide guideOnly names={demoHeader()} installable={installable} onInstallStart={() => showToast('Installing\u2026', 'info', true)} onInstallDismiss={() => setToast(null)} />
           </Suspense>
+        </div>
+      )}
+
+      {/* Guest push nudge: offered once per visit after a post that
+          waits for approval, so the guest hears back the moment it
+          goes live. Permission is asked only from this tap. */}
+      {pushNudge && (
+        <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setPushNudge(false)}>
+          <div className={`w-full max-w-[340px] rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 mx-auto rounded-full bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center mb-3"><Bell className="w-6 h-6" /></div>
+            <h3 className="font-black font-display text-lg mb-1">Never miss it</h3>
+            <p className="text-sm opacity-60 mb-5">Get a notification the moment the couple approves your post.</p>
+            <div className="flex flex-col gap-2">
+              <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
+              <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -7843,22 +7861,6 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
         <p className="font-display text-[0.95rem] font-bold m-0">{bride} &amp; {groom}</p>
         <p className="text-[0.6rem] font-bold uppercase tracking-[0.25em] text-[#8a879b] mt-1 m-0">Wedding memories, kept for life</p>
       </div>
-      {/* Guest push nudge: offered once per visit after a post that
-          waits for approval, so the guest hears back the moment it
-          goes live. Permission is asked only from this tap. */}
-      {pushNudge && (
-        <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setPushNudge(false)}>
-          <div className={`w-full max-w-[340px] rounded-[24px] p-6 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
-            <div className="w-12 h-12 mx-auto rounded-full bg-[var(--ann-accent)]/15 text-[var(--ann-accent)] flex items-center justify-center mb-3"><Bell className="w-6 h-6" /></div>
-            <h3 className="font-black font-display text-lg mb-1">Never miss it</h3>
-            <p className="text-sm opacity-60 mb-5">Get a notification the moment the couple approves your post.</p>
-            <div className="flex flex-col gap-2">
-              <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
-              <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -8705,6 +8707,7 @@ function AdminDashboardModal({
   onUpdateReelAds,
   posts = [],
   onDeletePost,
+  onTogglePin,
   partners = DEMO_PARTNERS,
   onAdminDemoPost
 }: any) {
@@ -10273,7 +10276,7 @@ function AdminDashboardModal({
                               <small className="block opacity-40">{(p.likeCount || 0) + (p.loveCount || 0)} likes · {p.commentCount || 0} comments · {relTime(when)}</small>
                             </div>
                             <div className="flex gap-2 shrink-0">
-                              <button onClick={() => togglePin(p)} className={`px-4 py-2 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${p.pinned ? 'border-[var(--ann-accent)]/50 text-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E] opacity-80'}`}>{p.pinned ? 'Unpin' : 'Pin'}</button>
+                              <button onClick={() => onTogglePin(p)} className={`px-4 py-2 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${p.pinned ? 'border-[var(--ann-accent)]/50 text-[var(--ann-accent)]' : 'border-[#DAD8E3] dark:border-[#22363E] opacity-80'}`}>{p.pinned ? 'Unpin' : 'Pin'}</button>
                               {(adminPermissions ? adminPermissions.canDeletePosts : true) && (
                                 <button onClick={() => onDeletePost(p.id)} className="px-4 py-2 rounded-full border border-red-500/30 text-red-500 text-[0.7rem] font-black uppercase tracking-widest">Remove</button>
                               )}
