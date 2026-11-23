@@ -28,7 +28,7 @@ function fbInit() {
 // permanent-password screen on first sign-in), then email the credentials.
 // Returns the password that was actually set, or '' when the account already
 // existed (no new password to hand out).
-async function ensureAccount(email, tempPassword, displayName) {
+async function ensureAccount(email, tempPassword, displayName, appId) {
   fbInit();
   let exists = false;
   try {
@@ -39,13 +39,23 @@ async function ensureAccount(email, tempPassword, displayName) {
   }
   if (exists) return '';
   await getAuth().createUser({ email, password: tempPassword, emailVerified: true, displayName: displayName || undefined });
-  await getFirestore().collection('admins').doc(email).set({
-    email,
-    role: 'couple',
-    mustSetPassword: true,
-    permissions: { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
-    addedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
+  // The account belongs to ONE app: its admin doc lives under
+  // apps/<app>/admins, never in the platform-level admins collection. That
+  // list is for Eventicor's own staff only; a couple's account there could
+  // reach every app's platform data.
+  if (appId) {
+    await getFirestore().collection('apps').doc(appId).collection('admins').doc(email).set({
+      email,
+      name: displayName || null,
+      role: 'owner',
+      mustSetPassword: true,
+      status: 'active',
+      sessionMinutes: 30,
+      permissions: { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
+      addedAt: FieldValue.serverTimestamp(),
+      addedBy: 'signup',
+    }, { merge: true });
+  }
   return tempPassword;
 }
 
@@ -103,6 +113,9 @@ export const handler = async (event) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(400, { ok: false, error: 'A valid recipient email is required' });
   const src = p.source === 'admin' ? 'admin' : p.source === 'signup' ? 'signup' : 'landing';
   if (src !== 'signup' && !/^https?:\/\//.test(previewUrl)) return json(400, { ok: false, error: 'preview_url is required' });
+  const rawApp = String(p.app || '').trim();
+  const leadFromUrl = (String(previewUrl).match(/[?&]lead=([A-Za-z0-9_-]{6,64})/) || [])[1] || '';
+  const appId = /^[A-Za-z0-9_-]{6,64}$/.test(rawApp) ? rawApp : (/^[A-Za-z0-9_-]{6,64}$/.test(leadFromUrl) ? leadFromUrl : '');
   const variant = VARIANTS[src];
   const trialHours = Math.max(1, parseInt(p.trial_hours, 10) || (src === 'signup' ? 24 : variant.hours));
   const trialLabel = trialHours % 24 === 0
@@ -147,6 +160,7 @@ export const handler = async (event) => {
   };
   if (src === 'signup') {
     if (!data.account_email) return json(400, { ok: false, error: 'email is required' });
+    if (!appId) return json(400, { ok: false, error: 'The app id is missing; reopen the landing page and sign up again' });
     const generated = !data.temp_password;
     if (generated) {
       // Server-side temporary password: the couple must change it before the dashboard opens.
@@ -156,7 +170,7 @@ export const handler = async (event) => {
       data.temp_password = 'Ev-' + pw;
     }
     try {
-      const setPw = await ensureAccount(data.account_email, data.temp_password, names);
+      const setPw = await ensureAccount(data.account_email, data.temp_password, names, appId);
       if (!setPw) data.temp_password = '';
     } catch (e) {
       return json(500, { ok: false, error: 'Could not create the account for that email: ' + String(e?.message || e) });
