@@ -78,14 +78,14 @@ export default async (req) => {
   try {
     init()
     const body = await req.json().catch(() => ({}))
+
+    if (body.op === 'key') return json(200, { key: (await getVapid()).vapidPublic })
+
     const appId = String(body.appId || '')
     if (!appId) return json(400, { error: 'appId is required' })
-    await getVapid()
     const db = getFirestore()
     const appRef = db.collection('apps').doc(appId)
     const subsRef = appRef.collection('push_subs')
-
-    if (body.op === 'key') return json(200, { key: vapid.vapidPublic })
 
     if (body.op === 'subscribe') {
       const sub = body.subscription || {}
