@@ -31,10 +31,10 @@ async function loadLead(id: string): Promise<LeadData | null> {
     }
   } catch { /* ignore */ }
   try {
-    const { db } = await import('../firebase')
-    const { doc, getDoc } = await import('firebase/firestore')
-    const snap = await getDoc(doc(db as any, 'leads', id))
-    if (snap.exists()) return snap.data() as LeadData
+    const r = await fetch(`/api/couple?site=${encodeURIComponent(id)}`)
+    if (!r.ok) return null
+    const j = await r.json()
+    if (j && (j.bride || j.groom)) return j as LeadData
   } catch { /* offline or unreadable: the generic copy still works */ }
   return null
 }
@@ -56,7 +56,20 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const osOverride = params.get('os')
   const onDesktop = !/iphone|ipad|ipod|android/i.test(navigator.userAgent || '')
 
-  const [lead, setLead] = useState<LeadData | null>(null)
+  // undefined = still fetching the couple's details: hold the page behind the
+  // branded loader instead of flashing "Bride & Groom" placeholders at them.
+  // No loading screen before the guide (user request Nov 23 2026): the page
+  // renders straight away. Names come from the localStorage copy the landing
+  // wrote when it can, and fill in live from the fetch when they cannot.
+  const [lead, setLead] = useState<LeadData | null | undefined>(() => {
+    if (!leadId || installableProp !== undefined) return null
+    try {
+      const ls = localStorage.getItem(`ev-lead-${leadId}`)
+      if (ls) { const j = JSON.parse(ls); if (j && (j.bride || j.title)) return j }
+    } catch { /* ignore */ }
+    return undefined
+  })
+  const [leadLoaded, setLeadLoaded] = useState(false)
   const [deferred, setDeferred] = useState<any>(null)
   const [installed, setInstalled] = useState(false)
   const [os, setOs] = useState<Os>(() => {
@@ -88,7 +101,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const initials = (bride.charAt(0) + groom.charAt(0)).toUpperCase()
 
   useEffect(() => {
-    if (leadId) loadLead(leadId).then(setLead)
+    if (leadId) loadLead(leadId).then((l) => { setLead(l || null); setLeadLoaded(true) }).catch(() => setLeadLoaded(true))
     // The service worker keeps the app working offline. The manifest is what
     // makes the browser's install prompt work, and the installed app carries
     // the couple's names and their first photo as its icon. It is injected
@@ -114,6 +127,10 @@ export default function InstallPage({ guideOnly, names, installable: installable
     const onInstalled = () => {
       setInstalled(true)
       setDeferred(null)
+      if (!onInstallStart) {
+        setSelfToast('App installed!')
+        window.setTimeout(() => setSelfToast(null), 4000)
+      }
     }
     window.addEventListener('beforeinstallprompt', onPrompt)
     window.addEventListener('appinstalled', onInstalled)
@@ -148,6 +165,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
   const steps = os === 'ios' ? iosSteps : androidSteps
 
   const [installMsg, setInstallMsg] = useState('')
+  const [selfToast, setSelfToast] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copyErr, setCopyErr] = useState(false)
   const [waiting, setWaiting] = useState(false)
@@ -160,31 +178,47 @@ export default function InstallPage({ guideOnly, names, installable: installable
       setDeferred(null)
       setInstallMsg('')
       setWaiting(false)
-      onInstallStart?.()
+      // The "Installing…" toast waits for the visitor to accept Chrome's own
+      // dialog: tapping the button alone never shows it, and dismissing the
+      // dialog leaves nothing on screen. appinstalled then swaps it for
+      // "App installed!".
+      const fireInstalling = () => { onInstallStart?.(); if (!onInstallStart) setSelfToast('Installing…') }
       p.prompt()
         .then(async () => {
           const { outcome } = await p.userChoice
-          if (outcome !== 'accepted') onInstallDismiss?.()
+          if (outcome === 'accepted') fireInstalling()
+          else onInstallDismiss?.()
         })
         .catch(() => onInstallDismiss?.())
       return
     }
-    // Chrome offers its install popup a moment after the page loads; wait for it.
+    // Chrome offers its install popup a moment after the page loads; wait for
+    // it. No toast yet: it appears only once the dialog's Install is accepted.
     setInstallMsg('')
     setWaiting(true)
-    onInstallStart?.()
+    if (!onInstallStart) setSelfToast(null)
   }
   useEffect(() => {
     if (!waiting) return
     if (deferred) {
-      deferred.prompt()
+      const p = deferred
       setDeferred(null)
       setWaiting(false)
+      // Same rule as above: the toast belongs to the dialog's Install tap.
+      const fireInstalling = () => { onInstallStart?.(); if (!onInstallStart) setSelfToast('Installing…') }
+      p.prompt()
+        .then(async () => {
+          const { outcome } = await p.userChoice
+          if (outcome === 'accepted') fireInstalling()
+          else onInstallDismiss?.()
+        })
+        .catch(() => onInstallDismiss?.())
       return
     }
     const t = window.setTimeout(() => {
       setWaiting(false)
       // Nothing to install into: drop the sticky "Installing…" toast too.
+      if (!onInstallStart) setSelfToast(null)
       onInstallDismiss?.()
       setInstallMsg(onDesktop
         ? 'Open this page on your phone in Chrome, then tap Install app.'
@@ -310,7 +344,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
           .ip-phone{flex:0 0 154px;gap:12px}
           .ip-screenbox{width:154px;height:310px}
           .ip-scale{transform:scale(.6)}
-          .ip-guide h1{font-size:25px !important}
+          .ip-head h1{font-size:25px !important}
           .ip-guide p{font-size:14px !important}
           .ip-guide b{font-size:13.5px !important}
           .ip-install{padding:12px 26px !important;font-size:13px !important}
@@ -340,6 +374,16 @@ export default function InstallPage({ guideOnly, names, installable: installable
             ))}
           </div>
         </div>
+        {/* the title and its instruction stand alone above both the phone screen
+            and the guide (user request Nov 23 2026) */}
+        <div className="ip-head" style={{ textAlign: 'center', maxWidth: 660, margin: '0 auto 30px' }}>
+          <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
+          <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
+            {installable
+              ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
+              : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
+          </p>
+        </div>
         <div className="ip-row">
           {/* Left: the animated phone screen, with the real install button under it */}
           <div className="ip-phone">
@@ -355,38 +399,44 @@ export default function InstallPage({ guideOnly, names, installable: installable
           {/* Right: the guide */}
           <div className="ip-guide">
             <>
-                <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
-                <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
-                  {installable
-                    ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
-                    : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
-                </p>
+                {leadId && lead === null && leadLoaded && (
+                  <p style={{ marginTop: 16, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
+                    This link did not carry your app's details, so the couple's names could not load here. Open the install link from your welcome email again.
+                  </p>
+                )}
                 {installed && (
                   <p style={{ marginTop: 16, padding: '14px 16px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 15, fontWeight: 800, lineHeight: 1.5 }}>
                     Your app is installed. Check your home screen for the {appName} icon.
                   </p>
                 )}
-                <ol style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 14 }}>
-                  {steps.map((s, i) => (
-                    <li key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                      <span style={{ flex: '0 0 34px', height: 34, borderRadius: 999, background: acc.accent, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 }}>{i + 1}</span>
-                      <b style={{ fontSize: 16.5, lineHeight: 1.5, paddingTop: 4 }}>{s}</b>
-                    </li>
-                  ))}
-                </ol>
-                {!installable && (
-                  <div style={{ marginTop: 20, padding: '16px 18px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
-                    <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, fontWeight: 700 }}>
-                      This is exactly how your own app will download and stay saved on your phone permanently, once you create it yourself on the Eventicor website. This one is only a sample, so there is nothing to install here yet.
-                    </p>
-                    <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 12, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '13px 22px', borderRadius: 999, fontWeight: 800, fontSize: 14 }}>
-                      Create your own app
-                    </a>
-                  </div>
+                {installable && (
+                  <ol style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 14 }}>
+                    {steps.map((s, i) => (
+                      <li key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                        <span style={{ flex: '0 0 34px', height: 34, borderRadius: 999, background: acc.accent, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 }}>{i + 1}</span>
+                        <b style={{ fontSize: 16.5, lineHeight: 1.5, paddingTop: 4 }}>{s}</b>
+                      </li>
+                    ))}
+                  </ol>
                 )}
               </>
           </div>
         </div>
+        {/* Sample guide: the create-your-own-app instruction sits full width at
+            the bottom of the screen, below the phone and the install text. */}
+        {!installable && (
+          <div style={{ marginTop: 30, padding: '18px 20px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55` }}>
+            <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.6, fontWeight: 700 }}>
+              This one is only a sample. Your own app is created on the Eventicor website: enter your names, wedding date and city, add your photos, and your app goes live in minutes with its own link to share.
+            </p>
+            <p style={{ margin: '10px 0 0', fontSize: 14, lineHeight: 1.6, opacity: .85 }}>
+              It installs on your phone the same way this sample shows, and stays on your home screen permanently.
+            </p>
+            <a href="https://eventicor.name.ng" target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 14, background: acc.accent, color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 800, fontSize: 14.5 }}>
+              Create your own app
+            </a>
+          </div>
+        )}
         {!guideOnly && (
           <div className="ip-below">
                 {!installed && onDesktop && installable && (
@@ -460,7 +510,31 @@ export default function InstallPage({ guideOnly, names, installable: installable
                 </div>
           </div>
         )}
+        {/* Back to the landing page: the install page is the last step of the
+            self-serve flow, so the way back is always here at the bottom. */}
+        {!guideOnly && !onInstallStart && (
+          <div style={{ marginTop: 42, textAlign: 'center' }}>
+            <button
+              onClick={() => { window.location.href = '/' }}
+              style={{ border: '1.5px solid rgba(255,255,255,.28)', cursor: 'pointer', background: 'rgba(255,255,255,.08)', color: '#fff', padding: '13px 28px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.04em', touchAction: 'manipulation', fontFamily: 'inherit' }}
+            >
+              &larr; Back to the Eventicor website
+            </button>
+          </div>
+        )}
       </main>
+      {!onInstallStart && selfToast && (
+        <div
+          style={{
+            position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)', zIndex: 90,
+            background: 'rgba(10,10,22,.85)', color: '#fff', fontSize: 13.5, fontWeight: 700,
+            padding: '10px 18px', borderRadius: 999, boxShadow: '0 8px 24px rgba(6,6,14,.4)',
+            maxWidth: 'calc(100vw - 32px)', textAlign: 'center',
+          }}
+        >
+          {selfToast}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+  function isSuper() {
+    return request.auth != null && request.auth.token.email == 'justfashion414@gmail.com';
+  }
+  function guestInstantPost(app, uid) {
+    // Instant posting (pending=false) is allowed when the couple turned
+    // approval off, or when the author is one of the app's listed vendors.
+    // Missing app_config falls back to allowing it; the client sends
+    // pending=true for a missing config anyway.
+    return !exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
+      ? true
+      : (get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true) == false
+        || get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('vendors', []).hasAny([uid]));
+  }
+  function isAdminIn(app) {
+    return isSuper() || (request.auth != null && request.auth.token.email != null
+      && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
+  }
+    match /platform/{doc=**} { allow read: if true; allow write: if false; }
+    match /leads/{doc=**} { allow read: if true; allow write: if false; }
+    match /events/{doc=**} { allow read: if false; allow write: if false; }
+    match /health/{doc} { allow read: if true; allow write: if false; }
+    match /app_config/{doc=**} { allow read: if true; allow write: if false; }
+    match /posts/{doc=**} { allow read: if true; allow write: if false; }
+    match /residents/{doc=**} { allow read: if true; allow write: if false; }
+    match /albums/{doc=**} { allow read: if true; allow write: if false; }
+    match /deleted_posts/{doc=**} { allow read: if true; allow write: if false; }
+    match /admins/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow write: if request.auth != null && request.auth.token.email == email;
+    }
+    match /apps/{app} {
+      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /posts/{postId} {
+        allow read: if true;
+        allow create: if request.auth != null && (
+          isAdminIn(app)
+          || request.resource.data.get('pending', false) == true
+          || (!request.resource.data.get('pending', false) && guestInstantPost(app, request.auth.uid))
+        );
+        allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
+        allow delete: if isAdminIn(app);
+        match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
+        match /comments/{cid} {
+          allow read: if true;
+          allow create: if request.auth != null;
+          allow update, delete: if isAdminIn(app);
+        }
+      }
+      match /residents/{uid} {
+        allow read: if true;
+        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(app));
+        allow delete: if isAdminIn(app);
+      }
+      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /admins/{email} {
+        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(app));
+        allow create, update: if isAdminIn(app) || (request.auth != null && request.auth.token.email == email);
+        allow delete: if isAdminIn(app);
+      }
+      match /music/{mid} { allow read, write: if isAdminIn(app); }
+      match /usage/{doc=**} { allow read, write: if isAdminIn(app); }
+      match /invites/{id} {
+        allow read, write: if isAdminIn(app);
+        match /guests/{gid} { allow read, write: if isAdminIn(app); }
+      }
+      // Guest problem reports (Nov 23 2026): a signed-in guest (including
+      // anonymous) may create one with their saved profile name; only the
+      // app's admins read, update or delete them.
+      match /reports/{rid} {
+        allow read: if isAdminIn(app);
+        allow create: if request.auth != null
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 60;
+        allow update, delete: if isAdminIn(app);
+      }
+    }
+  }
+}

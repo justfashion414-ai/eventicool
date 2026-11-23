@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <!-- Netlify injects a fixed deploy badge on preview deploys; hide it on every page -->
-    <style>[data-netlify-deploy-id], a[href*="app.netlify.com/sites"] { display: none !important; }</style>
+    <!-- Netlify injects a fixed "Powered by Netlify" badge (free-tier HUD, an iframe #nl-badge-frame) on every page; hide it everywhere -->
+    <style>[data-netlify-deploy-id], a[href*="app.netlify.com/sites"], #nl-badge-frame { display: none !important; }</style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Eventicor</title>
@@ -10,11 +10,76 @@
     <script>(function(){var l=document.querySelector('link[rel="manifest"]');if(l)l.href='/api/manifest'+location.search})();</script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@500;600&display=swap" rel="stylesheet" />
     <meta name="description" content="Eventicor: beautiful event websites in minutes. Upload your photos, pick a template, share your day." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>
+    <script>
+    // BOOT WATCHDOG: if the app has not painted anything after 8 seconds, or
+    // the module bundle itself fails to load (a cached page pointing at a
+    // bundle a new deploy replaced), reload once with a cache-buster instead
+    // of leaving the visitor on the splash until they refresh by hand.
+    (function () {
+      var retried = false;
+      try { retried = !!sessionStorage.getItem('ev-boot-retry'); } catch (e) {}
+      if (retried) return;
+      var forceReload = function () {
+        if (retried) return;
+        retried = true;
+        try { sessionStorage.setItem('ev-boot-retry', '1'); } catch (e) {}
+        var q = location.search;
+        q += (q ? '&' : '?') + 'cb=' + Date.now();
+        location.replace(location.pathname + q + location.hash);
+      };
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'SCRIPT' && (t.getAttribute('type') === 'module' || (t.src || '').indexOf('/assets/') > -1)) forceReload();
+      }, true);
+      setTimeout(function () {
+        var r = document.getElementById('root');
+        if (!r || !r.hasChildNodes()) forceReload();
+      }, 8000);
+    })();
+    </script>
+    <!-- Branded boot splash: paints before any JavaScript loads, so the app never opens on a blank white screen -->
+    <div id="boot-splash" style="position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:#0a0917;">
+      <div style="display:grid;place-items:center;gap:18px;">
+        <div style="font-family:'Playfair Display',Georgia,serif;font-size:34px;letter-spacing:.02em;color:#f4f1ea;font-weight:600;">Eventicor</div>
+        <div style="width:26px;height:26px;border-radius:50%;border:2.5px solid rgba(244,241,234,.25);border-top-color:#c9a96a;animation:bootsplashspin .9s linear infinite;"></div>
+      </div>
+    </div>
+    <style>@keyframes bootsplashspin{to{transform:rotate(360deg)}}</style>
+    <script>
+    // The install page opens straight onto its guide: no branded loading screen
+    // (user request Nov 23 2026), only the page's own dark background while the
+    // bundle loads, so tapping Continue never looks like a page refresh.
+    if (location.pathname.indexOf('/install') === 0) {
+      var bs = document.getElementById('boot-splash');
+      if (bs) { while (bs.firstChild) bs.removeChild(bs.firstChild); }
+      document.documentElement.style.background = '#0a0917';
+    }
+    </script>
+    <script>
+    // One dark loader, fast (user direction Nov 23 2026): the couple lookup
+    // starts here, in parallel with the app bundles, so the boot screen is
+    // the only loading screen and it ends the moment the content is ready.
+    (function(){
+      try {
+        if (!/^\/app/.test(location.pathname)) return;
+        var q = new URLSearchParams(location.search);
+        var id = q.get('lead') || q.get('site') || '';
+        if (!id) return;
+        var p = fetch('/api/couple?site=' + encodeURIComponent(id), { cache: 'no-store' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .catch(function(){ return null; });
+        window.__evLeadPre = { id: id, p: p };
+      } catch (e) {}
+    })();
+    </script>
+    <script defer src="/eventicor-logo.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

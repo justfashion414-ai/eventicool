@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 
 // Eventicor web app — Firebase project eventicool-3887d.
 // Values come from Netlify environment variables (FIREBASE_*), with the
@@ -17,15 +18,32 @@ export const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig)
 
+// App Check: every client request carries a token minted from the project's
+// reCAPTCHA Enterprise key, so scripts and bots hitting Firestore directly
+// are distinguishable from the real app. Enforcement is switched server-side
+// (Firebase console), the client only stamps requests. The site key is
+// public by design.
+const AC_SITE_KEY = env.FIREBASE_APPCHECK_SITE_KEY || '6LeF1S0uAAAAACQRTwKWGNSviBkyZP5TbF8J-9SB'
+try {
+  const w = window as any
+  if (!w.__evAppCheck) {
+    w.__evAppCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(AC_SITE_KEY),
+      isTokenAutoRefreshEnabled: true,
+    })
+  }
+} catch { /* a token failure never stops the app from loading */ }
+
 // Firestore client used for public reads only (sample-app lead lookup).
 // Every write still goes through the server-side proxy.
 export const db = getFirestore(app)
 
 // Helper for the Firestore proxy (server-side service account, no client keys).
-export async function proxyCall(op, payload = {}) {
-  const { getAuth, onAuthStateChanged } = await import('firebase/auth')
-  const auth = getAuth(app)
-  const user = auth.currentUser
+export async function proxyCall(op, payload = {}, authInstance?) {
+  const { getAuth } = await import('firebase/auth')
+  // authInstance is already an Auth instance (the console's own session), so it
+  // is used as-is; feeding it back into getAuth throws and every call failed.
+  const user = (authInstance || getAuth(app)).currentUser
   if (!user) throw new Error('Not signed in')
   const token = await user.getIdToken()
   const res = await fetch('/api/proxy', {

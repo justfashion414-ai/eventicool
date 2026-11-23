@@ -9,6 +9,55 @@
 // landing links expire in 24 hours; admin dashboard (outbound leads) links expire in 30 days.
 
 import { TEMPLATES } from './_templates.mjs';
+import { initializeApp, cert } from 'firebase-admin/app';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+
+let fbReady = false;
+function fbInit() {
+  if (fbReady) return;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON env var is not set');
+  const svc = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  initializeApp({ credential: cert(svc), projectId: svc.project_id });
+  fbReady = true;
+}
+
+// A signup welcome email must correspond to a real login: create the Auth
+// account with the temporary password (plus the admins doc that forces the
+// permanent-password screen on first sign-in), then email the credentials.
+// Returns the password that was actually set, or '' when the account already
+// existed (no new password to hand out).
+async function ensureAccount(email, tempPassword, displayName, appId) {
+  fbInit();
+  let exists = false;
+  try {
+    await getAuth().getUserByEmail(email);
+    exists = true;
+  } catch (e) {
+    if (!e || e.code !== 'auth/user-not-found') throw e;
+  }
+  if (exists) return '';
+  await getAuth().createUser({ email, password: tempPassword, emailVerified: true, displayName: displayName || undefined });
+  // The account belongs to ONE app: its admin doc lives under
+  // apps/<app>/admins, never in the platform-level admins collection. That
+  // list is for Eventicor's own staff only; a couple's account there could
+  // reach every app's platform data.
+  if (appId) {
+    await getFirestore().collection('apps').doc(appId).collection('admins').doc(email).set({
+      email,
+      name: displayName || null,
+      role: 'owner',
+      mustSetPassword: true,
+      status: 'active',
+      sessionMinutes: 30,
+      permissions: { canDeletePosts: true, canUploadImages: true, canSetAccessCode: true },
+      addedAt: FieldValue.serverTimestamp(),
+      addedBy: 'signup',
+    }, { merge: true });
+  }
+  return tempPassword;
+}
 
 const VARIANTS = {
   landing: { tpl: TEMPLATES['preview-credentials-24h.html'], subject: 'Your Eventicor wedding app is ready', hours: 24 },
@@ -64,6 +113,9 @@ export const handler = async (event) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(400, { ok: false, error: 'A valid recipient email is required' });
   const src = p.source === 'admin' ? 'admin' : p.source === 'signup' ? 'signup' : 'landing';
   if (src !== 'signup' && !/^https?:\/\//.test(previewUrl)) return json(400, { ok: false, error: 'preview_url is required' });
+  const rawApp = String(p.app || '').trim();
+  const leadFromUrl = (String(previewUrl).match(/[?&]lead=([A-Za-z0-9_-]{6,64})/) || [])[1] || '';
+  const appId = /^[A-Za-z0-9_-]{6,64}$/.test(rawApp) ? rawApp : (/^[A-Za-z0-9_-]{6,64}$/.test(leadFromUrl) ? leadFromUrl : '');
   const variant = VARIANTS[src];
   const trialHours = Math.max(1, parseInt(p.trial_hours, 10) || (src === 'signup' ? 24 : variant.hours));
   const trialLabel = trialHours % 24 === 0
@@ -108,12 +160,20 @@ export const handler = async (event) => {
   };
   if (src === 'signup') {
     if (!data.account_email) return json(400, { ok: false, error: 'email is required' });
-    if (!data.temp_password) {
+    if (!appId) return json(400, { ok: false, error: 'The app id is missing; reopen the landing page and sign up again' });
+    const generated = !data.temp_password;
+    if (generated) {
       // Server-side temporary password: the couple must change it before the dashboard opens.
       const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
       let pw = '';
       for (let i = 0; i < 10; i++) pw += abc[Math.floor(Math.random() * abc.length)];
       data.temp_password = 'Ev-' + pw;
+    }
+    try {
+      const setPw = await ensureAccount(data.account_email, data.temp_password, names, appId);
+      if (!setPw) data.temp_password = '';
+    } catch (e) {
+      return json(500, { ok: false, error: 'Could not create the account for that email: ' + String(e?.message || e) });
     }
   }
 
