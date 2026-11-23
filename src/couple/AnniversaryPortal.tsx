@@ -55,7 +55,7 @@ import { where } from './lib/firestoreShim';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, demoWeddingTime } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, setLeadOverride, demoWeddingTime } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -1153,6 +1153,44 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [cfgEvents, setCfgEvents] = useState<WeddingEvent[] | null>(null);
   const [cfgStory, setCfgStory] = useState<string | null>(null);
   const [cfgDetails, setCfgDetails] = useState<any>(null);
+
+  // The couple's saved names and intro words (app_config coupleIdentity, set
+  // from Events & photos): the names ride the same overlay as the couple's
+  // boot data, so every name spot follows them, and the intro words replace
+  // the hardcoded lines on the splash, the home banner and the preview.
+  const [cfgIdentity, setCfgIdentity] = useState<{ bride: string; groom: string; kicker: string; tagline: string } | null>(null);
+  const identitySigRef = useRef<string>('');
+  function applyIdentity(ci: { bride?: string; groom?: string; kicker?: string; tagline?: string } | null) {
+    let sig = '';
+    try { sig = [ci?.bride || '', ci?.groom || '', ci?.kicker || '', ci?.tagline || ''].join('\u00a6'); } catch { sig = ''; }
+    if (sig && sig === identitySigRef.current) return;
+    identitySigRef.current = sig;
+    const has = ci && ((ci.bride || '').trim() || (ci.groom || '').trim() || (ci.kicker || '').trim() || (ci.tagline || '').trim());
+    setCfgIdentity(has ? {
+      bride: (ci!.bride || '').trim(),
+      groom: (ci!.groom || '').trim(),
+      kicker: typeof ci!.kicker === 'string' ? ci!.kicker : '',
+      tagline: typeof ci!.tagline === 'string' ? ci!.tagline : '',
+    } : null);
+    if ((ci?.bride || '').trim() || (ci?.groom || '').trim()) {
+      const ov: any = { ...(leadOverride() || {}) };
+      if ((ci!.bride || '').trim()) ov.bride = (ci!.bride || '').trim();
+      if ((ci!.groom || '').trim()) ov.groom = (ci!.groom || '').trim();
+      setLeadOverride(ov);
+    }
+  }
+  const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: 'Together with their families', tagline: 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
+  // A fresh saved identity syncs the editing draft; the signature guard keeps
+  // unrelated config writes from wiping what is being typed.
+  useEffect(() => {
+    if (!cfgIdentity) return;
+    setIdDraft((d) => ({
+      bride: cfgIdentity.bride || d.bride,
+      groom: cfgIdentity.groom || d.groom,
+      kicker: cfgIdentity.kicker || d.kicker,
+      tagline: cfgIdentity.tagline || d.tagline,
+    }));
+  }, [cfgIdentity]);
   const [archiveMode, setArchiveMode] = useState<boolean>(false);
   const [blockedUids, setBlockedUids] = useState<string[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
@@ -1942,6 +1980,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         if (saved && Array.isArray(saved.events) && saved.events.length) setCfgEvents(saved.events);
         if (saved && typeof saved.story === 'string' && saved.story.trim()) setCfgStory(saved.story);
         if (saved && saved.weddingDetails && typeof saved.weddingDetails === 'object') setCfgDetails(saved.weddingDetails);
+        if (saved && saved.coupleIdentity && typeof saved.coupleIdentity === 'object') applyIdentity(saved.coupleIdentity);
       } catch {}
       try {
         const demoCode = localStorage.getItem(lsKey('demo-code'));
@@ -1953,6 +1992,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     const unsub = onSnapshot(doc(db, scopedPath('app_config'), 'main'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
+        // The couple's saved names and intro words (Events & photos): the names
+        // ride the boot overlay, the intro words replace the banner text.
+        if (data.coupleIdentity && typeof data.coupleIdentity === 'object') {
+          applyIdentity(data.coupleIdentity as any);
+        }
         // The guest code comes from the couple's own names unless they saved
         // one of their own: the AMARA26 placeholder never reaches the gate, and
         // a code the couple changed always wins.
@@ -2597,6 +2641,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save. Please try again.', 'error');
     }
+  };
+
+  // Saves the couple's names and the intro words around them (Events & photos
+  // card): the names ride the boot overlay, the words go to app_config.
+  const saveCoupleIdentity = async () => {
+    const bride = (idDraft.bride || '').trim();
+    const groom = (idDraft.groom || '').trim();
+    if (!bride || !groom) { showToast('Both names are needed.', 'error'); return; }
+    const payload = {
+      bride,
+      groom,
+      kicker: (idDraft.kicker || '').trim() || 'Together with their families',
+      tagline: (idDraft.tagline || '').trim() || 'are getting married. Share every moment with us, from the first introduction to the last dance.',
+    };
+    applyIdentity(payload);
+    await updateWeddingSection({ coupleIdentity: payload });
   };
 
   // Giant footer style (dashboard setting; couples pick the look).
@@ -3258,7 +3318,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 transition={{ duration: 0.75, ease: "circOut" }}
               >
-                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">Together with their families</p>
+                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">{cfgIdentity?.kicker || 'Together with their families'}</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
                   {demoBride()}
                   <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
@@ -3373,13 +3433,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <div className="rounded-[28px] p-[26px_22px_26px] text-[#F2F7F8] relative overflow-hidden shadow-xl" style={{
                 background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)'
               }}>
-                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">Together with their families</p>
+                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">{cfgIdentity?.kicker || 'Together with their families'}</p>
                 <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
                   {demoBride()}
                   <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
                   {demoGroom()}
                 </h2>
-                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
+                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}</p>
 
                 {phase === 'before' && (
                   <div className="mt-5 mx-auto bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md">
@@ -7863,7 +7923,7 @@ function SectionEyeBtn({ hidden, onClick, isDarkMode }: { hidden: boolean; onCli
   );
 }
 
-function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, thanks, partners = DEMO_PARTNERS }: any) {
+function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details, heroImages, tpl, wallStyle, thanks, kicker = 'Together with their families', tagline = 'are getting married. Share every moment with us, from the first introduction to the last dance.', partners = DEMO_PARTNERS }: any) {
   // A faithful miniature of the real home page: the actual template hero
   // components (compact), the same banner, journey timeline and giant footer
   // wall the couple sees, all drawn from the admin's current drafts.
@@ -7929,13 +7989,13 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       </div>
       {/* Banner */}
       <div className="mx-3 mt-4 rounded-[22px] p-[22px_16px] text-[#F2F7F8] relative overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)' }}>
-        <p className="m-0 text-center text-[0.62rem] font-medium text-[#C8932A]">Together with their families</p>
+        <p className="m-0 text-center text-[0.62rem] font-medium text-[#C8932A]">{kicker}</p>
         <h2 className="text-center font-serif-display text-white text-[2rem] leading-[1] mt-2 mb-0">
           {bride}
           <span className="block italic text-[0.95rem] text-[#C8932A] my-1">and</span>
           {groom}
         </h2>
-        <p className="text-center text-[0.7rem] opacity-[0.85] mt-3 mb-0 leading-snug">are getting married. Share every moment with us, from the first introduction to the last dance.</p>
+        <p className="text-center text-[0.7rem] opacity-[0.85] mt-3 mb-0 leading-snug">{tagline}</p>
         <div className="mt-4 mx-auto bg-white/10 border border-white/25 rounded-[14px] py-2.5 backdrop-blur-md">
           <div className="flex items-stretch justify-center divide-x divide-white/25">
             <div className="px-4 text-center">
@@ -10738,6 +10798,33 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app. The eye button on a section hides it from your app until you bring it back.</p>
                   </div>
 
+                  {/* THE COUPLE: the names and the words around them, editable.
+                      A couple's signup names are no longer locked in; a change
+                      rides the boot overlay, so every name spot follows. */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">The couple</h3>
+                    <p className="text-sm opacity-60 mb-4">The names on your app and the words around them. A name change shows everywhere: the home page, the sign-in screen and your hashtag suggestion.</p>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Bride’s name</span>
+                        <input value={idDraft.bride} maxLength={24} onChange={(e) => setIdDraft({ ...idDraft, bride: e.target.value })} className={inputCls} />
+                      </div>
+                      <div>
+                        <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Groom’s name</span>
+                        <input value={idDraft.groom} maxLength={24} onChange={(e) => setIdDraft({ ...idDraft, groom: e.target.value })} className={inputCls} />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Words above the names</span>
+                      <input value={idDraft.kicker} maxLength={60} onChange={(e) => setIdDraft({ ...idDraft, kicker: e.target.value })} className={inputCls} />
+                    </div>
+                    <div className="mt-3">
+                      <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Words under the names</span>
+                      <textarea value={idDraft.tagline} rows={2} maxLength={160} onChange={(e) => setIdDraft({ ...idDraft, tagline: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                    </div>
+                    <button type="button" onClick={saveCoupleIdentity} className="mt-4 w-full py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Save</button>
+                  </div>
+
                   {adminPermissions?.canUploadImages && (
                     <section>
                       <div className="flex items-center justify-between mb-3">
@@ -11234,6 +11321,8 @@ function AdminDashboardModal({
                               groom={demoGroom()}
                               city={demoCity()}
                               wedDate={previewWedDate()}
+                              kicker={cfgIdentity?.kicker || 'Together with their families'}
+                              tagline={cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}
                               events={evDraft}
                               story={storyDraft}
                               details={withGiftDefaults(detDraft)}
@@ -11704,10 +11793,7 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Notifications</h3>
                     <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once your app is on your home screen.</p>
                     <div className="flex items-center gap-3 flex-wrap">
-                      <button type="button" role="switch" aria-checked={dashPushPerm === 'granted'} aria-label="Push notifications" disabled={pushBusy} onClick={async () => { if (dashPushPerm === 'granted') { showToast('Notifications are on for this device', 'success'); return; } setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); setDashPushPerm(r === 'granted' ? 'granted' : r === 'denied' ? 'denied' : dashPushPerm); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className={`relative w-12 h-7 rounded-full transition-colors shrink-0 disabled:opacity-60 ${dashPushPerm === 'granted' ? 'bg-[var(--ann-accent)]' : isDarkMode ? 'bg-[#22363E]' : 'bg-[#DAD8E3]'}`}>
-                        <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${dashPushPerm === 'granted' ? 'translate-x-5' : 'translate-x-0'}`} />
-                      </button>
-                      <span className="text-[0.7rem] font-black uppercase tracking-widest opacity-70">{dashPushPerm === 'granted' ? 'On for this device' : dashPushPerm === 'denied' ? 'Blocked. Allow notifications in your browser settings' : dashPushPerm === 'unsupported' ? 'Not supported on this device' : 'Off'}</span>
+                                            <span className="text-[0.7rem] font-black uppercase tracking-widest opacity-70">{dashPushPerm === 'granted' ? 'Notification on for this device' : 'Notification off for this device'}</span>
                     </div>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
