@@ -7876,6 +7876,21 @@ const IV_STYLES = [
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
 ];
 
+// Collapsible invite-form section. Defined at module level on purpose: a local
+// definition gets a new component identity on every render, which remounts each
+// section and drops focus from whatever field is being typed into.
+function InvSec({ id, title, openSec, setOpenSec, cardCls, labCls, children }: any) {
+  return (
+    <section className={cardCls}>
+      <div className="flex items-center justify-between gap-3">
+        <label className={labCls + ' !mb-0'}>{title}</label>
+        <button type="button" onClick={() => setOpenSec((o: any) => ({ ...o, [id]: !o[id] }))} className="text-[0.6rem] font-black uppercase tracking-widest text-[var(--ann-accent)] whitespace-nowrap">{openSec[id] === false ? 'Show' : 'Hide'}</button>
+      </div>
+      {openSec[id] !== false && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
 function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToast, user }: any) {
   const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm font-medium ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder-white/30' : 'bg-white border-[#DAD8E3] text-slate-900'}`;
   const cardCls = `rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`;
@@ -7910,7 +7925,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [musicFile, setMusicFile] = useState<File | null>(null);
   const myMusicInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    if (DEMO) { setMyMusic([]); return; }
+    if (DEMO) {
+      try { const saved = JSON.parse(localStorage.getItem(lsKey('my-music')) || '[]'); if (Array.isArray(saved)) setMyMusic(saved.filter((r: any) => r && r.url)); } catch { /* none yet */ }
+      return;
+    }
     const unsub = onSnapshot(collection(db, scopedPath('music')), (snap: any) => {
       const rows = snap.docs.map((d: any) => ({ id: d.id, name: String((d.data() || {}).name || ''), url: String((d.data() || {}).url || ''), at: Number((d.data() || {}).createdAt?.seconds || 0) }));
       rows.sort((a: any, b: any) => b.at - a.at);
@@ -7974,7 +7992,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const startMyMusicUpload = async () => {
     const file = musicFile;
     if (!file) { const msg = 'Choose an audio file first'; setMusicMsg(msg); showToast(msg, 'error'); return; }
-    if (DEMO) { const msg = 'Uploads work in your real app. Pick from the library here'; setMusicMsg(msg); showToast(msg, 'error'); return; }
+    if (DEMO && !(auth && auth.currentUser)) { const msg = 'Uploads work in your real app. Pick from the library here'; setMusicMsg(msg); showToast(msg, 'error'); return; }
     const base = musicName.trim().slice(0, 60) || String(file.name || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim().slice(0, 40) || 'My track';
     setMusicMsg(''); setMusicUpName(base); setMusicPct(0); setMusicUploading(true);
     try {
@@ -7982,6 +8000,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       setMusicPct(100);
       await addDoc(collection(db, scopedPath('music')), { name: base, url, createdAt: serverTimestamp() });
       recordMediaUsage(file.size || 0, 'audio');
+      if (DEMO) {
+        const row = { id: 'u' + Date.now(), name: base, url, at: Math.floor(Date.now() / 1000) };
+        setMyMusic((prev: any[]) => { const next = [row, ...prev].slice(0, 20); try { localStorage.setItem(lsKey('my-music'), JSON.stringify(next)); } catch { /* private mode */ } return next; });
+      }
       setF({ ...f, music: url });
       closeMusicDropdown();
       setMusicFile(null); setMusicName(''); setMusicFormOpen(false);
@@ -8365,18 +8387,9 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       </section>
 
       {(() => {
-        const InvSec = ({ id, title, children }: any) => (
-          <section className={cardCls}>
-            <div className="flex items-center justify-between gap-3">
-              <label className={labCls + ' !mb-0'}>{title}</label>
-              <button type="button" onClick={() => setOpenSec((o) => ({ ...o, [id]: !o[id] }))} className="text-[0.6rem] font-black uppercase tracking-widest text-[var(--ann-accent)] whitespace-nowrap">{openSec[id] === false ? 'Show' : 'Hide'}</button>
-            </div>
-            {openSec[id] !== false && <div className="mt-3">{children}</div>}
-          </section>
-        );
         return (
           <>
-            <InvSec id="couple" title="The couple">
+            <InvSec id="couple" title="The couple" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div><label className={labCls}>Bride</label><input className={inputCls} value={f.bride} onChange={(e) => setF({ ...f, bride: e.target.value })} placeholder="Bride's name" /></div>
                 <div><label className={labCls}>Groom</label><input className={inputCls} value={f.groom} onChange={(e) => setF({ ...f, groom: e.target.value })} placeholder="Groom's name" /></div>
@@ -8384,17 +8397,17 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 <div><label className={labCls}>Hashtag</label><input className={inputCls} value={f.hashtag} onChange={(e) => setF({ ...f, hashtag: e.target.value })} placeholder="#YourNames" /></div>
               </div>
             </InvSec>
-            <InvSec id="venue" title="The venue">
+            <InvSec id="venue" title="The venue" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div><label className={labCls}>Venue</label><input className={inputCls} value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} placeholder="Venue name" /></div>
                 <div><label className={labCls}>Address / city</label><input className={inputCls + ' cursor-pointer'} readOnly value={f.city} onClick={() => setMapOpen(true)} placeholder="12 Palm Avenue, Lekki, Lagos" /><p className="text-[10px] opacity-50 mt-1">Tap to pick the exact spot on a live map</p></div>
               </div>
             </InvSec>
 <MapPicker open={mapOpen} initial={f.venuePos} onClose={(pos: any) => { setMapOpen(false); if (pos && pos.lat != null) setF({ ...f, venuePos: { lat: Number(pos.lat), lng: Number(pos.lng), label: String(pos.label || '') }, city: String(pos.label || '') || f.city }); }} />
-            <InvSec id="note" title="A note to your guests">
+            <InvSec id="note" title="A note to your guests" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <textarea className={inputCls + ' min-h-[150px]'} value={f.story} onChange={(e) => setF({ ...f, story: e.target.value })} placeholder="A short line that welcomes your guests" />
             </InvSec>
-            <InvSec id="dress" title="Dress colours">
+            <InvSec id="dress" title="Dress colours" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <ColorSwatchesRow colors={dressColors} onChange={(next: string[]) => saveColorsShared(next)} isDarkMode={isDarkMode} />
               <p className="text-[10px] opacity-50 mt-1">The colours of the day. They show on the card and on the home page, and match the events section.</p>
               <div className="mt-3">
@@ -8404,7 +8417,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               <DressMockup outfit={dressOutfit} isDarkMode={isDarkMode} />
               <DressStudio open={dressStudioOpen} onClose={() => setDressStudioOpen(false)} colors={dressColors} outfit={dressOutfit} isDarkMode={isDarkMode} onSave={saveOutfitShared} />
             </InvSec>
-            <InvSec id="schedule" title="Day schedule">
+            <InvSec id="schedule" title="Day schedule" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               {(f.schedule || []).map((r: any[], i: number) => (
                 <p key={i} className="text-xs mb-1">{r[0] ? <b>{r[0]}</b> : null} {r[1] || ''}{r[2] ? <span className="opacity-60"> · {r[2]}</span> : null}</p>
               ))}
@@ -8428,7 +8441,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                 </BottomSheet>
               )}
             </InvSec>
-            <InvSec id="photos" title="Photos on the card">
+            <InvSec id="photos" title="Photos on the card" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <div className="grid grid-cols-3 gap-2">
                 {(f.photos || []).map((u: string, i: number) => (
                   <div key={i} className={`relative rounded-xl overflow-hidden border ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} style={{ aspectRatio: '3/4' }}>
@@ -8454,7 +8467,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
               </div>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={onInvitePhotos} />
             </InvSec>
-            <InvSec id="music" title="Eventicor library">
+            <InvSec id="music" title="Eventicor library" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <div className="relative">
                 {musicOpen && <div className="fixed inset-0 z-20" onClick={closeMusicDropdown} />}
                 <button type="button" onClick={() => { if (musicOpen) stopInvitePreview(); setMusicOpen(!musicOpen) }} className={inputCls + ' flex items-center justify-between gap-2 text-left'}>
@@ -8522,8 +8535,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                         {musicUploading ? 'Uploading…' : 'Upload'}
                       </button>
                     </div>
-                    <p className="text-[10px] opacity-50 mt-1.5 m-0">mp3, m4a, wav or ogg · up to 50MB · plays only in this app, never added to the Eventicor library</p>
-                  </div>
+                                      </div>
                 )}
               </div>
               <input ref={myMusicInputRef} type="file" accept="audio/*" className="sr-only" onChange={onMyMusic} />
@@ -11260,7 +11272,7 @@ function AdminDashboardModal({
                 <div className="space-y-8">
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-1">Notifications</h3>
-                    <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once Eventicor is on your home screen.</p>
+                    <p className="text-sm opacity-60 mb-4">Get a push when 10 new memories land while you are away, and know the moment a post of yours needs attention. On iPhone it works once your app is on your home screen.</p>
                     <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('admin', { uid: user?.uid, email: user?.email, token: await auth?.currentUser?.getIdToken?.() }); setPushBusy(false); showToast(r === 'granted' ? 'Notifications are on for this device' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="px-5 py-2.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
                   </div>
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
