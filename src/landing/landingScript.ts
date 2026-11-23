@@ -357,6 +357,19 @@ function hlvSync(){HL=HL||[];var els=document.querySelectorAll('[data-hl]');HL=H
   for(var i=0;i<els.length;i++){var el=els[i];if(el._hl)continue;el._hl=hlRun(el,el.getAttribute('data-hl')==='1');if(el._hl)HL.push(el._hl)}}
 function rvsetup(){hlvSync();var vs=document.querySelectorAll('#pv .frl video');if(rvsetup.io)rvsetup.io.disconnect();if(!vs.length)return;vs.forEach(function(v){rsunm(v)});var io=rvsetup.io=new IntersectionObserver(function(es){es.forEach(function(en){var v=en.target;if(en.isIntersecting){var p=v.play();if(p&&p.catch)p.catch(function(){})}else{v.pause()}})},{threshold:.55});for(var i=0;i<vs.length;i++)io.observe(vs[i])}
 function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r=w.getBoundingClientRect();var vh=innerHeight||800;var total=r.height-vh;if(total<=0){SGT=0;if(!sgRaf)sgRaf=requestAnimationFrame(sgtick);return}var p=-r.top/total;p=p<0?0:(p>1?1:p);SGT=p*(SG5.length-1);if(!sgRaf)sgRaf=requestAnimationFrame(sgtick)}var sgq=false,_fonsc=function(){if(sgq)return;sgq=true;requestAnimationFrame(function(){sgq=false;try{apscroll();sglayout();secscroll()}catch(e){}})};addEventListener('scroll',_fonsc,{passive:true});addEventListener('resize',_fonsc);_fonsc();
+  // Hidden admin entry (user direction Nov 23 2026): the blinking hero chip
+  // now carries the admin login that used to sit in the nav. Three taps
+  // within 2 seconds open /admin: a signed-out admin gets the sign-in screen
+  // there, a signed-in admin lands straight in the dashboard.
+  var at=0,atT=null;
+  document.addEventListener('click',function(e){
+    var n=e.target;
+    while(n&&n!==document.body&&!(n.getAttribute&&n.getAttribute('data-adm')))n=n.parentNode;
+    if(!n||n===document.body)return;
+    at++;clearTimeout(atT);atT=setTimeout(function(){at=0},2000);
+    if(at>=3){at=0;window.location.href='/admin';}
+  });
+
   // Back-to-top: a round arrow button that appears once the page is scrolled
   // and glides back to the top on tap.
   var tt=document.getElementById('totop');
