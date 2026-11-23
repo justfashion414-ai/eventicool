@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import BootLoader from './BootLoader'
 
 // The installation page: the last step of the landing's self-serve flow.
 // An Android / iPhone toggle sits at the top; the phone screen on the left
@@ -59,7 +58,17 @@ export default function InstallPage({ guideOnly, names, installable: installable
 
   // undefined = still fetching the couple's details: hold the page behind the
   // branded loader instead of flashing "Bride & Groom" placeholders at them.
-  const [lead, setLead] = useState<LeadData | null | undefined>(leadId && installableProp === undefined ? undefined : null)
+  // No loading screen before the guide (user request Nov 23 2026): the page
+  // renders straight away. Names come from the localStorage copy the landing
+  // wrote when it can, and fill in live from the fetch when they cannot.
+  const [lead, setLead] = useState<LeadData | null | undefined>(() => {
+    if (!leadId || installableProp !== undefined) return null
+    try {
+      const ls = localStorage.getItem(`ev-lead-${leadId}`)
+      if (ls) { const j = JSON.parse(ls); if (j && (j.bride || j.title)) return j }
+    } catch { /* ignore */ }
+    return undefined
+  })
   const [leadLoaded, setLeadLoaded] = useState(false)
   const [deferred, setDeferred] = useState<any>(null)
   const [installed, setInstalled] = useState(false)
@@ -315,8 +324,6 @@ export default function InstallPage({ guideOnly, names, installable: installable
     </div>
   )
 
-  if (lead === undefined) return <BootLoader />
-
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(160deg,#0d0b1f 0%,#171129 55%,#0d0b1f 100%)', color: '#fff', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
       <style>{`
@@ -337,7 +344,7 @@ export default function InstallPage({ guideOnly, names, installable: installable
           .ip-phone{flex:0 0 154px;gap:12px}
           .ip-screenbox{width:154px;height:310px}
           .ip-scale{transform:scale(.6)}
-          .ip-guide h1{font-size:25px !important}
+          .ip-head h1{font-size:25px !important}
           .ip-guide p{font-size:14px !important}
           .ip-guide b{font-size:13.5px !important}
           .ip-install{padding:12px 26px !important;font-size:13px !important}
@@ -367,6 +374,16 @@ export default function InstallPage({ guideOnly, names, installable: installable
             ))}
           </div>
         </div>
+        {/* the title and its instruction stand alone above both the phone screen
+            and the guide (user request Nov 23 2026) */}
+        <div className="ip-head" style={{ textAlign: 'center', maxWidth: 660, margin: '0 auto 30px' }}>
+          <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
+          <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
+            {installable
+              ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
+              : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
+          </p>
+        </div>
         <div className="ip-row">
           {/* Left: the animated phone screen, with the real install button under it */}
           <div className="ip-phone">
@@ -382,12 +399,6 @@ export default function InstallPage({ guideOnly, names, installable: installable
           {/* Right: the guide */}
           <div className="ip-guide">
             <>
-                <h1 style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 40, lineHeight: 1.1, margin: 0 }}>Install your app</h1>
-                <p style={{ fontSize: 16.5, lineHeight: 1.6, opacity: .9, marginTop: 14, fontWeight: 700 }}>
-                  {installable
-                    ? <>Put {appName} on your home screen. It works like a real app, with your name on the icon.</>
-                    : <>Here is how your own app will sit on your home screen, with your names on the icon.</>}
-                </p>
                 {leadId && lead === null && leadLoaded && (
                   <p style={{ marginTop: 16, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,.08)', border: `1px solid ${acc.accent}55`, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
                     This link did not carry your app's details, so the couple's names could not load here. Open the install link from your welcome email again.
@@ -497,6 +508,18 @@ export default function InstallPage({ guideOnly, names, installable: installable
 
                   </div>
                 </div>
+          </div>
+        )}
+        {/* Back to the landing page: the install page is the last step of the
+            self-serve flow, so the way back is always here at the bottom. */}
+        {!guideOnly && !onInstallStart && (
+          <div style={{ marginTop: 42, textAlign: 'center' }}>
+            <button
+              onClick={() => { window.location.href = '/' }}
+              style={{ border: '1.5px solid rgba(255,255,255,.28)', cursor: 'pointer', background: 'rgba(255,255,255,.08)', color: '#fff', padding: '13px 28px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.04em', touchAction: 'manipulation', fontFamily: 'inherit' }}
+            >
+              &larr; Back to the Eventicor website
+            </button>
           </div>
         )}
       </main>

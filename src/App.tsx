@@ -89,7 +89,7 @@ export default function App() {
     return <Suspense fallback={<BootLoader />}><CoupleApp /></Suspense>
   }
   if (route === '/install') {
-    return <Suspense fallback={<BootLoader />}><InstallPage /></Suspense>
+    return <Suspense fallback={null}><InstallPage /></Suspense>
   }
   if (route === '/admin') {
     if (adminState === 'admin') return <Suspense fallback={<BootLoader />}><AdminConsole user={user} onSignOut={() => navigate('/')} /></Suspense>

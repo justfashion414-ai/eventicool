@@ -52,6 +52,16 @@
       </div>
     </div>
     <style>@keyframes bootsplashspin{to{transform:rotate(360deg)}}</style>
+    <script>
+    // The install page opens straight onto its guide: no branded loading screen
+    // (user request Nov 23 2026), only the page's own dark background while the
+    // bundle loads, so tapping Continue never looks like a page refresh.
+    if (location.pathname.indexOf('/install') === 0) {
+      var bs = document.getElementById('boot-splash');
+      if (bs) { while (bs.firstChild) bs.removeChild(bs.firstChild); }
+      document.documentElement.style.background = '#0a0917';
+    }
+    </script>
     <script defer src="/eventicor-logo.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

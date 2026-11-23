@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
+import { Archive, Bell, BookOpen, Camera, CalendarClock, Check, Clapperboard, Download, Globe, HardDrive, Headset, Images, Layers, Mail, MessageCircle, QrCode, Users } from 'lucide-react';
 
 // The payment flow every plan choice runs through, shared by the trial-ended
 // screen and the dashboard's storage upgrade button: pick a plan, transfer to
@@ -21,6 +22,29 @@ const PLAN_CHANNELS: Record<string, [string, boolean][]> = { essential: [['Email
 
 const ng = (n: number) => '₦' + n.toLocaleString('en-NG');
 const pillBtn = (accent: string): React.CSSProperties => ({ display: 'inline-block', background: accent, color: '#fff', textDecoration: 'none', padding: '14px 15px', borderRadius: 999, fontWeight: 700, fontSize: 14, letterSpacing: '.05em', border: 'none', cursor: 'pointer', fontFamily: 'inherit' });
+
+// A small icon per checklist line on the plan cards (user request Nov 23 2026),
+// picked by what the line is about, so the lists read at a glance.
+const featIcon = (f: string) => {
+  const s = f.toLowerCase();
+  if (/^everything in/.test(s)) return Layers;
+  if (/gb of photos|photos and videos/.test(s)) return HardDrive;
+  if (/qr/.test(s)) return QrCode;
+  if (/unique address|website link/.test(s)) return Globe;
+  if (/app on android|downloadable/.test(s)) return Download;
+  if (/reel/.test(s)) return Clapperboard;
+  if (/bulk upload|photographer|videographer/.test(s)) return Camera;
+  if (/invitee|guest/.test(s)) return Users;
+  if (/memory book/.test(s)) return BookOpen;
+  if (/journey|timeline|carousel/.test(s)) return Images;
+  if (/push/.test(s)) return Bell;
+  if (/whatsapp/.test(s)) return MessageCircle;
+  if (/email/.test(s)) return Mail;
+  if (/archive/.test(s)) return Archive;
+  if (/support/.test(s)) return Headset;
+  if (/months/.test(s)) return CalendarClock;
+  return Check;
+};
 
 // Step 3 (Confirming your payment): a gateway-style verification screen with no
 // backend behind it. It only behaves the way a payment gateway does while it
@@ -56,11 +80,22 @@ interface Props {
 }
 
 export default function PaymentFlow({ accent, appName, email, appId, titles = ['Your free trial has ended', 'Make your transfer', 'Confirming your payment', 'Almost there'], intro, note, demoMode, onDone }: Props) {
-  // Session stickiness (user spec Nov 22 2026): someone may hop to their bank
-  // app and come back, or the page may refresh mid-flow. The step, the chosen
-  // plan, the session-account deadline, the uploaded receipt and the sent flag
-  // live in sessionStorage for this app, so the flow reopens where it was left.
-  const boot: any = (() => { try { return JSON.parse(window.sessionStorage.getItem('pf-flow-' + appId) || '{}'); } catch { return {}; } })();
+  // Flow stickiness (user spec Nov 23 2026): someone may hop to their bank app
+  // or to WhatsApp and the page may refresh or close meanwhile. The step, the
+  // chosen plan, the session-account deadline, the uploaded receipt and the
+  // sent flag live in localStorage for this app and restore on reopen, kept
+  // for 24 hours after the last activity; past that the flow starts fresh.
+  // Cancel only closes the page: nothing is wiped, so coming back within the
+  // 24 hours shows exactly where they left off.
+  const boot: any = (() => {
+    try {
+      const raw = window.localStorage.getItem('pf-flow-' + appId);
+      if (!raw) return {};
+      const j = JSON.parse(raw);
+      if (j && j.ts && Date.now() - Number(j.ts) > 24 * 60 * 60 * 1000) { window.localStorage.removeItem('pf-flow-' + appId); return {}; }
+      return j || {};
+    } catch { return {}; }
+  })();
 
   const [pay, setPay] = useState({ ...DEFAULT_PAYMENT });
   const [gb, setGb] = useState<Record<string, number>>({ essential: 5, complete: 10, legacy: 20 });
@@ -146,7 +181,7 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem('pf-flow-' + appId, JSON.stringify({ step, planId: plan ? plan.id : '', deadline, receiptUrl, sent }));
+      window.localStorage.setItem('pf-flow-' + appId, JSON.stringify({ step, planId: plan ? plan.id : '', deadline, receiptUrl, sent, ts: Date.now() }));
     } catch { /* storage unavailable */ }
   }, [step, plan, deadline, receiptUrl, sent, appId]);
 
@@ -290,12 +325,15 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
                     </div>
                     <div style={{ height: 1, background: '#efe8dc', margin: '14px 0' }} />
                     <div>
-                      {feats.map((f) => (
+                      {feats.map((f) => {
+                        const FI = featIcon(f);
+                        return (
                         <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-                          <span style={{ width: 17, height: 17, borderRadius: 999, background: '#f3ecdd', color: accent, fontSize: 10, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, lineHeight: 1 }}>✓</span>
+                          <span style={{ width: 24, height: 24, borderRadius: 999, background: '#f3ecdd', color: accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><FI size={13} strokeWidth={2.6} /></span>
                           <span style={{ fontSize: 13.5, color: '#2c3a40', fontWeight: 600, lineHeight: 1.45 }}>{f}</span>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div style={{ marginTop: 10, textAlign: 'center' }}>
                       <button type="button" style={{ ...pillBtn(accent), display: 'inline-flex', background: 'transparent', color: '#8a7a63', border: 'none', padding: '13px 10px', fontSize: 11.5, letterSpacing: '.12em' }} onClick={() => setMore(showingAll ? '' : p.id)}>
