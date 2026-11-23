@@ -73,34 +73,31 @@ async function zeptoSend(fromAddress, fromName, to, subject, html) {
   return { ok: false, why: detail }
 }
 
-const RULES = String.raw`rules_version = '2';
+const RULES = String.raw`
+rules_version = '2';
 service cloud.firestore {
+  match /databases/{database}/documents {
   function isSuper() {
     return request.auth != null && request.auth.token.email == 'justfashion414@gmail.com';
   }
-  // The database wildcard is passed in explicitly: rules functions only see
-  // the variables they are handed, so an unbound $(database) here would make
-  // the exists() path invalid and silently deny every app admin (found live
-  // Nov 21 2026 when oke@ was refused every admin action).
-  function isAdminIn(db, app) {
-    return isSuper() || (request.auth != null && request.auth.token.email != null
-      && exists(/databases/$(db)/documents/apps/$(app)/admins/$(request.auth.token.email)));
+  function guestInstantPost(app, uid) {
+    // Instant posting (pending=false) is allowed when the couple turned
+    // approval off, or when the author is one of the app's listed vendors.
+    // Missing app_config falls back to allowing it; the client sends
+    // pending=true for a missing config anyway.
+    return !exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
+      ? true
+      : (get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true) == false
+        || get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('vendors', []).hasAny([uid]));
   }
-  match /databases/{database}/documents {
+  function isAdminIn(app) {
+    return isSuper() || (request.auth != null && request.auth.token.email != null
+      && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
+  }
     match /platform/{doc=**} { allow read: if true; allow write: if false; }
-    // Sample-app links (?lead=<id>) resolve the lead on the client, so a lead
-    // must be readable by whoever holds its link. Console sample leads store
-    // no email (none asked for, none stored), so only docs WITHOUT an email
-    // field are exposed; landing leads carry the couple's email and stay
-    // private. Listing stays refused, so leads can never be enumerated.
-    match /leads/{lead} {
-      allow get: if !('email' in resource.data);
-      allow list: if false;
-      allow write: if false;
-    }
+    match /leads/{doc=**} { allow read: if true; allow write: if false; }
     match /events/{doc=**} { allow read: if false; allow write: if false; }
     match /health/{doc} { allow read: if true; allow write: if false; }
-    // Legacy top-level couple data (pre-2026-11-19). Kept readable, never written.
     match /app_config/{doc=**} { allow read: if true; allow write: if false; }
     match /posts/{doc=**} { allow read: if true; allow write: if false; }
     match /residents/{doc=**} { allow read: if true; allow write: if false; }
@@ -110,60 +107,46 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.token.email == email;
       allow write: if request.auth != null && request.auth.token.email == email;
     }
-    // Per-app scoped data: each couple's app gets its own namespace. The
-    // platform owner and that app's admins write; guests can add pending
-    // posts, their own reactions, comments and their own resident profile.
     match /apps/{app} {
-      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
+      match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
       match /posts/{postId} {
-        // Single-document reads: a post waiting for approval is readable only
-        // by its author and the app's signed-in admins; everyone else, a
-        // signed-out admin included, reads only approved posts (user
-        // direction Nov 21 2026).
-        allow get: if !resource.data.get('pending', false)
-          || (request.auth != null
-              && (resource.data.get('authorUid', '') == request.auth.uid || isAdminIn(database, app)));
-        // List queries must carry the filter that proves them. Admins may
-        // list everything; a signed-in guest may only list approved posts or
-        // their own pending ones. Any other guest list (unfiltered, or
-        // probing for someone else's pending posts) is refused outright, so
-        // an awaiting-approval post never reaches anyone else.
-        allow list: if isAdminIn(database, app)
-          || (request.auth != null
-              && (resource.data.pending == false
-                  || (resource.data.pending == true
-                      && resource.data.get('authorUid', '') == request.auth.uid)));
-        // New posts follow the app's Approve-guest-posts toggle: with it on,
-        // guests may only create posts that wait for approval; with it off,
-        // everything shows for everybody at once. Admins always write freely.
-        allow create: if request.auth != null && (isAdminIn(database, app)
+        allow read: if true;
+        allow create: if request.auth != null && (
+          isAdminIn(app)
           || request.resource.data.get('pending', false) == true
-          || (exists(/databases/$(database)/documents/apps/$(app)/app_config/main)
-              && !get(/databases/$(database)/documents/apps/$(app)/app_config/main).data.get('approveGuestPosts', true)));
-        allow update: if isAdminIn(database, app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
-        allow delete: if isAdminIn(database, app);
+          || (!request.resource.data.get('pending', false) && guestInstantPost(app, request.auth.uid))
+        );
+        allow update: if isAdminIn(app) || (request.auth != null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'loveCount', 'commentCount']));
+        allow delete: if isAdminIn(app);
         match /reactions/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
         match /comments/{cid} {
           allow read: if true;
           allow create: if request.auth != null;
-          allow update, delete: if isAdminIn(database, app);
+          allow update, delete: if isAdminIn(app);
         }
       }
       match /residents/{uid} {
         allow read: if true;
-        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(database, app));
-        allow delete: if isAdminIn(database, app);
+        allow create, update: if request.auth != null && (request.auth.uid == uid || isAdminIn(app));
+        allow delete: if isAdminIn(app);
       }
-      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
-      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(database, app); }
+      match /albums/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /deleted_posts/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
       match /admins/{email} {
-        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(database, app));
-        allow create, update: if isAdminIn(database, app) || (request.auth != null && request.auth.token.email == email);
-        allow delete: if isAdminIn(database, app);
+        allow read: if request.auth != null && (request.auth.token.email == email || isAdminIn(app));
+        allow create, update: if isAdminIn(app) || (request.auth != null && request.auth.token.email == email);
+        allow delete: if isAdminIn(app);
+      }
+      match /music/{mid} { allow read, write: if isAdminIn(app); }
+      match /usage/{doc=**} { allow read, write: if isAdminIn(app); }
+      match /invites/{id} {
+        allow read, write: if isAdminIn(app);
+        match /guests/{gid} { allow read, write: if isAdminIn(app); }
       }
     }
   }
-}`
+}
+`
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: cors })

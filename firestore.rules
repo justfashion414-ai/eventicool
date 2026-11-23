@@ -62,6 +62,7 @@ service cloud.firestore {
         allow delete: if isAdminIn(app);
       }
       match /music/{mid} { allow read, write: if isAdminIn(app); }
+      match /usage/{doc=**} { allow read, write: if isAdminIn(app); }
       match /invites/{id} {
         allow read, write: if isAdminIn(app);
         match /guests/{gid} { allow read, write: if isAdminIn(app); }
