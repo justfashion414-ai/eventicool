@@ -197,6 +197,7 @@ export default async (req) => {
         email: em,
         slug: slugv,
         city: String(b.city || '').slice(0, 60),
+        whatsapp: String(b.whatsapp || '').replace(/[^\d+]/g, '').slice(0, 20),
         template: String(b.template || 'classic').slice(0, 20),
         accent: String(b.accent || '').slice(0, 20),
         plan: String(b.plan || '').slice(0, 20),

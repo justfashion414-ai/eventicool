@@ -73,6 +73,36 @@ const cors = {
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...cors } });
 
+function escS(v){return String(v==null?'':v).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function otpRecoverEmail(code,mins){
+  const digits=String(code).split('').join(' ');
+  return `<!doctype html><html><body style="margin:0;background:#f6f5fa;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:32px 24px">
+    <div style="background:#ffffff;border:1px solid #e6e4ef;border-radius:16px;padding:32px 28px;text-align:center">
+      <div style="font-size:22px;font-weight:bold;color:#141f4e;letter-spacing:.5px">Eventicor</div>
+      <p style="margin:18px 0 6px;font-size:15px;color:#5a6970">Use this code to get the link to your app back. It works once and stops working in ${mins} minutes.</p>
+      <div style="margin:22px auto;font-size:40px;font-weight:800;letter-spacing:10px;color:#141f4e">${digits}</div>
+      <p style="margin:0 0 14px;font-size:13px;color:#8a90a6">If you did not ask for this code you can ignore this email; your app is unchanged.</p>
+    </div>
+  </div>
+</body></html>`;
+}
+function recoverLinkEmail(base,apps){
+  const rows=apps.length
+    ? apps.map((a)=>'<p style="margin:0 0 18px"><a href="'+escS(base+a.url)+'" style="display:inline-block;background:#141f4e;color:#ffffff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:bold">'+escS(a.bride&&a.groom?a.bride+' & '+a.groom:'Open your app')+'</a></p>').join('')
+    : '<p style="margin:0 0 18px;font-size:15px;color:#5a6970">We could not find an app created with this email yet. You can create one any time on the Eventicor landing page.</p>';
+  return `<!doctype html><html><body style="margin:0;background:#f6f5fa;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:32px 24px">
+    <div style="background:#ffffff;border:1px solid #e6e4ef;border-radius:16px;padding:32px 28px;text-align:center">
+      <div style="font-size:22px;font-weight:bold;color:#141f4e;letter-spacing:.5px">Eventicor</div>
+      <p style="margin:18px 0 6px;font-size:15px;color:#5a6970">You asked us to send the link to the app you created with this email. Here ${apps.length===1?'it is':'they are'}:</p>
+      ${rows}
+      <p style="margin:0;font-size:13px;color:#8a90a6">Your login details are unchanged. If you forgot your password, use Forgot password on the sign-in page.</p>
+    </div>
+  </div>
+</body></html>`;
+}
+
 // A stable per-deploy pepper so the stored hash is useless without it.
 let pepperCache = null;
 function pepper() {
@@ -295,6 +325,89 @@ export default async (req) => {
     }
     await db.collection('authLock').doc('login:' + email).set({ email, fails, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return json(400, { ok: false, error: 'wrong', attemptsLeft: LOGIN_MAX_ATTEMPTS - fails });
+  }
+
+  // ================= recover-request =================
+  // A visitor whose email already owns an account can recover the link to the
+  // app they created. Same security as the password reset: one code per the
+  // admin's resend window, wrong codes past the admin's limit lock the whole
+  // action for the admin's lock length. State lives under recover: keys so it
+  // never mixes with the password-reset counters.
+  if (op === 'recover-request') {
+    const lock = await getLock('recover', email);
+    const lockLeft = msLeft(lockUntilOf(lock));
+    if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
+    const prev = await db.collection('authOtp').doc('recover:' + email).get();
+    const pd = prev.exists ? prev.data() : null;
+    if (pd && pd.lastSentAt) {
+      const sent = pd.lastSentAt.toMillis ? pd.lastSentAt.toMillis() : Number(pd.lastSentAt);
+      const wait = RESEND_WINDOW_MS - (Date.now() - sent);
+      if (wait > 0) return json(429, { ok: false, error: 'rate', retryAfter: Math.ceil(wait / 1000) });
+    }
+    // Only a real account gets a code; the reply is identical either way.
+    let exists = true;
+    try { await getAuth().getUserByEmail(email); } catch (e) { exists = !(e && e.code === 'auth/user-not-found'); }
+    if (exists) {
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const sent = await zeptoSend(email, 'Your Eventicor code to get your app link back', otpRecoverEmail(code, sec.codeExpiryMinutes));
+      if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300) });
+      await db.collection('authOtp').doc('recover:' + email).set({
+        email,
+        hash: codeHash(email, code),
+        attempts: 0,
+        verified: false,
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        lastSentAt: FieldValue.serverTimestamp(),
+      });
+    }
+    return json(200, { ok: true });
+  }
+
+  // ================= recover-verify =================
+  if (op === 'recover-verify') {
+    const lock = await getLock('recover', email);
+    const lockLeft = msLeft(lockUntilOf(lock));
+    if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
+    const snap = await db.collection('authOtp').doc('recover:' + email).get();
+    const doc = snap.exists ? snap.data() : null;
+    if (!doc) return json(400, { ok: false, error: 'none' });
+    const exp = doc.expiresAt ? (doc.expiresAt.toMillis ? doc.expiresAt.toMillis() : Number(doc.expiresAt)) : 0;
+    if (exp && exp < Date.now()) return json(400, { ok: false, error: 'expired' });
+    const code = String(body.code || '').replace(/\D/g, '');
+    if (code.length !== 6 || !safeEq(doc.hash, codeHash(email, code))) {
+      const attempts = (Number(doc.attempts) || 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await db.collection('authLock').doc('recover:' + email).set({ email, lockedUntil: new Date(Date.now() + LOCK_MS), at: FieldValue.serverTimestamp() });
+        await db.collection('authOtp').doc('recover:' + email).delete();
+        return json(429, { ok: false, error: 'locked', retryAt: Date.now() + LOCK_MS });
+      }
+      await db.collection('authOtp').doc('recover:' + email).set({ attempts }, { merge: true });
+      return json(400, { ok: false, error: 'wrong', attemptsLeft: OTP_MAX_ATTEMPTS - attempts });
+    }
+    // Verified: find the app this email created and email the link back.
+    let apps = [];
+    try {
+      const q = await db.collection('leads').where('email', '==', email).limit(5).get();
+      q.forEach((d) => {
+        const l = d.data() || {};
+        const p = new URLSearchParams();
+        p.set('lead', d.id);
+        if (l.template) p.set('tpl', String(l.template));
+        if (l.accent) p.set('acc', String(l.accent));
+        const exps = Number(l.expiresAt);
+        if (exps > Date.now()) p.set('exp', String(Math.floor(exps / 1000)));
+        apps.push({ url: '/install?' + p.toString(), bride: String(l.bride || ''), groom: String(l.groom || '') });
+      });
+    } catch { /* the fallback copy covers an empty list */ }
+    const proto = String(req.headers.get('x-forwarded-proto') || 'https').split(',')[0].trim();
+    const host = req.headers.get('host') || 'eventicor.name.ng';
+    const base = proto + '://' + host;
+    const sent = await zeptoSend(email, 'Your Eventicor app link', recoverLinkEmail(base, apps));
+    if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300) });
+    // Single use: the code dies with the doc.
+    await db.collection('authOtp').doc('recover:' + email).delete();
+    return json(200, { ok: true, apps: apps.length });
   }
 
   // ================= check =================
