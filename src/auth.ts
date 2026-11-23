@@ -1,11 +1,12 @@
 import { app, proxyCall, firebaseConfig } from './firebase'
+import { otpCall, lockTimeString } from './otpAuth'
 import { initializeApp, deleteApp, getApps } from 'firebase/app'
 import {
   getAuth,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
-  signInWithEmailAndPassword,
+  signInWithCustomToken,
   signOut as fbSignOut,
   signInAnonymously,
   type User,
@@ -72,7 +73,25 @@ export function watchAuth(cb: (user: User | null) => void) {
  * from the couple apps' session, so this never touches who is signed into a
  * couple app. A signed-in account without a platform admins doc is refused. */
 export async function signInAdmin(email: string, password: string) {
-  const cred = await signInWithEmailAndPassword(consoleAuth, email.trim(), password)
+  // The password check happens on the server (see netlify/functions/auth-otp.mjs):
+  // three wrong passwords lock this email out of sign-in for an hour, counted
+  // server-side, and the browser only ever learns what the server answers.
+  const r = await otpCall('login', { email: email.trim(), password })
+  if (r.status === 429 || r.body?.error === 'locked') {
+    const err: Error & { code?: string; detail?: string } = Object.assign(new Error('locked'), {
+      code: 'eventicor/locked',
+      detail: lockTimeString(r.body?.retryAt),
+    })
+    throw err
+  }
+  if (!r.status || !r.ok || !r.body?.token) {
+    const err: Error & { code?: string; attemptsLeft?: number } = Object.assign(new Error(r.body?.error || 'wrong'), {
+      code: r.body?.error === 'wrong' ? 'auth/invalid-credential' : 'eventicor/login-failed',
+      attemptsLeft: r.body?.attemptsLeft,
+    })
+    throw err
+  }
+  const cred = await signInWithCustomToken(consoleAuth, r.body.token as string)
   const admin = await isAdmin(cred.user)
   if (!admin) {
     await fbSignOut(consoleAuth)

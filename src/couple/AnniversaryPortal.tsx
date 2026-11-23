@@ -62,7 +62,8 @@ import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DE
 const InstallGuide = lazy(() => import('../components/InstallPage'));
 import { HaloHero, DeckHero, BookHero } from './heroes';
 import { get, set, del } from 'idb-keyval';
-import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updatePassword, signOut, debugState } from './lib/authShim';
+import { signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, updatePassword, signOut, debugState, signInWithCustomToken } from './lib/authShim';
+import { otpCall, lockTimeString } from '../otpAuth';
 import { 
   collection, 
   query, 
@@ -960,7 +961,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [attachedMedia, setAttachedMedia] = useState<{url: string, id: string, type?: 'image' | 'video', orientation?: 'portrait' | 'landscape'}[]>([]);
 
   // Email/password admin auth state
-  const [authScreen, setAuthScreen] = useState<null | 'signin' | 'forgot' | 'sent'>(null);
+  const [authScreen, setAuthScreen] = useState<null | 'signin' | 'forgot' | 'otp' | 'newpass'>(null);
+  // A green confirmation after a successful reset, shown on the sign-in screen.
+  const [authNotice, setAuthNotice] = useState('');
+  // The short-lived server token a correct OTP code returns; the new password
+  // step needs it, and it dies after one use.
+  const otpTokenRef = useRef('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [showAuthPassword, setShowAuthPassword] = useState(false);
@@ -2038,7 +2044,24 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     setAuthError('');
     setAuthBusy(true);
     try {
-      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      // The password check happens on the server (netlify/functions/auth-otp.mjs):
+      // wrong attempts are counted there per email, three lock sign-in for an
+      // hour, and the browser only ever learns what the server answers.
+      const r = await otpCall('login', { email: email.trim(), password });
+      if (r.status === 429 || r.body?.error === 'locked') {
+        setAuthError(`Too many wrong attempts. Sign-in is locked ${lockTimeString(r.body?.retryAt)}.`);
+        return;
+      }
+      if (!r.status || r.status >= 500) {
+        setAuthError('Network problem. Check your connection and try again.');
+        return;
+      }
+      if (r.status !== 200 || !r.body?.token) {
+        const left = r.body?.attemptsLeft;
+        setAuthError(`Email or password is incorrect.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'attempt' : 'attempts'} left before a 1-hour lock.` : ''}`);
+        return;
+      }
+      const cred = await signInWithCustomToken(auth, String(r.body.token));
       // Only an administrator of THIS app may enter its dashboard. Anyone
       // else (the Eventicor console owner, a couple from another app, a
       // stray account) is signed straight back out and gets the same
@@ -2072,13 +2095,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if (shortcutLoginRef.current) { shortcutLoginRef.current = false; goAdminPage(); }
     } catch (err: any) {
       const code = err?.code || '';
-      if (code.includes('wrong-password') || code.includes('user-not-found') || code.includes('invalid-credential')) {
-        setAuthError('Email or password is incorrect.');
-      } else if (code.includes('too-many-requests')) {
-        setAuthError('Too many attempts. Try again in a moment.');
-      } else if (code.includes('invalid-email') || code.includes('missing-password')) {
-        setAuthError('Enter the email and password exactly as they appear in your login email.');
-      } else if (code.includes('network')) {
+      if (code.includes('network')) {
         setAuthError('Network problem. Check your connection and try again.');
       } else {
         setAuthError(`Could not sign in${code ? ` (${code})` : ''}. Please try again.`);
@@ -2089,18 +2106,71 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
 
+  // Password reset runs by emailed code, never a reset link. The reply never
+  // says whether the account exists: a registered email gets a code, anything
+  // else gets the same confirmation, so the form cannot be used to probe.
   const handleForgotPassword = async (email: string) => {
     setAuthError('');
     setAuthBusy(true);
-    try {
-      await sendPasswordResetEmail(auth, email.trim());
-      setAuthScreen('sent');
-    } catch (err: any) {
-      const code = err?.code || '';
-      setAuthError(code.includes('user-not-found') ? 'No account found for that email.' : 'Could not send the reset email. Please try again.');
-    } finally {
-      setAuthBusy(false);
+    const r = await otpCall('request', { email: email.trim() });
+    setAuthBusy(false);
+    if (r.status === 200) {
+      setAuthScreen('otp');
+      return;
     }
+    if (r.status === 429 && r.body?.error === 'rate') {
+      const sec = Math.max(1, Number(r.body?.retryAfter) || 600);
+      setAuthError(`A code was already sent to this email. Request another in ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}.`);
+      return;
+    }
+    if (r.status === 429 && r.body?.error === 'locked') {
+      setAuthError(`Too many attempts. This is locked ${lockTimeString(r.body?.retryAt)}.`);
+      return;
+    }
+    setAuthError('Could not send the code. Check your connection and try again.');
+  };
+
+  const handleVerifyOtp = async (email: string, code: string) => {
+    setAuthError('');
+    setAuthBusy(true);
+    const r = await otpCall('verify', { email: email.trim(), code });
+    setAuthBusy(false);
+    if (r.status === 200 && r.body?.token) {
+      otpTokenRef.current = String(r.body.token);
+      setAuthScreen('newpass');
+      return;
+    }
+    if (r.status === 429 && r.body?.error === 'locked') {
+      setAuthError(`Too many wrong codes. You can try again ${lockTimeString(r.body?.retryAt)}.`);
+      return;
+    }
+    if (r.status === 400 && r.body?.error === 'expired') { setAuthError('That code has expired. Request a new one.'); return; }
+    if (r.status === 400 && r.body?.error === 'none') { setAuthError('No code is waiting for this email yet. Request one first.'); return; }
+    const left = r.body?.attemptsLeft;
+    setAuthError(`That code is not right.${typeof left === 'number' ? ` ${left} ${left === 1 ? 'try' : 'tries'} left before a 1-hour lock.` : ''}`);
+  };
+
+  const handleResetPassword = async (email: string, p1: string, p2: string) => {
+    setAuthError('');
+    if (p1.length < 6) { setAuthError('Use at least 6 characters.'); return; }
+    if (p1 !== p2) { setAuthError('The two passwords do not match.'); return; }
+    setAuthBusy(true);
+    const r = await otpCall('reset', { email: email.trim(), token: otpTokenRef.current, password: p1 });
+    setAuthBusy(false);
+    if (r.status === 200) {
+      otpTokenRef.current = '';
+      setAuthPassword('');
+      setAuthScreen('signin');
+      setAuthNotice('Password updated. Enter your new password to sign in.');
+      return;
+    }
+    if (r.status === 429 && r.body?.error === 'locked') {
+      setAuthError(`Too many attempts. This is locked ${lockTimeString(r.body?.retryAt)}.`);
+      return;
+    }
+    if (r.status === 400 && r.body?.error === 'weak') { setAuthError('Use at least 6 characters.'); return; }
+    if (r.status === 400 && r.body?.error === 'token') { setAuthError('Your reset session expired. Start the reset again.'); setAuthScreen('forgot'); return; }
+    setAuthError('Could not update the password. Try again.');
   };
 
   const handleSetPermanentPassword = async () => {
@@ -3994,6 +4064,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             onClose={leaveAdminPage}
             onSignIn={handleAdminLogin}
             onForgot={handleForgotPassword}
+            onVerify={handleVerifyOtp}
+            onReset={handleResetPassword}
+            notice={authNotice}
             busy={authBusy}
             error={authError}
             clearError={() => setAuthError('')}
@@ -4432,6 +4505,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onClose={() => { setAuthScreen(null); setAuthError(''); shortcutLoginRef.current = false; }}
           onSignIn={handleAdminLogin}
           onForgot={handleForgotPassword}
+          onVerify={handleVerifyOtp}
+          onReset={handleResetPassword}
+          notice={authNotice}
           busy={authBusy}
           error={authError}
           clearError={() => setAuthError('')}
@@ -6980,14 +7056,17 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isDarkMode, title
 }
 
 
-function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, error, clearError, isDarkMode, coupleLabel }: {
-  screen: 'signin' | 'forgot' | 'sent';
-  setScreen: (s: 'signin' | 'forgot' | 'sent') => void;
+function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, onReset, busy, error, notice, clearError, isDarkMode, coupleLabel }: {
+  screen: 'signin' | 'forgot' | 'otp' | 'newpass';
+  setScreen: (s: 'signin' | 'forgot' | 'otp' | 'newpass') => void;
   onClose: () => void;
   onSignIn: (email: string, password: string) => void;
   onForgot: (email: string) => void;
+  onVerify: (email: string, code: string) => void;
+  onReset: (email: string, p1: string, p2: string) => void;
   busy: boolean;
   error: string;
+  notice: string;
   clearError: () => void;
   isDarkMode: boolean;
   coupleLabel: string;
@@ -6995,10 +7074,33 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState('');
+  const [p1, setP1] = useState('');
+  const [p2, setP2] = useState('');
+  const [show1, setShow1] = useState(false);
+  const [show2, setShow2] = useState(false);
+  // Ten minutes between code sends, ticked here; the server enforces the real
+  // window either way, so the countdown can only be conservative.
+  const RESEND = 600;
+  const [resendIn, setResendIn] = useState(0);
+  useEffect(() => {
+    if (screen !== 'otp') return;
+    setResendIn(RESEND);
+    const t = window.setInterval(() => setResendIn((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => window.clearInterval(t);
+  }, [screen]);
+  // Back on sign-in (after a successful reset, or backing out) the password
+  // field starts empty: only the email carries over.
+  useEffect(() => { if (screen === 'signin') { setPassword(''); setP1(''); setP2(''); } }, [screen]);
+  const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const submit = () => {
     if (!email.trim() || !password) { return; }
     onSignIn(email, password);
   };
+  const inputCls = `w-full p-4 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`;
+  const labelCls = `block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`;
+  const primaryBtn = "w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all";
+  const backBtn = `w-full py-4 font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'text-white/40' : 'text-[#5A6970]'}`;
 
   return (
     <div className={`fixed inset-0 z-[300] flex items-center justify-center p-5 overflow-y-auto ${isDarkMode ? 'bg-[#0B171C]' : 'bg-[#F6F5FA]'}`}>
@@ -7011,19 +7113,98 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
             Cancel <X className="w-4 h-4" />
           </button>
         </div>
-        {screen === 'sent' ? (
+        {screen === 'otp' ? (
           <>
             <div className="w-16 h-16 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-5">
               <Mail className="w-8 h-8" />
             </div>
             <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Check your email</h2>
             <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-              We sent a password reset link. Follow it to set a new password, then come back and sign in.
+              If {email.trim()} is on an admin account, a 6-digit code is waiting there. The code stops working in 10 minutes.
             </p>
+            <label className={labelCls}>Enter the code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => { setCode(e.target.value.replace(/\D/g, '')); clearError(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && code.length === 6) onVerify(email, code); }}
+              placeholder="000000"
+              className={`${inputCls} mb-4 text-center text-[1.4rem] tracking-[0.45em]`}
+            />
+            {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
             <button
-              onClick={() => setScreen('signin')}
-              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all"
+              onClick={() => onVerify(email, code)}
+              disabled={busy || code.length !== 6}
+              className={`${primaryBtn} mb-3`}
             >
+              {busy ? 'Please wait…' : 'Continue'}
+            </button>
+            <button
+              onClick={() => { clearError(); onForgot(email); }}
+              disabled={busy || resendIn > 0 || !email.trim()}
+              className={backBtn}
+            >
+              {resendIn > 0 ? `Request a new code in ${mmss(resendIn)}` : 'Request a new code'}
+            </button>
+            <button onClick={() => setScreen('signin')} className={`${backBtn} mt-1`}>
+              Back to sign in
+            </button>
+          </>
+        ) : screen === 'newpass' ? (
+          <>
+            <div className="w-16 h-16 rounded-full bg-[var(--ann-accent)]/10 text-[var(--ann-accent)] flex items-center justify-center mx-auto mb-5">
+              <KeyRound className="w-8 h-8" />
+            </div>
+            <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Set a new password</h2>
+            <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
+              Use at least 6 characters. You will sign in with it right away.
+            </p>
+            <label className={labelCls}>New password</label>
+            <div className="relative mb-4">
+              <input
+                type={show1 ? 'text' : 'password'}
+                value={p1}
+                onChange={(e) => { setP1(e.target.value); clearError(); }}
+                placeholder="At least 6 characters"
+                autoComplete="new-password"
+                className={`${inputCls} pr-12`}
+              />
+              <button type="button" onClick={() => setShow1(!show1)} aria-label={show1 ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#5A6970]">
+                {show1 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            <label className={labelCls}>Confirm new password</label>
+            <div className="relative mb-4">
+              <input
+                type={show2 ? 'text' : 'password'}
+                value={p2}
+                onChange={(e) => { setP2(e.target.value); clearError(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && p1 && p2) onReset(email, p1, p2); }}
+                placeholder="Type it once more"
+                autoComplete="new-password"
+                className={`${inputCls} pr-12`}
+              />
+              <button type="button" onClick={() => setShow2(!show2)} aria-label={show2 ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#5A6970]">
+                {show2 ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            {p1 && (
+              <p className={`text-[0.8rem] font-bold mb-3 ${p1.length >= 6 ? 'text-[var(--ann-accent)]' : 'text-[#C4453B]'}`}>
+                {p1.length >= 6 ? 'Password looks good' : 'Too short: use at least 6 characters'}
+              </p>
+            )}
+            {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
+            <button
+              onClick={() => onReset(email, p1, p2)}
+              disabled={busy || !p1 || !p2}
+              className={`${primaryBtn} mb-3`}
+            >
+              {busy ? 'Please wait…' : 'Continue'}
+            </button>
+            <button onClick={() => setScreen('signin')} className={backBtn}>
               Back to sign in
             </button>
           </>
@@ -7034,26 +7215,27 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
             </div>
             <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Forgot password?</h2>
             <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-              Enter the email on your admin account and we will send a reset link.
+              Enter the email on your admin account. If it is registered, we will send a 6-digit reset code to it.
             </p>
-            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Email</label>
+            <label className={labelCls}>Email</label>
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); clearError(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && !busy) onForgot(email); }}
               placeholder="you@example.com"
               autoComplete="email"
-              className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+              className={`${inputCls} mb-4`}
             />
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] mb-4">{error}</p>}
             <button
               onClick={() => onForgot(email)}
               disabled={busy || !email.trim()}
-              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all"
+              className={`${primaryBtn} mb-3`}
             >
-              {busy ? 'Sending…' : 'Send reset link'}
+              {busy ? 'Sending…' : 'Send code'}
             </button>
-            <button onClick={() => setScreen('signin')} className={`w-full py-4 font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'text-white/40' : 'text-[#5A6970]'}`}>
+            <button onClick={() => setScreen('signin')} className={backBtn}>
               Back to sign in
             </button>
           </>
@@ -7068,16 +7250,16 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
                 Sign in to the couple dashboard.
               </p>
             </div>
-            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Email</label>
+            <label className={labelCls}>Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               autoComplete="email"
-              className={`w-full p-4 rounded-xl border-none outline-none font-bold mb-4 ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+              className={`${inputCls} mb-4`}
             />
-            <label className={`block text-[0.7rem] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Password</label>
+            <label className={labelCls}>Password</label>
             <div className="relative mb-2">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -7086,7 +7268,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
                 onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
                 placeholder="Your password"
                 autoComplete="current-password"
-                className={`w-full p-4 pr-12 rounded-xl border-none outline-none font-bold ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
+                className={`${inputCls} pr-12`}
               />
               <button
                 type="button"
@@ -7097,14 +7279,17 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, busy, erro
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            <button onClick={() => setScreen('forgot')} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
+            {notice && (
+              <p className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">{notice}</p>
+            )}
+            <button onClick={() => { clearError(); setScreen('forgot'); }} className="text-[0.85rem] font-bold text-[var(--ann-accent)] mb-2">
               Forgot password?
             </button>
             {error && <p className="text-[0.85rem] font-bold text-[#C4453B] my-3">{error}</p>}
             <button
               onClick={submit}
               disabled={busy || !email.trim() || !password}
-              className="w-full py-4 rounded-full bg-[var(--ann-accent)] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-[var(--ann-accent)]/20 disabled:opacity-50 hover:brightness-110 transition-all mt-3"
+              className={`${primaryBtn} mt-3`}
             >
               {busy ? 'Please wait…' : 'Sign in'}
             </button>

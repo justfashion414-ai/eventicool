@@ -86,6 +86,9 @@ export const signInWithEmailAndPassword: any = DEMO
 export const sendPasswordResetEmail: any = DEMO
   ? (...args: any[]) => (realAuth ? FA.sendPasswordResetEmail(realAuthInstance(), args[1]) : demoRefusal())
   : FA.sendPasswordResetEmail;
+export const signInWithCustomToken: any = DEMO
+  ? (...args: any[]) => (realAuth ? FA.signInWithCustomToken(realAuthInstance(), args[1]) : demoRefusal())
+  : FA.signInWithCustomToken;
 export const updatePassword: any = DEMO
   ? (...args: any[]) => (realAuth ? FA.updatePassword(args[0], args[1]) : demoRefusal())
   : FA.updatePassword;
