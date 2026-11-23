@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 
 // Eventicor web app — Firebase project eventicool-3887d.
 // Values come from Netlify environment variables (FIREBASE_*), with the
@@ -16,6 +17,22 @@ export const firebaseConfig = {
 }
 
 export const app = initializeApp(firebaseConfig)
+
+// App Check: every client request carries a token minted from the project's
+// reCAPTCHA Enterprise key, so scripts and bots hitting Firestore directly
+// are distinguishable from the real app. Enforcement is switched server-side
+// (Firebase console), the client only stamps requests. The site key is
+// public by design.
+const AC_SITE_KEY = env.FIREBASE_APPCHECK_SITE_KEY || '6LeF1S0uAAAAACQRTwKWGNSviBkyZP5TbF8J-9SB'
+try {
+  const w = window as any
+  if (!w.__evAppCheck) {
+    w.__evAppCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(AC_SITE_KEY),
+      isTokenAutoRefreshEnabled: true,
+    })
+  }
+} catch { /* a token failure never stops the app from loading */ }
 
 // Firestore client used for public reads only (sample-app lead lookup).
 // Every write still goes through the server-side proxy.
