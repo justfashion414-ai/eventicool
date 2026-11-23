@@ -1016,6 +1016,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isAdmin, setIsAdmin] = useState(false);
   const [displayName, setDisplayName] = useState(localStorage.getItem(lsKey('profile-name')) || '');
   const [avatar, setAvatar] = useState(localStorage.getItem(lsKey('profile-avatar')) || '');
+  // Guest "Report a problem" popup (user direction Nov 23 2026): the Settings
+  // row's Report button opens it. A report needs a saved profile name; the
+  // profile photo rides along when the guest saved one.
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportText, setReportText] = useState('');
+  const [reportBusy, setReportBusy] = useState(false);
   // Secret way in: the admin picks where the hidden entrance to their dashboard
   // sits. Cached on this device at sign-in so it keeps working signed-out.
   const [secretPath, setSecretPath] = useState<string>(() => { try { return (JSON.parse(localStorage.getItem(lsKey('secret-path')) || 'null') || {}).v || 'default'; } catch { return 'default'; } });
@@ -4042,7 +4048,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     <strong className="block text-[1rem]">Report a problem</strong>
                     <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tell the couple if something looks wrong</small>
                   </div>
-                  <button className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
+                  <button onClick={() => { setReportText(''); setReportOpen(true); }} className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
                 </div>
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
                   <span className={`text-xs font-bold tracking-wide select-none ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
@@ -4822,6 +4828,72 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <button disabled={pushBusy} onClick={async () => { setPushBusy(true); const r = await enablePush('guest', { uid: user?.uid }); setPushBusy(false); setPushNudge(false); showToast(r === 'granted' ? 'You will be notified when your post is approved' : r === 'denied' ? 'Notifications were blocked. Turn them on in your browser settings.' : 'Notifications are not supported on this device.', r === 'granted' ? 'success' : 'error'); }} className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">Turn on notifications</button>
               <button onClick={() => setPushNudge(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Not now</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guest report popup (user direction Nov 23 2026): Settings > Report
+          a problem. A report cannot be sent without a saved profile name, and
+          the guest's profile photo attaches when they saved one. */}
+      {reportOpen && (
+        <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setReportOpen(false)}>
+          <div className={`w-full max-w-[360px] rounded-[24px] p-6 text-left ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-black font-display text-lg mb-1">Report a problem</h3>
+            <p className="text-sm opacity-60 mb-4">Tell the couple what went wrong. It reaches them with your name{avatar ? ' and photo' : ''}.</p>
+            {displayName.trim() ? (
+              <>
+                <textarea
+                  value={reportText}
+                  onChange={(e) => setReportText(e.target.value)}
+                  maxLength={600}
+                  rows={4}
+                  placeholder="Describe the problem"
+                  className={`w-full rounded-2xl border p-3 text-sm outline-none resize-none ${isDarkMode ? 'bg-[#0B171C] border-[#22363E] text-white placeholder:text-white/30' : 'bg-white border-[#DAD8E3] text-[#1d2b30] placeholder:text-[#93A4AB]'}`}
+                />
+                <div className="flex items-center gap-2 mt-3">
+                  {avatar ? (
+                    <img src={avatar} className="w-7 h-7 rounded-full object-cover" alt="Your profile" />
+                  ) : (
+                    <span className="w-7 h-7 rounded-full bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] flex items-center justify-center text-xs font-black">{displayName.trim()[0].toUpperCase()}</span>
+                  )}
+                  <small className="text-xs opacity-60">Sent as {displayName.trim()}</small>
+                </div>
+                <div className="flex flex-col gap-2 mt-4">
+                  <button
+                    disabled={reportBusy || !reportText.trim()}
+                    onClick={async () => {
+                      setReportBusy(true);
+                      try {
+                        await addDoc(collection(db, scopedPath('reports')), {
+                          text: reportText.trim(),
+                          name: displayName.trim(),
+                          photo: avatar || null,
+                          uid: user?.uid || null,
+                          handled: false,
+                          createdAt: serverTimestamp(),
+                        });
+                        showToast('Report sent. Thank you.', 'success');
+                        setReportOpen(false);
+                        setReportText('');
+                      } catch {
+                        showToast('Could not send the report. Try again.', 'error');
+                      } finally {
+                        setReportBusy(false);
+                      }
+                    }}
+                    className="py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-40"
+                  >
+                    {reportBusy ? 'Sending…' : 'Send report'}
+                  </button>
+                  <button onClick={() => setReportOpen(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Cancel</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm opacity-70 mb-5">Save your name in your profile first, then you can send a report.</p>
+                <button onClick={() => setReportOpen(false)} className="py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Close</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -8945,7 +9017,7 @@ function AdminDashboardModal({
       const storedAdminUi = JSON.parse(localStorage.getItem(lsKey('admin-ui')) || 'null');
       // Nov 20 2026: the Hero photos tab merged into Events & photos.
       const storedTab = storedAdminUi?.tab === 'hero' ? 'events' : storedAdminUi?.tab;
-      return storedTab && ['overview', 'moderation', 'posts', 'events', 'invite', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
+      return storedTab && ['overview', 'moderation', 'reports', 'posts', 'events', 'invite', 'albums', 'settings', 'ads', 'recycle'].includes(storedTab) ? storedTab : 'overview';
     } catch {
       return 'overview';
     }
@@ -9548,6 +9620,21 @@ function AdminDashboardModal({
 
   const [modQueue, setModQueue] = useState<'pending' | 'reports' | 'vendors'>('pending');
   const [postEventFilter, setPostEventFilter] = useState<string>('all');
+  // Guest problem reports (user direction Nov 23 2026): guests send them from
+  // Settings > Report a problem; this tab lists every one with the sender's
+  // profile name and photo, and the admin marks it handled or deletes it.
+  const [reports, setReports] = useState<any[]>([]);
+  const [confirmReportId, setConfirmReportId] = useState<string>('');
+  const [reportBusyId, setReportBusyId] = useState<string>('');
+  useEffect(() => {
+    if (!isOpen) return;
+    const unsub = onSnapshot(collection(db, scopedPath('reports')), (snap: any) => {
+      const arr = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      arr.sort((a: any, b: any) => (((b as any).createdAt?.seconds || 0) - ((a as any).createdAt?.seconds || 0)));
+      setReports(arr);
+    }, () => setReports([]));
+    return () => { unsub(); };
+  }, [isOpen]);
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
@@ -10178,6 +10265,8 @@ function AdminDashboardModal({
                         {[
                           { id: 'overview', label: 'Overview', icon: Home },
                           { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
+                    { id: 'reports', label: 'Report', icon: Flag },
+                          { id: 'reports', label: 'Report', icon: Flag },
                           { id: 'posts', label: 'All posts', icon: Film },
                           { id: 'events', label: 'Events & photos', icon: Calendar },
                           { id: 'invite', label: 'Inbox invite', icon: Mail },
@@ -10454,6 +10543,105 @@ function AdminDashboardModal({
                 </div>
               )}
 
+              {activeAdminTab === 'reports' && (
+                <section className="mb-8">
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <div>
+                      <h2 className="font-display text-[1.35rem] font-bold">Report</h2>
+                      <p className="text-sm opacity-60 mt-0.5">Everything guests report from their Settings screen.</p>
+                    </div>
+                    {reports.filter((r: any) => !r.handled).length > 0 && (
+                      <span className="px-3 py-1.5 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest whitespace-nowrap">{reports.filter((r: any) => !r.handled).length} new</span>
+                    )}
+                  </div>
+                  {reports.length === 0 ? (
+                    <div className={`p-8 text-center rounded-2xl border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                      <p className="opacity-50 text-sm">No reports yet. Guests can report a problem from their Settings screen.</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {reports.map((r: any) => {
+                        const ts = r.createdAt?.seconds;
+                        const when = ts ? new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+                        return (
+                        <div key={r.id} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                          <div className="flex items-start gap-3">
+                            {r.photo ? (
+                              <img src={r.photo} className="w-10 h-10 rounded-full object-cover flex-shrink-0" alt="" />
+                            ) : (
+                              <span className="w-10 h-10 rounded-full bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] flex items-center justify-center text-sm font-black flex-shrink-0">{String(r.name || 'A guest')[0].toUpperCase()}</span>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="font-bold text-[0.92rem] truncate">{r.name || 'A guest'}</p>
+                                {when && <small className="text-[0.7rem] opacity-50 whitespace-nowrap">{when}</small>}
+                              </div>
+                              <p className="text-sm opacity-80 mt-1 whitespace-pre-wrap break-words">{r.text}</p>
+                              <div className="flex items-center gap-2 mt-3">
+                                <button
+                                  disabled={reportBusyId === r.id}
+                                  onClick={async () => {
+                                    setReportBusyId(r.id);
+                                    try {
+                                      await updateDoc(doc(db, scopedPath('reports'), r.id), { handled: !r.handled });
+                                      showToast(r.handled ? 'Marked as new' : 'Marked as handled', 'success');
+                                    } catch {
+                                      showToast('Could not update the report', 'error');
+                                    } finally {
+                                      setReportBusyId('');
+                                    }
+                                  }}
+                                  className={`px-4 py-2 rounded-full border text-[0.7rem] font-black uppercase tracking-widest ${r.handled ? 'border-transparent bg-emerald-600/15 text-emerald-600 dark:text-emerald-400' : 'border-[#DAD8E3] dark:border-[#22363E] opacity-70'}`}
+                                >
+                                  {r.handled ? 'Handled' : 'Mark handled'}
+                                </button>
+                                <button
+                                  disabled={reportBusyId === r.id}
+                                  onClick={() => setConfirmReportId(r.id)}
+                                  className="px-4 py-2 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-60"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {confirmReportId && (
+                    <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-5" onClick={() => setConfirmReportId('')}>
+                      <div className={`w-full max-w-[320px] rounded-[20px] p-5 text-center ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+                        <h3 className="font-black font-display text-base mb-1">Delete this report?</h3>
+                        <p className="text-sm opacity-60 mb-4">This removes it for good.</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setConfirmReportId('')} className="flex-1 py-2.5 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest opacity-70">Cancel</button>
+                          <button
+                            disabled={reportBusyId === confirmReportId}
+                            onClick={async () => {
+                              const rid = confirmReportId;
+                              setReportBusyId(rid);
+                              try {
+                                await deleteDoc(doc(db, scopedPath('reports'), rid));
+                                setConfirmReportId('');
+                                showToast('Report deleted', 'success');
+                              } catch {
+                                showToast('Could not delete the report', 'error');
+                              } finally {
+                                setReportBusyId('');
+                              }
+                            }}
+                            className="flex-1 py-2.5 rounded-full bg-red-600 text-white text-[0.7rem] font-black uppercase tracking-widest disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
               {activeAdminTab === 'posts' && (
                 <div className="space-y-6">
                   <div>
