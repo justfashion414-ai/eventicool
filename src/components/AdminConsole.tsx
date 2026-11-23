@@ -314,7 +314,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     const fallback = { feedPageSize: 0, storage: { essential: 5, complete: 10, legacy: 20 }, invitees: { essential: 0, complete: 0, legacy: 0 } }
     ;(async () => {
       await consoleAuthReady()
-      if (!alive || !consoleAuth.currentUser) { if (alive) setPlat(fallback); return }
+      if (!alive || !consoleAuth.currentUser) { if (alive) { setPlat(fallback); setLoginSec({ loginMaxAttempts: 3, otpMaxAttempts: 5, lockMinutes: 60, codeExpiryMinutes: 10, resendMinutes: 10 }) }; return }
       try {
         const d: any = await consoleCall('get', { collection: 'platform', id: 'settings' })
         if (!alive) return
