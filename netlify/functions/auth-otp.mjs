@@ -66,10 +66,16 @@ const norm = (e) => String(e || '').trim().toLowerCase();
 
 // ---- ZeptoMail (same account the credential emails use) ----
 const authOf = (t) => (t.startsWith('Zoho-enczapikey') ? t : 'Zoho-enczapikey ' + t);
+// Same send path the credential and invite emails use: both stored tokens are
+// tried and the one ZeptoMail accepts is kept for the container's lifetime.
+let zeptoTokenCache = null;
 async function zeptoSend(to, subject, html) {
-  const token = process.env.ZEPTOMAIL_SEND_MAIL_TOKEN || process.env.ZEPTOMAIL_API;
   const fromAddress = process.env.ZEPTOMAIL_FROM_ADDRESS || '';
-  if (!token || !fromAddress) return { ok: false, why: 'not configured' };
+  const candidates = [...new Set(
+    [process.env.ZEPTOMAIL_SEND_MAIL_TOKEN, process.env.ZEPTOMAIL_API]
+      .filter(Boolean).map(authOf)
+  )];
+  if (!candidates.length || !fromAddress) return { ok: false, why: 'not configured' };
   const payload = JSON.stringify({
     from: { address: fromAddress, name: process.env.ZEPTOMAIL_FROM_NAME || 'Eventicor' },
     to: [{ email_address: { address: to } }],
@@ -77,17 +83,21 @@ async function zeptoSend(to, subject, html) {
     htmlbody: html,
   });
   let res;
-  try {
-    res = await fetch('https://api.zeptomail.com/v1.1/email', {
-      method: 'POST',
-      headers: { Authorization: authOf(token), 'Content-Type': 'application/json' },
-      body: payload,
-    });
-  } catch (e) {
-    return { ok: false, why: String((e && e.message) || e) };
+  const order = zeptoTokenCache ? [zeptoTokenCache, ...candidates.filter((c) => c !== zeptoTokenCache)] : candidates;
+  for (const tok of order) {
+    try {
+      res = await fetch('https://api.zeptomail.com/v1.1/email', {
+        method: 'POST',
+        headers: { Authorization: tok, 'Content-Type': 'application/json' },
+        body: payload,
+      });
+    } catch (e) {
+      return { ok: false, why: String((e && e.message) || e) };
+    }
+    if (res.status !== 401) { zeptoTokenCache = tok; break; }
   }
-  if (res.ok) return { ok: true };
-  let detail = 'status ' + res.status;
+  if (res && res.ok) return { ok: true };
+  let detail = 'status ' + (res ? res.status : 'no response');
   try { detail = (await res.json()).message || detail; } catch {}
   return { ok: false, why: detail };
 }
@@ -148,7 +158,7 @@ export default async (req) => {
     if (exists) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const sent = await zeptoSend(email, 'Your Eventicor password reset code', otpEmail(code));
-      if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300), env: { token: !!process.env.ZEPTOMAIL_SEND_MAIL_TOKEN, api: !!process.env.ZEPTOMAIL_API, from: !!process.env.ZEPTOMAIL_FROM_ADDRESS } });
+      if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300) });
       await db.collection('authOtp').doc(email).set({
         email,
         hash: codeHash(email, code),
