@@ -464,7 +464,7 @@ const ColorSwatchesRow = ({ colors, onChange, isDarkMode }: { colors: any[]; onC
           <button key={i} type="button" aria-label="Pick a colour" onClick={() => setPick(i)} className={`w-11 h-11 rounded-full border-2 border-dashed flex items-center justify-center text-lg ${isDarkMode ? 'border-[#22363E] text-white/40' : 'border-[#C9C6D6] text-slate-400'}`}>+</button>
         ))}
       </div>
-      <p className="text-[10px] opacity-50 mt-2">Tap a circle to pick its colour. Tap + to add another.</p>
+      <p className="text-xs opacity-50 mt-2">Tap a circle to pick its colour. Tap + to add another.</p>
       {pick !== null && (
         <BrandedColorPicker initial={colorHexOf(rows[pick]) || '#B57D2C'} onDone={(hex: string) => {
           const next = colors.slice();
@@ -8679,10 +8679,10 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             </InvSec>
             <InvSec id="dress" title="Dress colours" openSec={openSec} setOpenSec={setOpenSec} cardCls={cardCls} labCls={labCls}>
               <ColorSwatchesRow colors={dressColors} onChange={(next: string[]) => saveColorsShared(next)} isDarkMode={isDarkMode} />
-              <p className="text-[10px] opacity-50 mt-1">The colours of the day. They show on the card and on the home page, and match the events section.</p>
+              <p className="text-xs opacity-50 mt-1">The colours of the day. They show on the card and on the home page, and match the events section.</p>
               <div className="mt-3">
-                <button type="button" onClick={() => setDressStudioOpen(true)} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.62rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Open the dress studio</button>
-                <p className="text-[10px] opacity-50 mt-1">Design the mockup looks in a roomy pop-up.</p>
+                <button type="button" onClick={() => setDressStudioOpen(true)} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.72rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Open the dress studio</button>
+                <p className="text-xs opacity-50 mt-1">Design the mockup looks in a roomy pop-up.</p>
               </div>
               <DressMockup outfit={dressOutfit} isDarkMode={isDarkMode} />
               <DressStudio open={dressStudioOpen} onClose={() => setDressStudioOpen(false)} colors={dressColors} outfit={dressOutfit} isDarkMode={isDarkMode} onSave={saveOutfitShared} />
@@ -8733,7 +8733,6 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                     <button key={v} type="button" onClick={() => setF({ ...f, photoFx: v })} className={chipCls((f.photoFx || 'hold') === v)} style={{ touchAction: 'manipulation' }}>{n}</button>
                   ))}
                 </div>
-                <p className="text-[10px] opacity-50 mt-1.5">Hold &amp; fade holds the section and fades each photo in. Scroll glide slides each photo across from the right as they scroll. Flip stack turns them over like pages.</p>
               </div>
               <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={onInvitePhotos} />
             </InvSec>
@@ -8750,12 +8749,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       { id: 'builtin', name: 'Built-in music', v: '' },
                       { id: 'none', name: 'No music', v: 'none' },
                       ...musicLib.map((tr) => ({ id: tr.id, name: tr.name, v: tr.url })),
-                      ...(myMusic.length ? [{ id: 'my-hdr', hdr: true }] : []),
-                      ...myMusic.map((tr) => ({ id: 'my-' + tr.id, name: tr.name, v: tr.url })),
                     ].map((o: any) => {
-                      if (o.hdr) return (
-                        <div key={o.id} className={`px-3.5 pt-2.5 pb-1 text-[0.58rem] font-black uppercase tracking-widest opacity-50 ${isDarkMode ? 'border-t border-[#22363E]' : 'border-t border-[#DAD8E3]'}`}>Your uploads</div>
-                      );
                       const playing = invitePlaying === o.v;
                       return (
                       <div key={o.id} className={`w-full flex items-center gap-1 pr-2 ${playing ? 'mus-playing' : 'hover:bg-[var(--ann-accent)]/5'}`}>
@@ -8780,7 +8774,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   <div className={`mt-2 rounded-xl border p-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="flex items-center justify-between text-xs font-black mb-2"><span className="truncate pr-2">Uploading {musicUpName}…</span><span className="tabular-nums">{musicPct}%</span></div>
                     <div className={`h-2 rounded-full overflow-hidden ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}><div className="h-full rounded-full bg-[var(--ann-accent)] transition-all duration-200" style={{ width: musicPct + '%' }} /></div>
-                    <p className="text-[10px] opacity-50 mt-1.5 m-0">It lands in Your uploads the moment it finishes.</p>
+                    <p className="text-[10px] opacity-50 mt-1.5 m-0">It lands in Your music the moment it finishes.</p>
                   </div>
                 )}
                 {musicMsg && <p className="text-xs font-semibold text-[#e05a4e] mt-2 m-0">{musicMsg}</p>}
@@ -8788,7 +8782,6 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                   <button type="button" onClick={() => { setMusicFormOpen(true); setMusicMsg(''); }} className={`mt-2 w-full flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left text-sm font-semibold hover:bg-[var(--ann-accent)]/5 ${isDarkMode ? 'border-[#22363E] bg-[#0B171C]' : 'border-[#DAD8E3] bg-white'}`} style={{ touchAction: 'manipulation' }}>
                     <Upload className="w-4 h-4 opacity-60 shrink-0" />
                     <span className="truncate">Upload your music</span>
-                    <span className="ml-auto shrink-0 text-[0.55rem] font-black uppercase tracking-widest opacity-40 text-right leading-tight">This app only</span>
                   </button>
                 ) : (
                   <div className={`mt-2 rounded-xl border p-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -8806,6 +8799,30 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
                       </button>
                     </div>
                                       </div>
+                )}
+                {myMusic.length > 0 && (
+                  <div className={`mt-2 rounded-xl border p-3 ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <p className="text-[0.6rem] font-black uppercase tracking-widest opacity-60 m-0 mb-1">Your music</p>
+                    {myMusic.map((tr: any) => {
+                      const selected = f.music === tr.url;
+                      const playing = invitePlaying === tr.url;
+                      return (
+                        <div key={tr.id} className={`w-full flex items-center gap-1 pr-2 rounded-lg ${playing ? 'mus-playing' : ''}`}>
+                          <button type="button" onClick={() => setF({ ...f, music: tr.url })} className="flex-1 min-w-0 flex items-center justify-between gap-2 px-1.5 py-2 text-left text-sm">
+                            <span className="flex min-w-0 items-center gap-2">
+                              {playing && <span className="eqbars text-[var(--ann-accent)]" aria-hidden="true"><i /><i /><i /></span>}
+                              <span className={`truncate ${selected ? 'font-semibold text-[var(--ann-accent)]' : ''}`}>{tr.name}</span>
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[0.5rem] font-black uppercase tracking-widest ${selected ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/10 text-white/70' : 'bg-black/5 text-slate-500')}`}>Yours</span>
+                            </span>
+                            {selected && <Check className="w-4 h-4 text-[var(--ann-accent)] shrink-0" />}
+                          </button>
+                          <button type="button" aria-label={`Listen to ${tr.name}`} onClick={() => toggleInvitePreview(tr.url)} className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:scale-95 ${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-slate-700'}`}>
+                            {playing ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
               <input ref={myMusicInputRef} type="file" accept="audio/*" className="sr-only" onChange={onMyMusic} />
@@ -10265,14 +10282,13 @@ function AdminDashboardModal({
                         {[
                           { id: 'overview', label: 'Overview', icon: Home },
                           { id: 'moderation', label: 'Moderation', icon: ShieldCheck, badge: modTotal },
-                    { id: 'reports', label: 'Report', icon: Flag },
-                          { id: 'reports', label: 'Report', icon: Flag },
                           { id: 'posts', label: 'All posts', icon: Film },
                           { id: 'events', label: 'Events & photos', icon: Calendar },
                           { id: 'invite', label: 'Inbox invite', icon: Mail },
                           { id: 'albums', label: 'Vendor albums', icon: Images },
                           { id: 'settings', label: 'Settings', icon: Settings },
                                                                         { id: 'security', label: 'Security', icon: Lock },
+                                                                        { id: 'reports', label: 'Report', icon: Flag },
                         ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                           <button
                             key={tab.id}
@@ -10344,6 +10360,7 @@ function AdminDashboardModal({
                     { id: 'albums', label: 'Vendor albums', icon: Images },
                     { id: 'settings', label: 'Settings', icon: Settings },
                     { id: 'security', label: 'Security', icon: Lock },
+                    { id: 'reports', label: 'Report', icon: Flag },
                   ].filter((t: any) => !restrictedRole || t.id === 'albums').map((tab) => (
                     <button
                       key={tab.id}
@@ -10888,9 +10905,9 @@ function AdminDashboardModal({
                     <div className="mt-3">
                       <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Aso-ebi colours</span>
                       <ColorSwatchesRow colors={detColors} onChange={(next: string[]) => saveColorsLive(next)} isDarkMode={isDarkMode} />
-                      <p className="text-[10px] opacity-50 mt-1">The colours of the day. They show on the home page and on the invitation card.</p>
+                      <p className="text-xs opacity-50 mt-1">The colours of the day. They show on the home page and on the invitation card.</p>
                       <div className="mt-2">
-                        <button type="button" onClick={() => setEvStudioOpen(true)} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.62rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Open the dress studio</button>
+                        <button type="button" onClick={() => setEvStudioOpen(true)} className="px-4 py-2 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.72rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Open the dress studio</button>
                       </div>
                       <DressMockup outfit={(detDraft || {}).dressOutfit} isDarkMode={isDarkMode} />
                       <DressStudio open={evStudioOpen} onClose={() => setEvStudioOpen(false)} colors={detColors} outfit={(detDraft || {}).dressOutfit} isDarkMode={isDarkMode} onSave={saveOutfitLive} />
