@@ -1272,6 +1272,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [isIOSDevice, setIsIOSDevice] = useState(false);
   const [pendingAndroidInstall, setPendingAndroidInstall] = useState(false);
   const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
+  // Install toast sequencing: "Installing…" must stay readable for a moment
+  // before "App installed!" replaces it. Chrome can fire the appinstalled
+  // event the instant the dialog is accepted (sometimes before the accepted
+  // userChoice resolves), so the done-toast waits for the installing toast
+  // instead of racing it.
+  const installToastAtRef = useRef(0);
+  const installCompletedRef = useRef(false);
+  const installToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showIOSInstallModalRef = useRef(false);
+  const pendingAndroidInstallRef = useRef(false);
+  useEffect(() => { showIOSInstallModalRef.current = showIOSInstallModal; }, [showIOSInstallModal]);
+  useEffect(() => { pendingAndroidInstallRef.current = pendingAndroidInstall; }, [pendingAndroidInstall]);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // The private feed holds only the feed page: a non-admin viewer without a
@@ -1440,7 +1452,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setPendingAndroidInstall(false);
       setShowIOSInstallModal(false);
       (window as any).__deferredPwaPrompt = null;
-      showToast('App installed!');
+      installCompletedRef.current = true;
+      const showInstalled = () => showToast('App installed!');
+      if (installToastTimer.current) { clearTimeout(installToastTimer.current); installToastTimer.current = null; }
+      const shownAt = installToastAtRef.current;
+      if (shownAt && Date.now() - shownAt < 2500) {
+        // Keep "Installing…" on screen long enough to be seen first.
+        installToastAtRef.current = 0;
+        installToastTimer.current = setTimeout(() => { installToastTimer.current = null; showInstalled(); }, 2500 - (Date.now() - shownAt));
+      } else if (!shownAt && (showIOSInstallModalRef.current || pendingAndroidInstallRef.current)) {
+        // The dialog was accepted faster than the installing toast could show:
+        // give it its moment, then swap.
+        showToast('Installing\u2026', 'info', true);
+        installToastTimer.current = setTimeout(() => { installToastTimer.current = null; showInstalled(); }, 2500);
+      } else {
+        showInstalled();
+      }
+      installToastAtRef.current = 0;
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -4711,7 +4739,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             &times;
           </button>
           <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>Loading install guide…</div>}>
-            <InstallGuide guideOnly names={demoHeader()} installable={installable} onInstallStart={() => showToast('Installing\u2026', 'info', true)} onInstallDismiss={() => setToast(null)} />
+            <InstallGuide guideOnly names={demoHeader()} installable={installable} onInstallStart={() => {
+              installToastAtRef.current = Date.now();
+              if (installToastTimer.current) { clearTimeout(installToastTimer.current); installToastTimer.current = null; }
+              showToast('Installing\u2026', 'info', true);
+              if (installCompletedRef.current) {
+                // The install already finished (the event beat the dialog's
+                // resolution): still give Installing its moment, then swap.
+                installCompletedRef.current = false;
+                installToastTimer.current = setTimeout(() => { installToastTimer.current = null; showToast('App installed!'); }, 2500);
+              } else {
+                // If nothing replaces the sticky toast within 15s, drop it.
+                installToastTimer.current = setTimeout(() => { installToastTimer.current = null; setToast(null); }, 15000);
+              }
+            }} onInstallDismiss={() => setToast(null)} />
           </Suspense>
         </div>
       )}
