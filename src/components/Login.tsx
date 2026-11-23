@@ -66,6 +66,13 @@ export default function Login({ onDone }: { onDone: () => void }) {
     }
   }
   useEffect(() => { if (email.trim()) checkLocks(email) }, [step])
+  // While a lock countdown is showing, re-check every 15s: a shorter lock
+  // saved in the console releases or shortens the page live, without a retry.
+  useEffect(() => {
+    if (!(lockOtp > 0 || lockLogin > 0) || !email.trim()) return
+    const t = setInterval(() => checkLocks(email), 15000)
+    return () => clearInterval(t)
+  }, [lockOtp > 0 || lockLogin > 0, email])
 
   const startResend = (seconds: number) => setResendIn(seconds)
 
@@ -219,7 +226,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
               </div>
               <h1 className="text-xl font-bold text-slate-900">Check your email</h1>
               <p className="mt-1 text-sm text-slate-500">
-                If <span className="font-medium text-slate-700">{email}</span> is on an admin account, a 6-digit code is waiting there. The code stops working in {secPolicy?.codeExpiryMinutes ? `${secPolicy.codeExpiryMinutes} minutes` : '10 minutes'}.
+                If <span className="font-medium text-slate-700">{email}</span> is on an admin account, a 6-digit code is waiting there. The code stops working in {secPolicy?.codeExpiryMinutes ? `${secPolicy.codeExpiryMinutes} ${secPolicy.codeExpiryMinutes === 1 ? 'minute' : 'minutes'}` : '10 minutes'}.
               </p>
               <form onSubmit={(e) => { e.preventDefault(); verifyCode() }} className="mt-6 space-y-4">
                 <label className="block">

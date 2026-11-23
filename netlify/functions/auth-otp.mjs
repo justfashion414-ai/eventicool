@@ -184,6 +184,16 @@ async function getLock(kind, email) {
   return snap.exists ? snap.data() : null;
 }
 const lockUntilOf = (d) => (d && d.lockedUntil ? (d.lockedUntil.toMillis ? d.lockedUntil.toMillis() : Number(d.lockedUntil)) : 0);
+const lockStartOf = (d) => (d && d.at ? (d.at.toMillis ? d.at.toMillis() : Number(d.at)) : 0);
+// The saved lock length applies to locks already in flight too: the effective
+// expiry always derives from when the lock started plus the CURRENT policy, so
+// a console save is live on every read, in both directions. A lock with no
+// start time (or a miss) falls back to its stored expiry.
+const effectiveLockLeft = (lock, LOCK_MS) => {
+  if (!lock) return 0;
+  const start = lockStartOf(lock);
+  return msLeft(start > 0 ? start + LOCK_MS : lockUntilOf(lock));
+};
 
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: cors });
@@ -208,7 +218,7 @@ export default async (req) => {
   // ================= request =================
   if (op === 'request') {
     const lock = await getLock('otp', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const prev = await getOtp(email);
     if (prev) {
@@ -239,7 +249,7 @@ export default async (req) => {
   // ================= verify =================
   if (op === 'verify') {
     const lock = await getLock('otp', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const doc = await getOtp(email);
     if (!doc) return json(400, { ok: false, error: 'none' });
@@ -266,7 +276,7 @@ export default async (req) => {
   // ================= reset =================
   if (op === 'reset') {
     const lock = await getLock('otp', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const doc = await getOtp(email);
     if (!doc || !doc.verified || !doc.token || !safeEq(doc.token, String(body.token || ''))) {
@@ -291,7 +301,7 @@ export default async (req) => {
   // ================= login =================
   if (op === 'login') {
     const lock = await getLock('login', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const password = String(body.password || '');
     if (!password) return json(400, { ok: false, error: 'missing' });
@@ -335,7 +345,7 @@ export default async (req) => {
   // never mixes with the password-reset counters.
   if (op === 'recover-request') {
     const lock = await getLock('recover', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const prev = await db.collection('authOtp').doc('recover:' + email).get();
     const pd = prev.exists ? prev.data() : null;
@@ -367,7 +377,7 @@ export default async (req) => {
   // ================= recover-verify =================
   if (op === 'recover-verify') {
     const lock = await getLock('recover', email);
-    const lockLeft = msLeft(lockUntilOf(lock));
+    const lockLeft = effectiveLockLeft(lock, LOCK_MS);
     if (lockLeft > 0) return json(429, { ok: false, error: 'locked', retryAt: Date.now() + lockLeft });
     const snap = await db.collection('authOtp').doc('recover:' + email).get();
     const doc = snap.exists ? snap.data() : null;
@@ -416,8 +426,8 @@ export default async (req) => {
   // wasted attempt, even after a refresh or a restart of the flow. The
   // 10-minute "one code per email" window rides on the same reply.
   if (op === 'check') {
-    const otpLockLeft = msLeft(lockUntilOf(await getLock('otp', email)));
-    const loginLockLeft = msLeft(lockUntilOf(await getLock('login', email)));
+    const otpLockLeft = effectiveLockLeft(await getLock('otp', email), LOCK_MS);
+    const loginLockLeft = effectiveLockLeft(await getLock('login', email), LOCK_MS);
     let canRequest = true, retryAfter = 0;
     if (otpLockLeft > 0) {
       canRequest = false;

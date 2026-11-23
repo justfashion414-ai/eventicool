@@ -7222,6 +7222,13 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
   const loginLockLeft = Math.max(0, Math.ceil((lockLogin - nowTick) / 1000));
   const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
   const blurCheck = () => { if (emailOk) onCheckLock(email); };
+  // While a lock countdown is showing, re-check every 15s: a shorter lock
+  // saved in the console releases or shortens the page live, without a retry.
+  useEffect(() => {
+    if (!(lockOtp > 0 || lockLogin > 0) || !emailOk) return;
+    const t = window.setInterval(() => onCheckLock(email), 15000);
+    return () => window.clearInterval(t);
+  }, [lockOtp > 0 || lockLogin > 0, email, emailOk]);
   // The password-updated note rides a toast instead of sitting on the sign-in
   // screen, so it cannot linger over a later sign-in.
   const [authToast, setAuthToast] = useState('');
@@ -7263,7 +7270,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
             </div>
             <h2 className="text-center text-[1.6rem] font-black font-display tracking-tight mb-2">Check your email</h2>
             <p className={`text-center text-[0.95rem] leading-relaxed mb-8 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-              If {email.trim()} is on an admin account, a 6-digit code is waiting there. The code stops working in {authSecPolicy?.codeExpiryMinutes ? `${authSecPolicy.codeExpiryMinutes} minutes` : '10 minutes'}.
+              If {email.trim()} is on an admin account, a 6-digit code is waiting there. The code stops working in {authSecPolicy?.codeExpiryMinutes ? `${authSecPolicy.codeExpiryMinutes} ${authSecPolicy.codeExpiryMinutes === 1 ? 'minute' : 'minutes'}` : '10 minutes'}.
             </p>
             <label className={labelCls}>Enter the code</label>
             <input
