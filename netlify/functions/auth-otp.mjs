@@ -168,6 +168,8 @@ export default async (req) => {
   try { init(); } catch (e) { return json(500, { ok: false, error: 'server not configured' }); }
   const db = getFirestore();
   const sec = await loadSec(db); // fresh every request: a console save is live immediately
+  const LOGIN_MAX_ATTEMPTS = sec.loginMaxAttempts;
+  const OTP_MAX_ATTEMPTS = sec.otpMaxAttempts;
   const LOCK_MS = sec.lockMinutes * 60000;
   const OTP_TTL_MS = sec.codeExpiryMinutes * 60000;
   const RESEND_WINDOW_MS = sec.resendMinutes * 60000;
