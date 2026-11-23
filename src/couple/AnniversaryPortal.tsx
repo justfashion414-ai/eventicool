@@ -3692,8 +3692,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   style={{ top: activeTab === 'feed' && feedSubTab === 'reels' ? '0px' : '61px' }}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.8rem] font-bold leading-snug">Everything here is placeholder data</p>
-                    <p className="text-[0.72rem] leading-snug text-[#5A6970]">As the admin, you can post and your post takes effect immediately. Your guests can post too, and their posts take effect immediately, but guests need the access code shown in your admin dashboard. This notice stays until the first real post.</p>
+                    <p className="text-[0.9rem] font-bold leading-snug">Everything here is placeholder data</p>
+                    <p className="text-[0.8rem] leading-snug text-[#5A6970]">As the admin, you can post and your post takes effect immediately. Your guests can post too, and their posts take effect immediately, but guests need the access code shown in your admin dashboard. This notice stays until the first real post.</p>
                   </div>
                 </div>
               )}

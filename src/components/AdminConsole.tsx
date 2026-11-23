@@ -101,7 +101,7 @@ interface Site {
   contact?: string
   city?: string
 }
-interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; whatsapp?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
+interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; city?: string; template?: string; accent?: string; weddingDate?: string; createdAt?: number; expiresAt?: number; heroImages?: string[]; email?: string; whatsapp?: string; plan?: string; source?: string; status?: string; activatedAt?: number; renewsAt?: number; lastPayment?: { plan?: string; amount?: number; email?: string; appName?: string; receiptUrl?: string; submittedAt?: number; status?: string } }
 interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
@@ -223,7 +223,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     let t = 'halo'
     try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* default */ }
     const acc = DEF_ACC[t] || 'blush'
-    return { b: '', g: '', city: 'Lagos', tpl: t, acc, hero: [] as string[] }
+    return { b: '', g: '', city: 'Lagos', date: '', tpl: t, acc, hero: [] as string[] }
   })
   const [leadCreated, setLeadCreated] = useState<{ link: string; title: string; tpl: string; acc: string; exp: number } | null>(null)
   const [upBusy, setUpBusy] = useState('')
@@ -472,13 +472,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     if (!b || !g) { say('Enter the bride’s and groom’s names'); return }
     const exp = Math.floor(Date.now() / 1000) + 3 * 86400
     const title = `${b} & ${g}`
-    const base = { bride: b, groom: g, title, city: ld.city, template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000, heroImages: ld.hero }
+    const base = { bride: b, groom: g, title, city: ld.city, weddingDate: ld.date || '', template: ld.tpl, accent: ld.acc, createdAt: Date.now(), expiresAt: exp * 1000, heroImages: ld.hero }
     const done = (id: string) => {
       const row: LeadDoc = { id, ...base }
       setLeads((l) => [row, ...(l || [])])
       setLeadCreated({ link: leadLink(ld.tpl, ld.acc, exp, id), title, tpl: ld.tpl, acc: ld.acc, exp })
       say('Sample app created. Send the link yourself; the message is one tap away')
-      setLd((p) => ({ ...p, b: '', g: '', hero: [] }))
+      setLd((p) => ({ ...p, b: '', g: '', date: '', hero: [] }))
     }
     if (user?.uid === 'demo') {
       const id = `lead-${Date.now()}`
@@ -604,6 +604,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
               <div><label>Bride</label><input value={ld.b} maxLength={14} onChange={(e) => setLd({ ...ld, b: e.target.value })} placeholder="Bride’s first name" /></div>
               <div><label>Groom</label><input value={ld.g} maxLength={14} onChange={(e) => setLd({ ...ld, g: e.target.value })} placeholder="Groom’s first name" /></div>
               <div><label>City</label><input value={ld.city} maxLength={16} onChange={(e) => setLd({ ...ld, city: e.target.value })} /></div>
+              <div><label>Event date</label><input type="date" value={ld.date} onChange={(e) => setLd({ ...ld, date: e.target.value })} /></div>
             </div>
             <label style={{ marginTop: 10 }}>Template</label>
             <div className="row">
@@ -625,7 +626,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           </div>
           <div>
             <div className="pf">
-              <MiniPreview b={ld.b || 'Bride'} g={ld.g || 'Groom'} tpl={TP[ld.tpl]} city={ld.city || 'City'} days={3} photos={photos} />
+              <MiniPreview b={ld.b || 'Bride'} g={ld.g || 'Groom'} tpl={TP[ld.tpl]} city={ld.city || 'City'} days={3} photos={photos} date={ld.date} />
             </div>
           </div>
         </div>
@@ -1820,7 +1821,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   )
 }
 
-function MiniPreview({ b, g, tpl, city, days, photos }: { b: string; g: string; tpl: { bg: string; fg: string; ac: string }; city: string; days: number; photos?: string[] }) {
+function MiniPreview({ b, g, tpl, city, days, photos, date }: { b: string; g: string; tpl: { bg: string; fg: string; ac: string }; city: string; days: number; photos?: string[]; date?: string }) {
   return (
     <div className="mp" style={{ ['--b' as string]: tpl.bg, ['--f' as string]: tpl.fg, ['--a' as string]: tpl.ac }}>
       <div className="mh">{b} & {g}</div>
@@ -1830,6 +1831,7 @@ function MiniPreview({ b, g, tpl, city, days, photos }: { b: string; g: string; 
         <em>and</em>
         <b>{g}</b>
       </div>
+      {date && (() => { try { return <div style={{ fontSize: 12.5, opacity: .78, marginTop: 4 }}>{new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</div> } catch { return null } })()}
       {photos && photos.length > 0 && (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'center', margin: '8px 0 0' }}>
           {photos.map((src, i) => (
