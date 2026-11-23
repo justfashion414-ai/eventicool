@@ -51,7 +51,6 @@ interface Props {
   appId: string;
   titles?: [string, string, string, string];
   intro?: string;
-  note?: string;
   demoMode?: boolean;
   onDone?: () => void;
 }
@@ -298,6 +297,11 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
                         </div>
                       ))}
                     </div>
+                    <div style={{ marginTop: 10, textAlign: 'center' }}>
+                      <button type="button" style={{ ...pillBtn(accent), display: 'inline-flex', background: 'transparent', color: '#8a7a63', border: 'none', padding: '13px 10px', fontSize: 11.5, letterSpacing: '.12em' }} onClick={() => setMore(showingAll ? '' : p.id)}>
+                        {showingAll ? 'LESS' : 'SEE MORE'}
+                      </button>
+                    </div>
                     <div style={{ marginTop: 16 }}>
                       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.14em', color: '#b9b2a6', marginBottom: 8 }}>NOTIFICATIONS</div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -313,9 +317,6 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
                       <button type="button" style={{ ...pillBtn(accent), flex: 1, opacity: nav && nav !== p.id ? 0.55 : 1, background: featured ? `linear-gradient(135deg, ${accent}, #C8932A)` : 'transparent', color: featured ? '#fff' : accent, border: featured ? 'none' : `1.5px solid ${accent}`, boxShadow: featured ? '0 10px 24px rgba(29,43,48,0.25)' : 'none' }} disabled={!!nav} onClick={() => { if (nav) return; setPlan(p); setMore(''); setNav(p.id); window.setTimeout(() => { setStep(2); setDeadline(Date.now() + 300000); setNav(''); }, NAV_MS); }}>
                         {nav === p.id ? <><span className="pf-spin" />SETTING UP…</> : <>CHOOSE {p.name.toUpperCase()}</>}
                       </button>
-                      <button type="button" style={{ ...pillBtn(accent), flex: '0 0 auto', background: 'transparent', color: '#8a7a63', border: 'none', padding: '13px 10px' }} onClick={() => setMore(showingAll ? '' : p.id)}>
-                        {showingAll ? 'LESS' : 'SEE MORE'}
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -323,7 +324,6 @@ const NAV_MS = 1600; // raised from 900ms on the user's ask: let the loading rea
               );
             })}
           </div>
-          {note && <p style={{ color: '#5a6970', fontSize: 13, lineHeight: 1.55, textAlign: 'center', marginTop: 14 }}>{note}</p>}
         </>
       )}
       {step === 2 && plan && (

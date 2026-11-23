@@ -83,17 +83,19 @@ function SampleExpired({ accent }: { accent: string }) {
 // to contact an Eventicor admin on WhatsApp. ADMIN_WHATSAPP holds that number.
 const ADMIN_WHATSAPP = '2349030064109';
 
-function AccountScreen({ accent, kind, adminWhatsapp }: { accent: string; kind: 'deleted' | 'suspended'; adminWhatsapp?: string }) {
+function AccountScreen({ accent, kind, adminWhatsapp }: { accent: string; kind: 'deleted' | 'suspended' | 'unavailable'; adminWhatsapp?: string }) {
   const wa = (adminWhatsapp || ADMIN_WHATSAPP).replace(/[^0-9]/g, '');
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 28, background: '#faf7f2' }}>
       <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 32, lineHeight: 1.15, color: accent, fontWeight: 600 }}>
-        {kind === 'deleted' ? 'This app does not exist anymore' : 'This app is currently suspended'}
+        {kind === 'deleted' ? 'This app does not exist anymore' : kind === 'suspended' ? 'This app is currently suspended' : "This app isn't available right now"}
       </div>
       <p style={{ color: '#5a6970', maxWidth: 340, marginTop: 14, lineHeight: 1.55, fontSize: 15 }}>
         {kind === 'deleted'
           ? 'The link you followed has been removed. If you think this is a mistake, contact the couple or an Eventicor admin.'
-          : 'This account is not available right now. Contact an Eventicor admin to have it restored.'}
+          : kind === 'suspended'
+            ? 'This account is not available right now. Contact an Eventicor admin to have it restored.'
+            : 'Check the link or your connection and try again. If it still does not open, contact the couple or an Eventicor admin.'}
       </p>
       {kind === 'suspended' && wa && (
         <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer" style={{ marginTop: 22, background: '#25d366', color: '#fff', textDecoration: 'none', padding: '14px 26px', borderRadius: 999, fontWeight: 700, fontSize: 14 }}>
@@ -131,7 +133,6 @@ function TrialEnded({ accent, lead, appId }: { accent: string; lead: LeadData | 
         appId={appId}
         titles={['Your free trial has ended', 'Make your transfer', 'Confirming your payment', 'Almost there']}
         intro={'Your free trial has ended. To keep the app running for your wedding and your guests, choose a plan below.'}
-        note={'After your payment is confirmed, your app returns right away and stays online for one year.'}
       />
       <small style={{ marginTop: 26, color: '#93a4ab', textAlign: 'center', lineHeight: 1.6, fontSize: 12.5, maxWidth: 340 }}>
         A free trial does not have a fixed end date. Choosing a plan keeps your app online and your guests posting.
@@ -139,6 +140,19 @@ function TrialEnded({ accent, lead, appId }: { accent: string; lead: LeadData | 
     </div>
   );
 }
+
+// Boot screen while a sample-app or real-app link resolves its live data.
+// Never demo content: the placeholder rule (user direction Nov 23 2026).
+function BootGate({ accent }: { accent: string }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#faf7f2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <style>{'@keyframes evbootspin { to { transform: rotate(360deg); } }'}</style>
+      <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 24, color: accent, fontWeight: 600 }}>Eventicor</div>
+      <div style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid rgba(0,0,0,.08)', borderTopColor: accent, animation: 'evbootspin .8s linear infinite', marginTop: 16 }} />
+    </div>
+  );
+}
+
 function SampleChip({ exp, trial }: { exp: number; trial?: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -289,9 +303,10 @@ export default function CoupleApp() {
   const isSample = expRaw > 0 || !!leadId;
   const expired = expRaw > 0 && Date.now() > (expRaw > 1e12 ? expRaw : expRaw * 1000);
   // The lead is resolved before the app renders so its names and uploaded
-  // images are in place from the first paint; a lookup that cannot settle
-  // (offline, or a lead id we cannot read) falls back to the generic demo.
-  const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId ? undefined : null));
+  // images are in place from the first paint. A lead/site link never shows
+  // the generic demo while resolving or when the lookup fails (user rule
+  // Nov 23 2026): it holds on a boot screen, then a not-available screen.
+  const [lead, setLead] = useState<LeadData | null | undefined>(() => (leadId || siteId ? undefined : null));
   const [leadExpired, setLeadExpired] = useState(false);
   // The floating i popup on a trial app carries a payment button (user
   // direction Nov 21 2026): a couple who wants to pay before their trial ends
@@ -375,6 +390,12 @@ export default function CoupleApp() {
   // Firestore/auth shims all re-read DEMO at call time) and authenticate
   // against Firebase for real; previews and samples stay demo.
   if (adminMode === 'real') { goLive(); enableRealAuth(); }
+  // Placeholder rule (user direction Nov 23 2026): on any sample-app or real
+  // app link the demo data (Amara & Daniel) must never paint — not while the
+  // lead/site lookup is in flight and not when it fails. Hold on a boot
+  // screen while resolving, show the not-available screen if it cannot.
+  if ((leadId || siteId) && lead === undefined) return <BootGate accent={acc.accent} />;
+  if ((leadId || siteId) && lead === null) return <AccountScreen accent={acc.accent} kind="unavailable" />;
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
   if (lead && leadStatus === 'suspended') return <AccountScreen accent={acc.accent} kind="suspended" adminWhatsapp={lead.adminWhatsapp} />;
@@ -425,7 +446,6 @@ export default function CoupleApp() {
               appId={leadId}
               titles={['Pick your plan', 'Make your transfer', 'Confirming your payment', 'Almost there']}
               intro={'Your free trial is running. Choosing a plan now keeps your app online for your wedding and your guests with no interruption.'}
-              note={'After your payment is confirmed, your app stays online for one year.'}
             />
           </div>
         </div>
