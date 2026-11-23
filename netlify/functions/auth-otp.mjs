@@ -148,7 +148,7 @@ export default async (req) => {
     if (exists) {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const sent = await zeptoSend(email, 'Your Eventicor password reset code', otpEmail(code));
-      if (!sent.ok) return json(502, { ok: false, error: 'send-failed' });
+      if (!sent.ok) return json(502, { ok: false, error: 'send-failed', detail: String(sent.why || '').slice(0, 300) });
       await db.collection('authOtp').doc(email).set({
         email,
         hash: codeHash(email, code),
