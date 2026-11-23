@@ -62,6 +62,23 @@
       document.documentElement.style.background = '#0a0917';
     }
     </script>
+    <script>
+    // One dark loader, fast (user direction Nov 23 2026): the couple lookup
+    // starts here, in parallel with the app bundles, so the boot screen is
+    // the only loading screen and it ends the moment the content is ready.
+    (function(){
+      try {
+        if (!/^\/app/.test(location.pathname)) return;
+        var q = new URLSearchParams(location.search);
+        var id = q.get('lead') || q.get('site') || '';
+        if (!id) return;
+        var p = fetch('/api/couple?site=' + encodeURIComponent(id), { cache: 'no-store' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .catch(function(){ return null; });
+        window.__evLeadPre = { id: id, p: p };
+      } catch (e) {}
+    })();
+    </script>
     <script defer src="/eventicor-logo.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

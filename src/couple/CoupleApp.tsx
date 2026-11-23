@@ -23,6 +23,20 @@ const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush',
 // Eventicor landing page to create their own app.
 interface LeadData { bride?: string; groom?: string; city?: string; email?: string; source?: string; weddingDate?: string; weddingTime?: string; heroImages?: string[]; footerImages?: string[]; feedImages?: string[]; expiresAt?: number; status?: string; adminWhatsapp?: string; plan?: string; platform?: any }
 
+
+// The boot loader must be fast (user direction Nov 23 2026): index.html kicks
+// the lookup off in parallel with the bundle download, and these lookups pick
+// up that result instead of paying a second round trip once the app mounts.
+function preloadedLookup(id: string): Promise<LeadData | null> | null {
+  const pre = (window as any).__evLeadPre;
+  if (pre && pre.id === id && pre.p && typeof pre.p.then === 'function') {
+    return Promise.resolve(pre.p)
+      .then((j: any) => (j && (j.bride || j.groom) ? (j as LeadData) : null))
+      .catch(() => null);
+  }
+  return null;
+}
+
 async function loadLead(id: string): Promise<LeadData | null> {
   // Sample apps built in the demo console live in this browser only.
   try {
@@ -32,6 +46,8 @@ async function loadLead(id: string): Promise<LeadData | null> {
       if (j && (j.bride || j.title)) return j;
     }
   } catch { /* ignore */ }
+  const pre = preloadedLookup(id);
+  if (pre) { const j = await pre; if (j) return j; }
   // Real console leads live in Firestore and must open on any device. The
   // leads collection carries the couple's email and is not readable from the
   // client, so resolution goes through the read-only /api/couple endpoint,
@@ -52,6 +68,8 @@ async function loadLead(id: string): Promise<LeadData | null> {
 // through the read-only /api/couple endpoint, which returns only the fields
 // the app needs and never the couple's contact details or access code.
 async function loadSite(id: string): Promise<LeadData | null> {
+  const pre = preloadedLookup(id);
+  if (pre) { const j = await pre; if (j) return j; }
   try {
     const r = await fetch(`/api/couple?site=${encodeURIComponent(id)}`);
     if (!r.ok) return null;
@@ -137,18 +155,6 @@ function TrialEnded({ accent, lead, appId }: { accent: string; lead: LeadData | 
       <small style={{ marginTop: 26, color: '#93a4ab', textAlign: 'center', lineHeight: 1.6, fontSize: 12.5, maxWidth: 340 }}>
         A free trial does not have a fixed end date. Choosing a plan keeps your app online and your guests posting.
       </small>
-    </div>
-  );
-}
-
-// Boot screen while a sample-app or real-app link resolves its live data.
-// Never demo content: the placeholder rule (user direction Nov 23 2026).
-function BootGate({ accent }: { accent: string }) {
-  return (
-    <div style={{ minHeight: '100vh', background: '#faf7f2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      <style>{'@keyframes evbootspin { to { transform: rotate(360deg); } }'}</style>
-      <div style={{ fontFamily: '"Playfair Display", Georgia, serif', fontSize: 24, color: accent, fontWeight: 600 }}>Eventicor</div>
-      <div style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid rgba(0,0,0,.08)', borderTopColor: accent, animation: 'evbootspin .8s linear infinite', marginTop: 16 }} />
     </div>
   );
 }
@@ -394,7 +400,6 @@ export default function CoupleApp() {
   // app link the demo data (Amara & Daniel) must never paint — not while the
   // lead/site lookup is in flight and not when it fails. Hold on a boot
   // screen while resolving, show the not-available screen if it cannot.
-  if ((leadId || siteId) && lead === undefined) return <BootGate accent={acc.accent} />;
   if ((leadId || siteId) && lead === null) return <AccountScreen accent={acc.accent} kind="unavailable" />;
   const leadStatus = (lead as any)?.status as string | undefined;
   if (lead && leadStatus === 'deleted') return <AccountScreen accent={acc.accent} kind="deleted" />;
