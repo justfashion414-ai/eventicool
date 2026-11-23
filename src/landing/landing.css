@@ -318,3 +318,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .lifebook .chp2 .to small{color:var(--mut);opacity:1}
 #ev-l .pl .pfl li::before{display:none}
 #ev-l .chadd{border-color:#ffffff5c;background:#ffffff0d}
+
+/* add-chapter tile: fill the grid column, center everything, visible dashed frame */
+#ev-l .lb-grid .chadd{width:100%;display:grid;place-items:center;align-content:center;row-gap:9px;border:2px dashed #ffffff80;background:#ffffff0f;text-align:center}
+#ev-l .chadd .plus{margin:0}
