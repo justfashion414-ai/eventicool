@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getFirestore } from 'firebase/firestore'
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, type Firestore } from 'firebase/firestore'
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check'
 
 // Eventicor web app — Firebase project eventicool-3887d.
@@ -36,7 +36,21 @@ try {
 
 // Firestore client used for public reads only (sample-app lead lookup).
 // Every write still goes through the server-side proxy.
-export const db = getFirestore(app)
+// Firestore client used for public reads only (sample-app lead lookup).
+// Every write still goes through the server-side proxy.
+// Persistent local cache: repeat visits read mostly from the device
+// (IndexedDB), which keeps Firestore's daily read bill down on launch scale.
+// Falls back to the default memory cache where IndexedDB is unavailable
+// (private browsing), and never blocks the app from loading.
+export const db: Firestore = (() => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    })
+  } catch {
+    return getFirestore(app)
+  }
+})()
 
 // Helper for the Firestore proxy (server-side service account, no client keys).
 export async function proxyCall(op, payload = {}, authInstance?) {

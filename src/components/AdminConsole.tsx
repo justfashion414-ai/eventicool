@@ -5,6 +5,29 @@ import { consoleAuth, consoleAuthReady, signOutEverywhere, type User } from '../
 // Every console call rides the console's OWN auth session, never the couple
 // apps' session, so the two can never act as each other.
 const consoleCall = (op: string, payload?: Record<string, unknown>) => proxyCall(op, payload, consoleAuth)
+
+// The storage console talks to its own function rather than the generic
+// proxy, so it can ask Cloudinary and run the retention cleanup itself.
+const storageCall = async (op: string, extra?: Record<string, unknown>) => {
+  const u = consoleAuth.currentUser
+  const token = u ? await u.getIdToken() : ''
+  const res = await fetch('/api/storage-overview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ op, ...(extra || {}) }),
+  })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((j as any).error || `Storage error ${res.status}`)
+  return j as any
+}
+
+const fmtBytes = (b?: number) => {
+  const n = Number(b) || 0
+  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return '0'
+}
 // Last loaded lists, for painting the console instantly on a refresh.
 const CONSOLE_CACHE_KEY = 'ev-console-cache-v1'
 import { proxyCall } from '../firebase'
@@ -61,6 +84,7 @@ const NAV = [
   { id: 'sites', label: 'Premium apps' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
+  { id: 'storage', label: 'Storage' },
   { id: 'settings', label: 'Settings' },
   { id: 'inv', label: 'Inbox invite' },
   { id: 'pay', label: 'Payment details' },
@@ -120,6 +144,7 @@ function fmtDate(ev?: { seconds?: number }) {
 }
 
 const ICONS: Record<SecId, string> = {
+  storage: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   over: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
   leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
@@ -205,6 +230,11 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
   const [toast, setToast] = useState('')
+  // Storage tab: live Cloudinary usage, per-app breakdown, retention settings.
+  const [stor, setStor] = useState<any | null>(null)
+  const [storBusy, setStorBusy] = useState('')
+  const [storConfirm, setStorConfirm] = useState(false)
+  const [storForm, setStorForm] = useState<{ sample: string; real: string; warn: string } | null>(null)
   // Account management: extend trial, suspend or delete a customer's app.
   const [manage, setManage] = useState<LeadDoc | null>(null)
   const [extH, setExtH] = useState(24)
@@ -1628,7 +1658,130 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
+  const refreshStorage = async () => {
+    setStorBusy('overview')
+    try {
+      const d = await storageCall('overview', { force: 1 })
+      setStor(d)
+      setStorForm({ sample: String(d.settings?.retentionSampleDays ?? 30), real: String(d.settings?.retentionRealDays ?? 90), warn: String(d.settings?.warnPercent ?? 80) })
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)) } finally { setStorBusy('') }
+  }
+  const saveStorageSettings = async () => {
+    if (!storForm) return
+    setStorBusy('save')
+    try {
+      const d = await storageCall('save-settings', { retentionSampleDays: Number(storForm.sample), retentionRealDays: Number(storForm.real), warnPercent: Number(storForm.warn) })
+      setStor((s: any) => (s ? { ...s, settings: d.settings } : s))
+      setToast('Retention settings saved')
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)) } finally { setStorBusy('') }
+  }
+  const runStorageCleanup = async () => {
+    setStorBusy('cleanup')
+    try {
+      const d = await storageCall('cleanup')
+      const log = d.log || {}
+      setToast(`Cleanup done: ${log.sampleApps?.length || 0} sample apps, ${log.realApps?.length || 0} real apps freed`)
+      await refreshStorage()
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)); setStorBusy('') }
+  }
+  useEffect(() => {
+    if (sec !== 'storage') return
+    let alive = true
+    setStorBusy('load')
+    storageCall('overview')
+      .then((d) => {
+        if (!alive) return
+        setStor(d)
+        setStorForm({ sample: String(d.settings?.retentionSampleDays ?? 30), real: String(d.settings?.retentionRealDays ?? 90), warn: String(d.settings?.warnPercent ?? 80) })
+      })
+      .catch((e) => { if (alive) setStor({ error: String(e && e.message ? e.message : e) }) })
+      .finally(() => { if (alive) setStorBusy('') })
+    return () => { alive = false }
+  }, [sec])
+  const storageSection = () => (
+    <div>
+      <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h1 style={{ margin: 0 }}>Storage</h1>
+        <button className="btn g s" disabled={storBusy !== ''} onClick={refreshStorage}>
+          {storBusy === 'overview' || storBusy === 'load' ? 'Checking…' : 'Refresh'}
+        </button>
+      </div>
+      {stor?.error && (
+        <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>{stor.error}</p></div>
+      )}
+      {stor && !stor.error && (
+        <>
+          {stor.warn && (
+            <div className="card" style={{ border: '1px solid #d1694a', marginBottom: 12 }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                Cloudinary is at {stor.usage && stor.usage.credits.limit ? Math.round((stor.usage.credits.usage / stor.usage.credits.limit) * 100) : '?'}% of the plan's credits. Free space or upgrade the plan before uploads start failing.
+              </p>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <div className="card"><small>Cloudinary total</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.usage?.storageBytes)}</div><small>{stor.usage?.plan || 'plan —'}</small></div>
+            <div className="card"><small>Credits this month</small><div style={{ fontWeight: 700, fontSize: 20 }}>{stor.usage ? `${stor.usage.credits.usage} / ${stor.usage.credits.limit || '—'}` : '—'}</div><small>warns at {stor.settings?.warnPercent ?? 80}%</small></div>
+            <div className="card"><small>Real apps</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.real)}</div><small>couples' uploads</small></div>
+            <div className="card"><small>Sample apps</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.sample)}</div><small>free after retention</small></div>
+            <div className="card"><small>Eventicor platform</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.other)}</div><small>hero images and media</small></div>
+          </div>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0 }}>Real apps by storage</h2>
+              <small style={{ color: 'var(--mut)' }}>{stor.recomputed ? 'recounted just now' : 'cached · Refresh recounts live'}</small>
+            </div>
+            {!stor.apps || stor.apps.length === 0 ? (
+              <p style={{ color: 'var(--mut)', margin: '8px 0 0' }}>No real-app uploads found yet.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+                <thead><tr style={{ color: 'var(--mut)', textAlign: 'left' }}><th style={{ padding: '6px 4px' }}>App</th><th style={{ padding: '6px 4px' }}>Plan</th><th style={{ padding: '6px 4px', textAlign: 'right' }}>Size</th><th style={{ padding: '6px 4px', textAlign: 'right' }}>Created</th></tr></thead>
+                <tbody>
+                  {stor.apps.map((a: any) => (
+                    <tr key={a.id} style={{ borderTop: '1px solid rgba(128,128,140,.2)' }}>
+                      <td style={{ padding: '8px 4px' }}>{a.name}{a.paid ? ' · paid' : ''}</td>
+                      <td style={{ padding: '8px 4px' }}>{a.plan || '—'}</td>
+                      <td style={{ padding: '8px 4px', textAlign: 'right' }}>{fmtBytes(a.bytes)}</td>
+                      <td style={{ padding: '8px 4px', textAlign: 'right' }}>{a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="card">
+            <h2 style={{ margin: '0 0 4px' }}>Retention and cleanup</h2>
+            <p style={{ color: 'var(--mut)', margin: '0 0 12px' }}>
+              Every night a sweep deletes apps past their retention day, Firestore records and Cloudinary files included. Sample apps go after their days, real apps after theirs. Paid apps are never auto-deleted.
+            </p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Sample apps (days)
+                <input type="number" min={1} value={storForm?.sample ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, sample: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Real apps (days)
+                <input type="number" min={1} value={storForm?.real ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, real: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Warn at (% of credits)
+                <input type="number" min={1} max={100} value={storForm?.warn ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, warn: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <button className="btn g s" disabled={storBusy !== ''} onClick={saveStorageSettings}>{storBusy === 'save' ? 'Saving…' : 'Save'}</button>
+              <button className="btn g s" disabled={storBusy !== ''} onClick={() => { if (!storConfirm) { setStorConfirm(true); window.setTimeout(() => setStorConfirm(false), 4000); return } setStorConfirm(false); runStorageCleanup() }}>
+                {storBusy === 'cleanup' ? 'Cleaning…' : storConfirm ? 'Confirm: delete expired now' : 'Clean up expired now'}
+              </button>
+            </div>
+            <small style={{ color: 'var(--mut)' }}>
+              {stor.lastCleanup && stor.lastCleanup.at
+                ? `Last cleanup: ${new Date(stor.lastCleanup.at.seconds ? stor.lastCleanup.at.seconds * 1000 : Date.parse(stor.lastCleanup.at) || 0).toLocaleString()} — ${stor.lastCleanup.sampleApps || 0} sample apps, ${stor.lastCleanup.realApps || 0} real apps${stor.lastCleanup.skippedPaid ? `, ${stor.lastCleanup.skippedPaid} paid apps skipped` : ''}`
+                : 'No cleanup has run yet. The nightly sweep starts once this goes live.'}
+            </small>
+          </div>
+        </>
+      )}
+    </div>
+  )
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, storage: storageSection, inv: invitesSection, pay: paySection, team: team }
 
   return (
     <div className="evad">
