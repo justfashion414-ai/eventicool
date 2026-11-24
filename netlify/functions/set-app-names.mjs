@@ -100,7 +100,7 @@ export default async (req) => {
     // The admin console's Manage dialog reads this list.
     if (home) {
       try {
-        await db.collection('apps').doc(appId).collection('meta').collection('name_history').add({
+        await db.collection('apps').doc(appId).collection('name_history').add({
           at: FieldValue.serverTimestamp(),
           by: email,
           fromBride,

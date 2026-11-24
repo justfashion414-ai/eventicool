@@ -318,7 +318,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [nameHist, setNameHist] = useState<any>(null)
   const loadNameHistory = (id: string) => {
     setNameHist({ forId: id, rows: null })
-    consoleCall('list', { collection: `apps/${id}/meta/name_history`, orderBy: 'name-desc', limit: 20 })
+    consoleCall('list', { collection: `apps/${id}/name_history`, orderBy: 'name-desc', limit: 20 })
       .then((res: any) => setNameHist({ forId: id, rows: (res?.docs || []).slice().reverse() }))
       .catch(() => setNameHist({ forId: id, rows: [] }))
   }
