@@ -96,6 +96,21 @@ export default async (req) => {
     }
     if (home) await db.collection(home).doc(appId).set(slugChanged ? { bride, groom, slug: finalSlug } : { bride, groom }, { merge: true })
 
+    // app_config coupleIdentity (what the entry banner and home banner read)
+    // follows the rename too, so the app document and the config can never
+    // disagree and the banner never paints the old names first. The couple's
+    // own words around the names (kicker, tagline) are preserved.
+    if (home) {
+      try {
+        const cfgSnap = await db.collection('apps').doc(appId).collection('app_config').doc('main').get()
+        const ci = (cfgSnap.data() || {}).coupleIdentity || {}
+        await db.collection('apps').doc(appId).collection('app_config').doc('main').set(
+          { coupleIdentity: { ...ci, bride, groom }, lastUpdated: FieldValue.serverTimestamp() },
+          { merge: true }
+        )
+      } catch { /* config sync is best effort; the app document is the source of truth */ }
+    }
+
     // The name-change history: what it was, what it became, when and by whom.
     // The admin console's Manage dialog reads this list.
     if (home) {

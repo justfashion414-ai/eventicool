@@ -2672,7 +2672,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     };
     // A rename that would change the app's address asks first, so the couple
     // knows what a changed link means before it happens.
-    if (!DEMO && isAdmin) {
+    if (isAdmin) {
       try {
         const src = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'events', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
         const doc0: any = src && src.id ? src : await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'leads', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
@@ -2705,7 +2705,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     // reminder emails. The rename op verifies this dashboard's admin
     // server-side before touching anything, and logs the change for the
     // admin's history list.
-    if (!DEMO && isAdmin) {
+    if (isAdmin) {
       try {
         const tk = await auth?.currentUser?.getIdToken?.();
         const rn = await fetch('/api/set-app-names', {
@@ -3431,6 +3431,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             onClick={() => enterApp()}
             className="fixed inset-0 z-[500] overflow-hidden flex items-center justify-center bg-[var(--ann-hero)] cursor-pointer select-none"
           >
+            {/* EDGE ANIMATION: a light line travels the banner's edges, one
+                full loop around the screen at a time, while the banner shows. */}
+            <style>{`@keyframes ev-edge-run { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }`}</style>
+            <svg className="absolute inset-0 z-[5] w-full h-full pointer-events-none" aria-hidden="true">
+              <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
+              <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="#C8932A" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="9 91" style={{ animation: 'ev-edge-run 4.2s linear infinite', willChange: 'stroke-dashoffset' }} />
+            </svg>
             {/* SPLASH: DARA & FEMI */}
             <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
               <motion.div
@@ -11475,8 +11482,8 @@ function AdminDashboardModal({
                               groom={demoGroom()}
                               city={demoCity()}
                               wedDate={previewWedDate()}
-                              kicker={cfgIdentity?.kicker || 'Together with their families'}
-                              tagline={cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}
+                              kicker={idDraft?.kicker || 'Together with their families'}
+                              tagline={idDraft?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}
                               events={evDraft}
                               story={storyDraft}
                               details={withGiftDefaults(detDraft)}
