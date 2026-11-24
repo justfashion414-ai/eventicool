@@ -302,6 +302,42 @@ const withDerivedHashtag = (d: any): any => {
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
   return d;
 };
+
+// A rename carries the names through the words already saved: the story text
+// (whole first names move to the new ones) and a hashtag or gift account name
+// that still follows the couple's derived form. Anything they typed that is
+// NOT the derived form stays untouched.
+const renameSwapPairs = (fromB: string, fromG: string, toB: string, toG: string): [string, string][] => {
+  const clean = (v: string) => (v || '').replace(/[^A-Za-z]/g, '');
+  const fb = clean(fromB), fg = clean(fromG), tb = clean(toB), tg = clean(toG);
+  const pairs: [string, string][] = [];
+  if (fb && tb && fb.toLowerCase() !== tb.toLowerCase()) pairs.push([fb, tb]);
+  if (fg && tg && fg.toLowerCase() !== tg.toLowerCase()) pairs.push([fg, tg]);
+  return pairs;
+};
+const renameSwapText = (text: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  let out = String(text || '');
+  for (const [o, n] of renameSwapPairs(fromB, fromG, toB, toG)) {
+    out = out.replace(new RegExp('\\b' + o + '\\b', 'gi'), (m: string) => (m[0] === m[0].toUpperCase() ? n.charAt(0).toUpperCase() + n.slice(1) : n.toLowerCase()));
+  }
+  return out;
+};
+const renameSwapHashtag = (tag: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const t = String(tag || '').trim();
+  const ob = cap(fromB), og = cap(fromG), nb = cap(toB), ng = cap(toG);
+  if (!ob || !og || !nb || !ng) return t;
+  if (new RegExp('^#' + ob + 'And' + og + '$', 'i').test(t)) return `#${nb}And${ng}`;
+  return t;
+};
+const renameSwapAccountName = (name: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  const s = String(name || '').trim();
+  const ob = (fromB || '').replace(/[^A-Za-z]/g, ''), og = (fromG || '').replace(/[^A-Za-z]/g, '');
+  const nb = (toB || '').replace(/[^A-Za-z]/g, ''), ng = (toG || '').replace(/[^A-Za-z]/g, '');
+  if (!ob || !og || !nb || !ng) return s;
+  if (new RegExp('^' + ob + '\\s*(&|and)\\s*' + og + '$', 'i').test(s)) return `${nb} & ${ng}`;
+  return s;
+};
 // The gifts account name is the couple's own from the moment their app is
 // created: the demo placeholder never shows as the account name, and an empty
 // name beside a saved account number fills with their names too. An account
@@ -2696,8 +2732,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   };
 
   // Applies the names everywhere: the open app and tab, the app_config doc,
-  // and the app's own document, invites and address through the rename op.
+  // and the app's own document, invites, story, hashtag and address through
+  // the rename op.
   const commitCoupleIdentity = async (payload: { bride: string; groom: string; kicker: string; tagline: string }, newSlug?: string) => {
+    const fromNames = { bride: String((cfgIdentity as any)?.bride || '').trim(), groom: String((cfgIdentity as any)?.groom || '').trim() };
     applyIdentity(payload);
     await updateWeddingSection({ coupleIdentity: payload });
     // Propagate the names to every surface that reads them from the app's own
@@ -2711,10 +2749,46 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         const rn = await fetch('/api/set-app-names', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
-          body: JSON.stringify({ appId: APP_ID, bride: payload.bride, groom: payload.groom, ...(newSlug ? { slug: newSlug } : {}) })
+          body: JSON.stringify({ appId: APP_ID, bride: payload.bride, groom: payload.groom, ...(fromNames.bride || fromNames.groom ? { from: fromNames } : {}), ...(newSlug ? { slug: newSlug } : {}) })
         });
         const rj: any = await rn.json().catch(() => null);
         if (rn.ok && rj && rj.slugChanged && rj.slug) showToast(`Your app's address is now ${rj.slug}.eventicor.com`);
+        if (rn.ok && (fromNames.bride || fromNames.groom)) {
+          // The saved words follow the rename: the story text moves its whole
+          // first names to the new ones, and a hashtag or gift account name
+          // that still follows the couple's derived form moves with them.
+          // A hashtag or account name the couple typed themselves stays.
+          const ns = renameSwapText(cfgStory || '', fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+          const nd: any = cfgDetails ? { ...cfgDetails } : null;
+          let detChanged = false;
+          if (nd) {
+            const nh = renameSwapHashtag(nd.hashtag, fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+            if (nh !== nd.hashtag) { nd.hashtag = nh; detChanged = true; }
+            if (nd.giftInfo && typeof nd.giftInfo === 'object') {
+              const na = renameSwapAccountName(nd.giftInfo.accountName, fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+              if (na !== nd.giftInfo.accountName) { nd.giftInfo = { ...nd.giftInfo, accountName: na }; detChanged = true; }
+            }
+          }
+          const storyChanged = ns !== (cfgStory || '');
+          if (storyChanged || detChanged) {
+            if (DEMO) {
+              try {
+                const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+                localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, ...(storyChanged ? { story: ns } : {}), ...(detChanged ? { weddingDetails: nd } : {}) }));
+              } catch { /* preview storage is best effort */ }
+            } else {
+              try {
+                await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+                  ...(storyChanged ? { story: ns } : {}),
+                  ...(detChanged && nd ? { weddingDetails: nd, det: JSON.stringify(withDerivedHashtag(nd)) } : {}),
+                  lastUpdated: serverTimestamp()
+                }, { merge: true });
+              } catch (err) { console.warn('Saved words sync skipped:', err); }
+            }
+            if (storyChanged) setCfgStory(ns);
+            if (detChanged && nd) setCfgDetails(nd);
+          }
+        }
       } catch (err) { console.warn('Name sync skipped:', err); }
     }
   };
@@ -8555,8 +8629,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       setOpens(best.opens || 0);
       if (IV_STYLES.some((s) => s.id === best.tpl)) setTpl(best.tpl);
       setF({
-        bride: best.bride || demoBride() || 'Amara',
-        groom: best.groom || demoGroom() || 'Daniel',
+        bride: demoBride() || 'Amara',
+        groom: demoGroom() || 'Daniel',
         date: best.wedDate || wedDate || '',
         venue: best.venue || weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
         city: best.city || demoCity() || '',
@@ -11108,12 +11182,7 @@ function AdminDashboardModal({
                   </section>
 
                   <section>
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <h3 className="font-black font-display text-lg">Accent color</h3>
-                      <button type="button" onClick={() => setSitePreviewOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.6rem] font-black uppercase tracking-widest opacity-70 hover:opacity-100" style={{ touchAction: 'manipulation' }} title="Preview the accent color">
-                        <Eye className="w-3.5 h-3.5" /> Preview
-                      </button>
-                    </div>
+                    <h3 className="font-black font-display text-lg mb-1">Accent color</h3>
                     <p className="text-sm opacity-60 mb-3">The color your app is dressed in: buttons, highlights and headings. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
                       {ACCENT_CHOICES.map(([k, label, hex]) => (
