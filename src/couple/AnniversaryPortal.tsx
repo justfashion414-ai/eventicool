@@ -2676,11 +2676,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
       showToast('Saved for this preview.');
-      return;
+      return true;
     }
     if (!isAdmin || !isAdminSessionValid) {
       showToast('Sign in again to save your changes.', 'error');
-      return;
+      return false;
     }
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
@@ -2688,9 +2688,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
       showToast('Saved. Guests see this on the Home screen.');
+      return true;
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save. Please try again.', 'error');
+      return false;
     }
   };
 
@@ -9950,7 +9952,12 @@ function AdminDashboardModal({
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag(withDerivedAccountName({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] })));
+  // One seed for the details draft: the saved values, the couple's derived
+  // hashtag and account name standing in for demo placeholders, and
+  // hiddenSections always present. The dirty baseline uses the same seed, so
+  // freshly loaded saved content never reads as "unsaved changes".
+  const seedDetDraft = (wd: any): any => withDerivedHashtag(withDerivedAccountName({ ...(wd || {}), hiddenSections: (wd && wd.hiddenSections) || [] }));
+  const [detDraft, setDetDraft] = useState<any>(() => seedDetDraft(weddingDetails));
   const [detColors, setDetColors] = useState<string[]>(() => {
     try { const v = JSON.parse(localStorage.getItem(lsKey('dress-colors')) || 'null'); if (Array.isArray(v)) return v; } catch { /* private mode */ }
     return (weddingDetails && weddingDetails.dressColors) || [];
@@ -9974,9 +9981,12 @@ function AdminDashboardModal({
     try { await setDoc(doc(db, scopedPath('app_config'), 'main'), { weddingDetails: { dressColors: next } }, { merge: true }); } catch { /* the next full save carries it */ }
   };
   const [weddingBusy, setWeddingBusy] = useState(false);
-  useEffect(() => { setEvDraft(events); }, [events]);
-  useEffect(() => { setStoryDraft(story); }, [story]);
-  useEffect(() => { setDetDraft(withDerivedHashtag(withDerivedAccountName(weddingDetails))); }, [weddingDetails]);
+  // Saved data arriving (first load, another device, a rename) re-seeds the
+  // drafts AND moves the dirty baseline along with them, so loaded saved
+  // content never reads as "unsaved changes".
+  useEffect(() => { setEvDraft(events as WeddingEvent[]); if (draftBaseRef.current) draftBaseRef.current.ev = JSON.stringify(events); }, [events]);
+  useEffect(() => { setStoryDraft(story); if (draftBaseRef.current) draftBaseRef.current.story = story; }, [story]);
+  useEffect(() => { const d = seedDetDraft(weddingDetails); setDetDraft(d); if (draftBaseRef.current) draftBaseRef.current.det = JSON.stringify(d); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
   // One page, one save (Nov 20 2026 direction): every edit on Events & photos
@@ -9991,6 +10001,7 @@ function AdminDashboardModal({
     if (key && key !== heroSyncKeyRef.current) {
       heroSyncKeyRef.current = key;
       setHeroImgDraft((prev: string[]) => (prev.length ? prev : heroImages as string[]));
+      if (!heroImgDraft.length && draftBaseRef.current) draftBaseRef.current.hero = JSON.stringify((heroImages as string[]).slice(0, 20));
     }
   }, [heroImages.join('|')]);
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
@@ -9999,8 +10010,8 @@ function AdminDashboardModal({
   const [footerThanksDraft, setFooterThanksDraft] = useState<string>(footerThanks || '');
   // Gifts & support draft (Events & photos): initializes straight from the
   // saved details, so the page's single Save bar owns it from the first render.
-  const [giftDraft, setGiftDraft] = useState<any>(() => {
-    const gi = (weddingDetails || ({} as any)).giftInfo || {};
+  const seedGiftDraft = (wd: any): any => {
+    const gi = (wd || ({} as any)).giftInfo || {};
     const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
     return {
       enabled: gi.enabled !== false,
@@ -10009,28 +10020,39 @@ function AdminDashboardModal({
       accountName: gi.accountName || seed.accountName || '',
       note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
     };
-  });
+  };
+  const [giftDraft, setGiftDraft] = useState<any>(() => seedGiftDraft(weddingDetails));
   // Footer (Events & photos): the words at the very bottom of the home page,
   // after the photo wall. Empty fields keep the app's default wording.
-  const [footerDraft, setFooterDraft] = useState<any>(() => {
-    const fi = (weddingDetails || ({} as any)).footer || {};
+  const seedFooterDraft = (wd: any): any => {
+    const fi = (wd || ({} as any)).footer || {};
     return { message: fi.message || '', caption: fi.caption || '' };
-  });
+  };
+  const [footerDraft, setFooterDraft] = useState<any>(() => seedFooterDraft(weddingDetails));
   const draftBaseRef = useRef<any>(null);
   if (!draftBaseRef.current) {
     draftBaseRef.current = {
-      story,
-      det: JSON.stringify(withDerivedHashtag(weddingDetails)),
-      ev: JSON.stringify(events),
-      hero: JSON.stringify(heroImages),
-      heroLabels: JSON.stringify(heroImageLabels || {}),
+      story: storyDraft,
+      det: JSON.stringify(seedDetDraft(weddingDetails)),
+      ev: JSON.stringify(evDraft),
+      hero: JSON.stringify(heroImgDraft.slice(0, 20)),
+      heroLabels: JSON.stringify(heroLabelDraft || {}),
       gift: JSON.stringify(giftDraft || {}),
       footer: JSON.stringify(footerDraft || {}),
-      heroTpl,
-      footerStyle,
-      footerThanks
+      heroTpl: heroTplDraft,
+      footerStyle: footerStyleDraft,
+      footerThanks: footerThanksDraft
     };
   }
+  // Gifts, footer, labels and the style picks follow saved changes the same
+  // way, with the dirty baseline moving along, so a rename or a save from
+  // another device never leaves the page reading "unsaved changes".
+  useEffect(() => { const g = seedGiftDraft(weddingDetails); setGiftDraft(g); if (draftBaseRef.current) draftBaseRef.current.gift = JSON.stringify(g); }, [JSON.stringify((weddingDetails || ({} as any)).giftInfo || {})]);
+  useEffect(() => { const f = seedFooterDraft(weddingDetails); setFooterDraft(f); if (draftBaseRef.current) draftBaseRef.current.footer = JSON.stringify(f); }, [JSON.stringify((weddingDetails || ({} as any)).footer || {})]);
+  useEffect(() => { const l = { ...(heroImageLabels || {}) }; setHeroLabelDraft(l); if (draftBaseRef.current) draftBaseRef.current.heroLabels = JSON.stringify(l); }, [JSON.stringify(heroImageLabels || {})]);
+  useEffect(() => { setHeroTplDraft(heroTpl); if (draftBaseRef.current) draftBaseRef.current.heroTpl = heroTpl; }, [heroTpl]);
+  useEffect(() => { setFooterStyleDraft(footerStyle); if (draftBaseRef.current) draftBaseRef.current.footerStyle = footerStyle; }, [footerStyle]);
+  useEffect(() => { setFooterThanksDraft(footerThanks || ''); if (draftBaseRef.current) draftBaseRef.current.footerThanks = footerThanks || ''; }, [footerThanks]);
   // The photos the hero shows right now: the draft list when one exists,
   // otherwise the built-in placeholder photos the site falls back to.
   // Editing from the admin grid always writes the full draft list, so removing
@@ -10072,24 +10094,32 @@ function AdminDashboardModal({
         }
       };
       setDetDraft(mergedDet);
-      await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      // The section save reports whether it really wrote. A refused save
+      // (signed out, or the write failed) leaves the drafts dirty and lets
+      // its own toast explain, instead of pretending everything is saved.
+      const ok = await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      if (ok === false) return;
       onUpdateHeroImages(heroImgDraft.slice(0, 20));
       onUpdateHeroLabels(heroLabelDraft || {});
       if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
       if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true, (footerThanksDraft || '').trim());
+      // The det baseline runs through the exact pipeline the draft re-seed
+      // applies to saved data, so the two can never disagree after a save.
       draftBaseRef.current = {
         story: storyDraft,
-        det: JSON.stringify(mergedDet),
+        det: JSON.stringify(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(mergedDet)))),
         ev: JSON.stringify(evDraft),
         hero: JSON.stringify(heroImgDraft.slice(0, 20)),
         heroLabels: JSON.stringify(heroLabelDraft || {}),
         heroTpl: heroTplDraft,
         footerStyle: footerStyleDraft,
-        footerThanks: (footerThanksDraft || '').trim(),
+        footerThanks: footerThanksDraft,
         gift: JSON.stringify(giftDraft || {}),
         footer: JSON.stringify(footerDraft || {})
       };
       showToast('Saved. Your app now shows these changes.', 'success');
+    } catch (err) {
+      showToast('Could not save. Check your connection and try again.', 'error');
     } finally { setWeddingBusy(false); }
   };
   // Section eye toggles (Events & photos): 'story', 'details' and 'gifts' keys
