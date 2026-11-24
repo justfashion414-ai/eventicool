@@ -35,6 +35,11 @@ export default async (req) => {
   let body
   try { body = await req.json() } catch { return json(400, { error: 'Invalid JSON body' }) }
 
+  // The Admin SDK must be initialised before the first getAuth() call; the
+  // token check below was reaching getAuth() with no default app, so every
+  // caller got "Invalid or expired token" and no rename ever propagated.
+  init()
+
   const appId = String(body.appId || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)
   const bride = String(body.bride || '').trim().slice(0, 40)
   const groom = String(body.groom || '').trim().slice(0, 40)
@@ -49,7 +54,6 @@ export default async (req) => {
   if (!email) return json(403, { error: 'You do not have access to do that here.' })
 
   try {
-    init()
     const db = getFirestore()
     let adminDoc = null
     try { adminDoc = await db.collection('apps').doc(appId).collection('admins').doc(email).get() } catch {}
