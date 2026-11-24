@@ -72,7 +72,7 @@ async function listByPrefix(type, prefix) {
   const out = []
   let cursor = ''
   for (let page = 0; page < 40; page++) {
-    const url = `https://api.cloudinary.com/v1_1/${cloudName()}/resources/${type}/by_prefix?max_results=500&prefix=${encodeURIComponent(prefix)}${cursor ? `&next_cursor=${cursor}` : ''}`
+    const url = `https://api.cloudinary.com/v1_1/${cloudName()}/resources/${type}/upload?max_results=500&prefix=${encodeURIComponent(prefix)}${cursor ? `&next_cursor=${cursor}` : ''}`
     const res = await fetch(url, { headers: { Authorization: authHeader() } })
     const j = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(j.error && j.error.message ? j.error.message : `Cloudinary list ${res.status}`)
@@ -118,14 +118,24 @@ async function destroyCall(type, params) {
   })
   const j = await res.json().catch(() => ({}))
   if (!res.ok || !(j.result === 'ok' || j.result === 'not found')) return 0
-  const n = Number(j.deleted)
-  return Number.isFinite(n) ? n : 1
+  const n = Object.values(j.deleted || {}).filter((v) => v === 'deleted').length
+  return n
 }
 
 // Delete everything under one folder prefix (one app's whole Cloudinary tree).
+// Cloudinary's delete-by-prefix is a DELETE on the resource list endpoint,
+// paginated: partial: true means more of the same prefix remained.
 async function destroyPrefix(prefix) {
   let deleted = 0
-  for (const type of TYPES) deleted += await destroyCall(type, { prefix }).catch(() => 0)
+  for (const type of TYPES) {
+    for (let round = 0; round < 40; round++) {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName()}/resources/${type}/upload?prefix=${encodeURIComponent(prefix)}`, { method: 'DELETE', headers: { Authorization: authHeader() } })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) break
+      deleted += Object.values(j.deleted || {}).filter((v) => v === 'deleted').length
+      if (!j.partial) break
+    }
+  }
   return deleted
 }
 
