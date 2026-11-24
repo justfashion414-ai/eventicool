@@ -168,6 +168,7 @@ export default async (req) => {
     // follows the rename too, so the app document and the config can never
     // disagree and the banner never paints the old names first. The couple's
     // own words around the names (kicker, tagline) are preserved.
+    const swapInfo = { fromBride, fromGroom, story: false, det: false, inviteTags: 0, inviteMsgs: 0 }
     if (home) {
       try {
         const cfgRef = db.collection('apps').doc(appId).collection('app_config').doc('main')
@@ -176,26 +177,27 @@ export default async (req) => {
         const ci = cfg.coupleIdentity || {}
         const patch = { coupleIdentity: { ...ci, bride, groom } }
         const pairs = swapPairs(fromBride, fromGroom, bride, groom)
+        swapInfo.pairs = pairs
         const story0 = typeof cfg.story === 'string' ? cfg.story : ''
         if (pairs.length && story0) {
           const story1 = swapText(story0, pairs)
-          if (story1 !== story0) patch.story = story1
+          if (story1 !== story0) { patch.story = story1; swapInfo.story = true }
         }
         if (pairs.length) {
           if (typeof cfg.det === 'string' && cfg.det.trim()) {
             try {
               const parsed = JSON.parse(cfg.det)
               const r = swapDetails(parsed, fromBride, fromGroom, bride, groom)
-              if (r.changed) patch.det = JSON.stringify(r.d)
+              if (r.changed) { patch.det = JSON.stringify(r.d); swapInfo.det = true }
             } catch { /* det is a free JSON blob; leave it alone if it does not parse */ }
           }
           if (cfg.weddingDetails && typeof cfg.weddingDetails === 'object') {
             const r = swapDetails(cfg.weddingDetails, fromBride, fromGroom, bride, groom)
-            if (r.changed) patch.weddingDetails = r.d
+            if (r.changed) { patch.weddingDetails = r.d; swapInfo.det = true }
           }
         }
         await cfgRef.set({ ...patch, lastUpdated: FieldValue.serverTimestamp() }, { merge: true })
-      } catch { /* config sync is best effort; the app document is the source of truth */ }
+      } catch (err) { swapInfo.cfgError = String(err && err.message || err).slice(0, 200) }
     }
 
     // The name-change history: what it was, what it became, when and by whom.
@@ -227,16 +229,16 @@ export default async (req) => {
         const up = { bride, groom }
         if (pairs.length) {
           const h1 = swapHashtag(v.hashtag, fromBride, fromGroom, bride, groom)
-          if (h1 !== v.hashtag) up.hashtag = h1
+          if (h1 !== v.hashtag) { up.hashtag = h1; swapInfo.inviteTags++ }
           const m1 = swapText(v.message, pairs)
-          if (m1 !== v.message) up.message = m1
+          if (m1 !== v.message) { up.message = m1; swapInfo.inviteMsgs++ }
         }
         batch.set(d.ref, up, { merge: true }); invites++
       })
       if (invites) await batch.commit()
-    } catch { /* invites stay on their old names rather than failing the rename */ }
+    } catch (err) { swapInfo.inviteError = String(err && err.message || err).slice(0, 200) }
 
-    return json(200, { ok: true, appDoc: home, invites, slug: finalSlug, slugChanged })
+    return json(200, { ok: true, appDoc: home, invites, slug: finalSlug, slugChanged, swap: swapInfo })
   } catch (e) {
     return json(500, { error: String(e?.message || e) })
   }
