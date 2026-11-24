@@ -69,13 +69,49 @@ export default async (req) => {
     // The app's own document: events for customer apps, leads for trials and
     // samples. Only one of them holds this app.
     let home = null
+    let cur = null
     const ev = await db.collection('events').doc(appId).get()
-    if (ev.exists) home = 'events'
+    if (ev.exists) { home = 'events'; cur = ev.data() || {} }
     else {
       const ld = await db.collection('leads').doc(appId).get()
-      if (ld.exists) home = 'leads'
+      if (ld.exists) { home = 'leads'; cur = ld.data() || {} }
     }
-    if (home) await db.collection(home).doc(appId).set({ bride, groom }, { merge: true })
+    const fromBride = String(cur?.bride || '')
+    const fromGroom = String(cur?.groom || '')
+    const fromSlug = String(cur?.slug || '')
+    // The address follows the names when the new one is free. A taken address
+    // keeps the old one; the caller is told which happened so the dashboard
+    // can say the truth.
+    let finalSlug = fromSlug
+    let slugChanged = false
+    const wantSlug = String(body.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '').slice(0, 60)
+    if (home && wantSlug && wantSlug !== fromSlug) {
+      let free = false
+      try {
+        const q1 = await db.collection('leads').where('slug', '==', wantSlug).limit(3).get()
+        const q2 = await db.collection('events').where('slug', '==', wantSlug).limit(3).get()
+        free = !q1.docs.some((d) => d.id !== appId) && !q2.docs.some((d) => d.id !== appId)
+      } catch {}
+      if (free) { finalSlug = wantSlug; slugChanged = true }
+    }
+    if (home) await db.collection(home).doc(appId).set(slugChanged ? { bride, groom, slug: finalSlug } : { bride, groom }, { merge: true })
+
+    // The name-change history: what it was, what it became, when and by whom.
+    // The admin console's Manage dialog reads this list.
+    if (home) {
+      try {
+        await db.collection('apps').doc(appId).collection('meta').collection('name_history').add({
+          at: FieldValue.serverTimestamp(),
+          by: email,
+          fromBride,
+          fromGroom,
+          toBride: bride,
+          toGroom: groom,
+          fromSlug,
+          toSlug: finalSlug,
+        })
+      } catch { /* history is best effort */ }
+    }
 
     // Invite docs carry a copied pair of names for the invite page; every one
     // of this app's invites follows the rename.
@@ -87,7 +123,7 @@ export default async (req) => {
       if (invites) await batch.commit()
     } catch { /* invites stay on their old names rather than failing the rename */ }
 
-    return json(200, { ok: true, appDoc: home, invites })
+    return json(200, { ok: true, appDoc: home, invites, slug: finalSlug, slugChanged })
   } catch (e) {
     return json(500, { error: String(e?.message || e) })
   }

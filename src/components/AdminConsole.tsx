@@ -313,6 +313,17 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     setAnBusy(false)
   }
   useEffect(() => { if (sec === 'stat' && !anData && !anBusy) loadAnalytics() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sec])
+  // Name-change history for one app, shown in the Manage dialog and the app
+  // drawer: what the names were, what they became, when and by whom.
+  const [nameHist, setNameHist] = useState<any>(null)
+  const loadNameHistory = (id: string) => {
+    setNameHist({ forId: id, rows: null })
+    consoleCall('list', { collection: `apps/${id}/meta/name_history`, orderBy: 'name-desc', limit: 20 })
+      .then((res: any) => setNameHist({ forId: id, rows: (res?.docs || []).slice().reverse() }))
+      .catch(() => setNameHist({ forId: id, rows: [] }))
+  }
+  useEffect(() => { if (manage?.id) loadNameHistory(manage.id) }, [manage])
+  useEffect(() => { if (drawerId) loadNameHistory(drawerId) }, [drawerId])
   // The sample takes after the template the admin was last checking: the
   // Preview buttons remember their template and the form opens on it.
   const [ld, setLd] = useState(() => {
@@ -1999,6 +2010,29 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <p style={{ color: 'var(--mut)', margin: '4px 0 14px' }}>
               {drawer.slug}.eventicor.com · since {drawer.since} {drawer.status ? '· ' + drawer.status[0].toUpperCase() + drawer.status.slice(1) : ''}
             </p>
+            <div style={{ borderTop: '1px solid var(--line, #e5e5ef)', marginTop: 12, paddingTop: 12 }}>
+              <b style={{ fontSize: 13 }}>Name changes</b>
+              {nameHist && nameHist.forId === drawerDoc.id && (!nameHist.rows || nameHist.rows.length === 0) && (
+                <small style={{ display: 'block', color: 'var(--mut)', marginTop: 4 }}>No name changes recorded.</small>
+              )}
+              {nameHist && nameHist.forId === drawerDoc.id && Array.isArray(nameHist.rows) && nameHist.rows.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {nameHist.rows.map((h: any) => {
+                    const t = h.at ? tsMs(h.at) : 0
+                    return (
+                      <div key={h.id} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--line, #e5e5ef)' }}>
+                        <div>{String(h.fromBride || h.fromGroom || '—')} → {String(h.toBride || '')} & {String(h.toGroom || '')}</div>
+                        <div style={{ color: 'var(--mut)', fontSize: 12 }}>
+                          {t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                          {h.fromSlug !== h.toSlug ? ` · link ${h.fromSlug || '—'} → ${h.toSlug || '—'}` : ''}
+                          {h.by ? ` · by ${h.by}` : ''}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             <div className="rw">
               <div><b>Plan</b><small>{drawer.plan ? `${ng(PL[drawer.plan]?.price || 0)} · ${PL[drawer.plan]?.gb || '—'} GB` : 'Not set'}</small></div>
               <select style={{ width: 'auto' }} value={drawer.plan || ''} disabled={busy} onChange={(e) => patchEvent(drawer.id, { plan: e.target.value }, `Changed ${drawer.slug} to ${PL[e.target.value]?.name}`)}>
@@ -2083,6 +2117,29 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 19 }}>{leadName(manage)}</h3>
             <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 14px' }}>Manage this account. Extensions apply immediately; suspending or deleting revokes the app link for visitors.</p>
+            <div style={{ borderTop: '1px solid var(--line, #e5e5ef)', marginTop: 12, paddingTop: 12 }}>
+              <b style={{ fontSize: 13 }}>Name changes</b>
+              {nameHist && nameHist.forId === manage.id && (!nameHist.rows || nameHist.rows.length === 0) && (
+                <small style={{ display: 'block', color: 'var(--mut)', marginTop: 4 }}>No name changes recorded.</small>
+              )}
+              {nameHist && nameHist.forId === manage.id && Array.isArray(nameHist.rows) && nameHist.rows.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {nameHist.rows.map((h: any) => {
+                    const t = h.at ? tsMs(h.at) : 0
+                    return (
+                      <div key={h.id} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--line, #e5e5ef)' }}>
+                        <div>{String(h.fromBride || h.fromGroom || '—')} → {String(h.toBride || '')} & {String(h.toGroom || '')}</div>
+                        <div style={{ color: 'var(--mut)', fontSize: 12 }}>
+                          {t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                          {h.fromSlug !== h.toSlug ? ` · link ${h.fromSlug || '—'} → ${h.toSlug || '—'}` : ''}
+                          {h.by ? ` · by ${h.by}` : ''}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             {manage.lastPayment && (
               <button className="chip" style={{ width: '100%', marginBottom: 12, fontWeight: 700 }} onClick={() => { setManage(null); setPayView(manage) }}>
                 Payment receipt uploaded{manage.lastPayment.plan ? ` · ${manage.lastPayment.plan}` : ''} — view it

@@ -1184,6 +1184,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setLeadOverride(ov);
     }
   }
+  // A pending rename that would change the app's address: held here until the
+  // couple confirms they understand the old address stops matching.
+  const [renameAsk, setRenameAsk] = useState<{ payload: { bride: string; groom: string; kicker: string; tagline: string }; curSlug: string; newSlug: string } | null>(null);
   const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: 'Together with their families', tagline: 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
   // A fresh saved identity syncs the editing draft; the signature guard keeps
   // unrelated config writes from wiping what is being typed.
@@ -2667,20 +2670,51 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       kicker: (idDraft.kicker || '').trim() || 'Together with their families',
       tagline: (idDraft.tagline || '').trim() || 'are getting married. Share every moment with us, from the first introduction to the last dance.',
     };
+    // A rename that would change the app's address asks first, so the couple
+    // knows what a changed link means before it happens.
+    if (!DEMO && isAdmin) {
+      try {
+        const src = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'events', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
+        const doc0: any = src && src.id ? src : await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'leads', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
+        const curB = String(doc0?.bride || '').trim();
+        const curG = String(doc0?.groom || '').trim();
+        const curSlug = String(doc0?.slug || '');
+        if ((curB || curG) && (bride !== curB || groom !== curG)) {
+          const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'our-event';
+          const newSlug = slugify(`${bride}-${groom}`);
+          if (newSlug && newSlug !== curSlug) {
+            const chk: any = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'check-slug', slug: newSlug }) }).then((r) => r.json()).catch(() => null);
+            if (chk && !chk.taken) {
+              setRenameAsk({ payload, curSlug, newSlug });
+              return;
+            }
+          }
+        }
+      } catch { /* the address check is best effort; the save itself still runs */ }
+    }
+    await commitCoupleIdentity(payload);
+  };
+
+  // Applies the names everywhere: the open app and tab, the app_config doc,
+  // and the app's own document, invites and address through the rename op.
+  const commitCoupleIdentity = async (payload: { bride: string; groom: string; kicker: string; tagline: string }, newSlug?: string) => {
     applyIdentity(payload);
     await updateWeddingSection({ coupleIdentity: payload });
     // Propagate the names to every surface that reads them from the app's own
     // document: the share card, invite pages, the install manifest and the
     // reminder emails. The rename op verifies this dashboard's admin
-    // server-side before touching anything.
+    // server-side before touching anything, and logs the change for the
+    // admin's history list.
     if (!DEMO && isAdmin) {
       try {
         const tk = await auth?.currentUser?.getIdToken?.();
-        await fetch('/api/set-app-names', {
+        const rn = await fetch('/api/set-app-names', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
-          body: JSON.stringify({ appId: APP_ID, bride, groom })
+          body: JSON.stringify({ appId: APP_ID, bride: payload.bride, groom: payload.groom, ...(newSlug ? { slug: newSlug } : {}) })
         });
+        const rj: any = await rn.json().catch(() => null);
+        if (rn.ok && rj && rj.slugChanged && rj.slug) showToast(`Your app's address is now ${rj.slug}.eventicor.com`);
       } catch (err) { console.warn('Name sync skipped:', err); }
     }
   };
@@ -5081,6 +5115,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onClose={() => setActiveMediaIndex(null)}
         />
       )}
+          {renameAsk && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setRenameAsk(null)} className="fixed inset-0 bg-black/60 z-[800] backdrop-blur-sm" />
+          )}
+          {renameAsk && (
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[801] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}>
+              <h3 className="text-lg font-black font-display tracking-tight mb-2">Change the couple's names?</h3>
+              <p className="text-sm opacity-60 mb-4">Your app's address changes from <b>{renameAsk.curSlug}.eventicor.com</b> to <b>{renameAsk.newSlug}.eventicor.com</b>. Anyone who saved the old address won't reach the app. Invitation messages already sent keep working.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setRenameAsk(null)} className={`flex-1 py-3 rounded-full font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`}>Cancel</button>
+                <button onClick={async () => { const ra = renameAsk; setRenameAsk(null); if (ra) await commitCoupleIdentity(ra.payload, ra.newSlug); }} className="flex-1 py-3 rounded-full bg-[var(--ann-accent)] text-white font-bold text-xs uppercase tracking-widest shadow-lg">Change names</button>
+              </div>
+            </motion.div>
+          )}
     </div>
   );
 }
