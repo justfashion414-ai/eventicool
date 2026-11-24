@@ -135,7 +135,7 @@ function creationAnim(){for(var i=0;i<4;i++){(function(i){setTimeout(function(){
 function finishBuild(){var st=document.getElementById('cstat');if(st)st.textContent='Login details are on their way to '+(P.em||'your email')+'.';var mc=document.querySelector('#m .mc');if(mc&&!document.getElementById('crow')){var rw=document.createElement('div');rw.id='crow';rw.className='row';rw.style.marginTop='14px';rw.innerHTML='<button class="btn" data-a="go">Continue</button>';mc.appendChild(rw)}}
 function buildApp(){UPLOADED=null;P.j=null;P.step=4;modal();creationAnim();
  uploadAll().then(function(urls){
-  return fetch('/api/proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'create-lead',data:{email:P.em||'',bride:P.b||'',groom:P.g||'',city:P.c||'',whatsapp:P.wa||'',template:TMAP[P.tp]||P.tp,accent:P.ac||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',heroImages:urls,wedding_date:P.d||'',trialHours:24}})}).then(function(r){return r.json()}).then(function(j){if(!j||!j.id)throw new Error(j&&j.error==='slug-taken'?'That name has been selected. Pick another one':j&&j.error==='email-taken'?'There is already an account for that email':(j&&j.error)||'Could not create the app');return j})
+  return fetch('/api/proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'create-lead',data:{email:P.em||'',bride:P.b||'',groom:P.g||'',city:P.c||'',whatsapp:P.wa||'',template:TMAP[P.tp]||P.tp,accent:P.ac||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',heroImages:urls,wedding_date:P.d||'',trialHours:24}})}).then(function(r){return r.json()}).then(function(j){if(!j||!j.id)throw new Error(j&&j.error==='slug-taken'?'That name has been selected. Pick another one':j&&j.error==='email-taken'?'There is already an account for that email':(j&&j.error)||'Could not create the app');try{fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'land_lead'})})}catch(e){}return j})
  }).then(function(j){P.j=j;finishBuild();sendSignup()})
  .catch(function(err){$('#m').innerHTML='<div class="md" data-a="close"><div class="mc" role="dialog" aria-modal="true"><h3>We could not create your app</h3><p class="sub" style="margin:8px 0 14px">'+esc(String(err&&err.message||err))+'</p><div class="row"><button class="btn" data-a="retry">Try again</button><button class="btn g" data-a="close">Close</button></div></div></div>'})}
 function sendSignup(){var body={email:P.em||'',source:'signup',bride:P.b||'',groom:P.g||'',wedding_date:P.d||'',city:P.c||'',slug:P.slug||slug(),plan:(PL[P.pl]||[])[0]||'',trial_hours:24,preview_url:location.origin+'/',app:(P.j&&P.j.id)||''};
@@ -375,3 +375,13 @@ function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r
   var tt=document.getElementById('totop');
   if(tt){var ttu=function(){tt.classList.toggle('on',(scrollY||0)>600)};addEventListener('scroll',ttu,{passive:true});ttu();tt.addEventListener('click',function(){scrollTo({top:0,behavior:'smooth'})});}
 }
+  // Landing traffic: a visit ping on load, time on page sent on leave, and a
+  // signup ping when a visitor creates their app. The counts land in the
+  // landing_daily ledger through the same track endpoint the apps use.
+  var lt0=Date.now(),lsid='';
+  try{lsid=sessionStorage.getItem('ev-land-sid')||'';if(!lsid){lsid=Math.random().toString(36).slice(2,10)+Date.now().toString(36);sessionStorage.setItem('ev-land-sid',lsid)}}catch(e){}
+  try{
+    fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'land',sid:lsid})}).catch(function(){});
+    var lv=function(){try{var sec=Math.max(0,Math.min(7200,Math.round((Date.now()-lt0)/1000)));var bl=new Blob([JSON.stringify({kind:'land_leave',s:sec})],{type:'application/json'});if(navigator.sendBeacon)navigator.sendBeacon('/api/track',bl)}catch(e){}};
+    addEventListener('pagehide',lv);
+  }catch(e){}

@@ -31,6 +31,10 @@ const APP_RE = /^[A-Za-z0-9_-]{1,80}$/
 const SID_RE = /^[A-Za-z0-9_-]{1,64}$/
 // kind -> the stats-doc counter it bumps
 const KINDS = { open: 'open', feed_open: 'feedOpen', post_add: 'postAdd' }
+// Landing-page traffic, kept in its own daily ledger (landing_daily/<date>):
+// land = a visit, land_leave = time on page with it, land_lead = a visitor
+// went on to create their app.
+const LAND_KINDS = { land: 1, land_leave: 1, land_lead: 1 }
 
 // The visitor's country, from the platform's geo data when it is there and
 // from the request headers as fallback. Absent country simply records no
@@ -64,13 +68,33 @@ export default async (req, context) => {
   const app = String(body.app || '').trim()
   const kind = String(body.kind || '').trim()
   const sid = String(body.sid || '').trim()
-  if (!APP_RE.test(app) || !KINDS[kind] || (sid && !SID_RE.test(sid))) return json(400, { ok: false })
+  if (sid && !SID_RE.test(sid)) return json(400, { ok: false })
+  const isLand = !!LAND_KINDS[kind]
+  if (!isLand && (!APP_RE.test(app) || !KINDS[kind])) return json(400, { ok: false })
 
   try {
     init()
     const db = getFirestore()
     const now = Date.now()
     const at = Timestamp.fromMillis(now)
+
+    if (isLand) {
+      const day = new Date(now).toISOString().slice(0, 10)
+      const inc: any = { updatedAt: at }
+      if (kind === 'land') {
+        inc.visits = FieldValue.increment(1)
+        if (sid) inc.v = FieldValue.arrayUnion(sid)
+      } else if (kind === 'land_leave') {
+        const secs = Math.max(0, Math.min(7200, Math.round(Number(body.s) || 0)))
+        inc.seconds = FieldValue.increment(secs)
+        inc.left = FieldValue.increment(1)
+      } else {
+        inc.signups = FieldValue.increment(1)
+      }
+      await db.collection('landing_daily').doc(day).set(inc, { merge: true })
+      return json(200, { ok: true })
+    }
+
     const field = KINDS[kind]
     const cap = field.charAt(0).toUpperCase() + field.slice(1)
 
