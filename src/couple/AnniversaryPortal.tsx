@@ -79,7 +79,9 @@ import {
   writeBatch,
   increment,
   updateDoc,
-  getDocs
+  getDocs,
+  limit,
+  startAfter
 } from './lib/firestoreShim';
 
 
@@ -1236,6 +1238,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [gateBusy, setGateBusy] = useState<boolean>(false);
   const [feedPageSize, setFeedPageSize] = useState(0); // 0 = show every post (no pagination)
   const [feedPage, setFeedPage] = useState(1);
+  // Read-level pagination wiring: the guest feed listener fills the live
+  // window (the newest feedPageSize posts) and exposes an on-demand fetch
+  // for the next older page, so a busy feed stops re-reading every post
+  // for every visitor.
+  const loadOlderRef = useRef<null | (() => Promise<void>)>(null);
+  const hasMoreOlderRef = useRef<null | (() => boolean)>(null);
+  const loadedApprovedRef = useRef(0);
   const [pushEnabled, setPushEnabled] = useState<boolean>(true);
   // Feed action button mode: 'share' opens the share sheet, 'download' saves the
   // media straight to the guest's device. Chosen by the admin in the console
@@ -3017,26 +3026,69 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       // Two provable queries: everything approved, plus this viewer's own
       // post that is still waiting for approval (shown with the tag).
       const myUid = user?.uid || '';
+      // With a platform feed page size, the live listener covers only the
+      // newest pageSize approved posts; "Older posts" fetches the next page
+      // on demand. The Firestore rules enforce the same cap on list reads,
+      // so the page size is backed, not just a display slice.
+      const pageSize = feedPageSize > 0 ? feedPageSize : 0;
       let docsApproved: any[] = [];
       let docsMine: any[] = [];
+      let docsOlder: any[] = [];
       let gotApproved = false;
       let gotMine = myUid ? false : true;
       let cacheApproved = false; let cacheMine = false;
+      let hasMoreOlder = pageSize > 0;
+      let olderFetching = false;
       const flush = () => {
         const seen = new Set<string>();
         const merged: any[] = [];
-        for (const d of [...docsApproved, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        for (const d of [...docsApproved, ...docsOlder, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        loadedApprovedRef.current = docsApproved.length + docsOlder.length;
         apply(merged, gotApproved && gotMine, cacheApproved || cacheMine);
       };
-      unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', false)), (snapshot) => {
-        docsApproved = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        cacheApproved = !!(snapshot as any).metadata?.fromCache;
-        if (!cacheApproved) gotApproved = true;
-        flush();
-      }, onErr));
+      const postsCol = collection(db, scopedPath('posts'));
+      if (pageSize > 0) {
+        unsubs.push(onSnapshot(query(postsCol, where('pending', '==', false), orderBy('timestamp', 'desc'), limit(pageSize)), (snapshot: any) => {
+          docsApproved = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+          cacheApproved = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheApproved) gotApproved = true;
+          flush();
+        }, onErr));
+        loadOlderRef.current = async () => {
+          if (olderFetching || !hasMoreOlder) return;
+          const base = [...docsApproved, ...docsOlder];
+          const anchor: any = base.length > 0 ? base[base.length - 1] : null;
+          if (!anchor || !anchor.timestamp) return;
+          olderFetching = true;
+          try {
+            const snap: any = await getDocs(query(postsCol, where('pending', '==', false), orderBy('timestamp', 'desc'), startAfter(anchor.timestamp), limit(pageSize)));
+            const got = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+            docsOlder = [...docsOlder, ...got];
+            if (got.length < pageSize) hasMoreOlder = false;
+            flush();
+          } catch (err: unknown) {
+            handleFirestoreError(err, OperationType.LIST, 'posts');
+          }
+          olderFetching = false;
+        };
+        hasMoreOlderRef.current = () => hasMoreOlder;
+      } else {
+        unsubs.push(onSnapshot(query(postsCol, where('pending', '==', false)), (snapshot: any) => {
+          docsApproved = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+          cacheApproved = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheApproved) gotApproved = true;
+          flush();
+        }, onErr));
+        loadOlderRef.current = null;
+        hasMoreOlderRef.current = null;
+        loadedApprovedRef.current = 0;
+      }
       if (myUid) {
-        unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', true), where('authorUid', '==', myUid)), (snapshot) => {
-          docsMine = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const mineQ = pageSize > 0
+          ? query(postsCol, where('pending', '==', true), where('authorUid', '==', myUid), limit(pageSize))
+          : query(postsCol, where('pending', '==', true), where('authorUid', '==', myUid));
+        unsubs.push(onSnapshot(mineQ, (snapshot: any) => {
+          docsMine = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
           cacheMine = !!(snapshot as any).metadata?.fromCache;
           if (!cacheMine) gotMine = true;
           flush();
@@ -3044,7 +3096,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
     }
     return () => { window.clearTimeout(bail); unsubs.forEach((u) => { try { u(); } catch { /* already closed */ } }); };
-  }, [isAdmin, user?.uid]);
+  }, [isAdmin, user?.uid, feedPageSize]);
 
   // Web push: the service worker must be registered before any subscription
   // can be created. Registration is silent; permission is only ever asked
@@ -3245,6 +3297,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Feed pagination: changing the page size sends every visitor back to the
   // first page so nobody lands mid-list on a size they didn't pick.
   useEffect(() => { setFeedPage(1); }, [feedPageSize]);
+
+  // Read-level pagination: when the visitor pages past what is loaded, the
+  // next older page is fetched here (one bounded query per tap).
+  useEffect(() => {
+    if (isAdmin || feedPageSize <= 0) return;
+    const need = feedPage * feedPageSize;
+    if (loadedApprovedRef.current >= need) return;
+    if (hasMoreOlderRef.current && !hasMoreOlderRef.current()) return;
+    loadOlderRef.current?.();
+  }, [feedPage, feedPageSize, posts.length, isAdmin]);
 
   // Feed pagination and storage come from the Eventicor console
   // (platform/settings), not from this app's config: Eventicor manages the
@@ -3879,7 +3941,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       }
                     });
 
-                    if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
+                    if (feedPageSize > 0 && (regularPosts.length > pagedPosts.length
+                      || (feedPage * feedPageSize >= regularPosts.length && regularPosts.length > 0 && !!hasMoreOlderRef.current?.()))) {
                       feedElements.push(
                         <div key="feed-next-page" className="flex w-full justify-center">
                           <button onClick={() => setFeedPage((v: number) => v + 1)} className="my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
