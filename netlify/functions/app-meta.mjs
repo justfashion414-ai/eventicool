@@ -69,6 +69,16 @@ async function coupleMeta(sp) {
 
 function injectAppMeta(html, m, pageUrl) {
   let out = String(html)
+  // The couple's hero photo becomes the tab and touch icon, so a renamed or
+  // restyled app never keeps a stale icon on a fresh open (server side; the
+  // open tab is kept in step by CoupleApp's own effect).
+  if (m.photo) {
+    const raw = String(m.photo)
+    const ic = cdnIcon(raw, 64) || raw
+    const ap = cdnIcon(raw, 180) || raw
+    out = out.replace(/<link rel="icon"[^>]*>/i, `<link rel="icon" type="image/png" href="${esc(ic)}">`)
+    out = out.replace(/<link rel="apple-touch-icon"[^>]*>/i, `<link rel="apple-touch-icon" href="${esc(ap)}">`)
+  }
   if (m.title) out = out.replace(/<title>[^<]*<\/title>/i, `<title>${esc(m.title)}</title>`)
   const tags = [
     `<meta property="og:title" content="${esc(m.title)}">`,

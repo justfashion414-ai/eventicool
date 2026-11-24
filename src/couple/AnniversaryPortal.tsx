@@ -52,6 +52,7 @@ import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
 import { where } from './lib/firestoreShim';
+import { trackAppEvent } from './lib/track';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';
@@ -1163,6 +1164,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [cfgIdentity, setCfgIdentity] = useState<{ bride: string; groom: string; kicker: string; tagline: string } | null>(null);
   const identitySigRef = useRef<string>('');
   function applyIdentity(ci: { bride?: string; groom?: string; kicker?: string; tagline?: string } | null) {
+    // The browser tab follows a rename immediately, not on the next reload.
+    try { const tb = String(ci?.bride || '').trim(), tg = String(ci?.groom || '').trim(); if (tb && tg) document.title = tb + ' & ' + tg; else if (tb || tg) document.title = tb || tg; } catch { /* cosmetic */ }
     let sig = '';
     try { sig = [ci?.bride || '', ci?.groom || '', ci?.kicker || '', ci?.tagline || ''].join('\u00a6'); } catch { sig = ''; }
     if (sig && sig === identitySigRef.current) return;
@@ -2666,7 +2669,28 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
     };
     applyIdentity(payload);
     await updateWeddingSection({ coupleIdentity: payload });
+    // Propagate the names to every surface that reads them from the app's own
+    // document: the share card, invite pages, the install manifest and the
+    // reminder emails. The rename op verifies this dashboard's admin
+    // server-side before touching anything.
+    if (!DEMO && isAdmin) {
+      try {
+        const tk = await auth?.currentUser?.getIdToken?.();
+        await fetch('/api/set-app-names', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+          body: JSON.stringify({ appId: APP_ID, bride, groom })
+        });
+      } catch (err) { console.warn('Name sync skipped:', err); }
+    }
   };
+
+  // Feed opens are counted once per session for the platform analytics; this
+  // one effect covers the home button, the nav and the private-feed gate.
+  useEffect(() => {
+    if (activeTab === 'feed') trackAppEvent(APP_ID, 'feed_open');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // Giant footer style (dashboard setting; couples pick the look).
   const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false, thanks?: string) => {
@@ -4733,6 +4757,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           loveCount: 0,
                           timestamp: serverTimestamp()
                         });
+                        trackAppEvent(APP_ID, 'post_add');
                         setUploadingPost(null);
 
                         showToast(pendingFlag ? 'Shared! Your post will be approved soon' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'), 'success');

@@ -28,6 +28,7 @@ service cloud.firestore {
     match /leads/{doc=**} { allow read: if true; allow write: if false; }
     match /events/{doc=**} { allow read: if false; allow write: if false; }
     match /health/{doc} { allow read: if true; allow write: if false; }
+    match /analytics_daily/{doc=**} { allow read: if isSuper(); allow write: if false; }
     match /app_config/{doc=**} { allow read: if true; allow write: if false; }
     match /posts/{doc=**} { allow read: if true; allow write: if false; }
     match /residents/{doc=**} { allow read: if true; allow write: if false; }
@@ -39,6 +40,7 @@ service cloud.firestore {
     }
     match /apps/{app} {
       match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /meta/{doc=**} { allow read: if isAdminIn(app); allow write: if false; }
       match /posts/{postId} {
         // Listing the feed is capped to the platform page size for guests;
         // admins read the whole collection. Single-post gets stay open.

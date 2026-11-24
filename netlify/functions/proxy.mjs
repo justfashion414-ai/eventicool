@@ -1,5 +1,5 @@
 import { initializeApp, cert } from 'firebase-admin/app'
-import { FieldValue, getFirestore } from 'firebase-admin/firestore'
+import { FieldValue, FieldPath, getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 
 let ready = false
@@ -351,6 +351,9 @@ export default async (req) => {
     switch (op) {
       case 'list': {
         let q = col
+        // name-desc: the caller wants the newest documents first (doc ids that
+        // sort by name, like the daily analytics ledgers).
+        if (body.orderBy === 'name-desc') q = q.orderBy(FieldPath.documentId(), 'desc')
         if (field) q = q.where(field, '==', value)
         if (limit) q = q.limit(Number(limit) || 50)
         const snap = await q.get()

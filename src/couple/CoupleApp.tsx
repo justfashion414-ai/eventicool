@@ -331,6 +331,7 @@ export default function CoupleApp() {
       if (l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt) setLeadExpired(true);
       setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, weddingDate: l.weddingDate, weddingTime: l.weddingTime } : null);
       setLead(l || null);
+      if (l) trackAppEvent(siteId || leadId, 'open');
       try { setCoupleInfo((l as any)?.plan, (l as any)?.platform) } catch { /* defaults stay */ }
     });
     return () => { alive = false; window.clearTimeout(bail); };
@@ -460,5 +461,6 @@ export default function CoupleApp() {
 }
 
 import { setLeadOverride, goLive } from './lib/demoMode';
+import { trackAppEvent } from './lib/track';
 import { setCoupleInfo } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';

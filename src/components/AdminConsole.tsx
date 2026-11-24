@@ -82,6 +82,7 @@ const NAV = [
   { id: 'leads', label: 'Leads' },
   { id: 'cust', label: 'Free trial apps' },
   { id: 'sites', label: 'Premium apps' },
+  { id: 'stat', label: 'Analytics' },
   { id: 'ord', label: 'Orders' },
   { id: 'cat', label: 'Plans and templates' },
   { id: 'storage', label: 'Storage' },
@@ -151,6 +152,7 @@ const ICONS: Record<SecId, string> = {
   cust: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
+  stat: '<rect x="4" y="13" width="4" height="7" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="16" y="4" width="4" height="16" rx="1"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   inv: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
@@ -247,6 +249,70 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
+  // Platform analytics (Analytics tab): the daily ledger, aggregated in the
+  // console, plus the per-app opens ledger for every lead and premium app.
+  const [anData, setAnData] = useState<any>(null)
+  const [anBusy, setAnBusy] = useState(false)
+  const loadAnalytics = async () => {
+    setAnBusy(true)
+    try {
+      const res: any = await consoleCall('list', { collection: 'analytics_daily', limit: 30, orderBy: 'name-desc' })
+      const docs: any[] = Array.isArray(res?.docs) ? res.docs : []
+      docs.sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      const perDay = docs.map((d: any) => ({ id: String(d.id), open: Number(d.open) || 0, feedOpen: Number(d.feedOpen) || 0, postAdd: Number(d.postAdd) || 0 }))
+      const totals = { open: 0, feedOpen: 0, postAdd: 0 }
+      const appsAgg: Record<string, { open: number; feedOpen: number }> = {}
+      const cAgg: Record<string, number> = {}
+      for (const d of docs) {
+        totals.open += Number(d.open) || 0
+        totals.feedOpen += Number(d.feedOpen) || 0
+        totals.postAdd += Number(d.postAdd) || 0
+        const ap = d.apps || {}
+        for (const id of Object.keys(ap)) {
+          if (!appsAgg[id]) appsAgg[id] = { open: 0, feedOpen: 0 }
+          appsAgg[id].open += Number(ap[id]?.open) || 0
+          appsAgg[id].feedOpen += Number(ap[id]?.feedOpen) || 0
+        }
+        const cs = d.countries || {}
+        for (const cc of Object.keys(cs)) cAgg[cc] = (cAgg[cc] || 0) + (Number(cs[cc]) || 0)
+      }
+      const nameOf = (id: string) => {
+        const r: any = [...(leads || []), ...(events || [])].find((x: any) => x.id === id)
+        const nm = r ? `${r.bride || ''} & ${r.groom || ''}`.trim() : ''
+        return nm && nm !== '&' ? nm : id
+      }
+      const topApps = Object.entries(appsAgg).sort((x, y) => y[1].open - x[1].open).slice(0, 6).map(([id, v]) => ({ id, open: v.open, feedOpen: v.feedOpen, name: nameOf(id) }))
+      const topCountries = Object.entries(cAgg).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([cc, n]) => ({ cc, n }))
+      // The per-app ledger: every trial, sample and premium app that has been
+      // opened at least once, with its count and the last open.
+      const rows: any[] = []
+      const all = [...(leads || []), ...(events || [])] as any[]
+      for (let i = 0; i < all.length; i += 8) {
+        const batch = all.slice(i, i + 8)
+        const got = await Promise.all(batch.map((r) => consoleCall('get', { collection: `apps/${r.id}/meta`, id: 'stats' }).catch(() => null)))
+        batch.forEach((r: any, k: number) => {
+          const st: any = got[k]
+          if (!st) return
+          const tt = st.lastOpenAt ? tsMs(st.lastOpenAt) : 0
+          const la = tt ? new Date(tt) : null
+          rows.push({
+            id: r.id,
+            name: nameOf(r.id),
+            type: r.source === 'landing' ? 'Customer' : (events || []).some((x: any) => x.id === r.id) ? 'Premium' : 'Sample',
+            opens: Number(st.open) || 0,
+            feedOpens: Number(st.feedOpen) || 0,
+            last: la ? la.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + la.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-',
+          })
+        })
+      }
+      rows.sort((a, b) => b.opens - a.opens)
+      setAnData({ perDay, totals, topApps, topCountries, rows })
+    } catch (e) {
+      setAnData({ perDay: [], totals: { open: 0, feedOpen: 0, postAdd: 0 }, topApps: [], topCountries: [], rows: [], error: String(e) })
+    }
+    setAnBusy(false)
+  }
+  useEffect(() => { if (sec === 'stat' && !anData && !anBusy) loadAnalytics() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sec])
   // The sample takes after the template the admin was last checking: the
   // Preview buttons remember their template and the form opens on it.
   const [ld, setLd] = useState(() => {
@@ -1781,7 +1847,111 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       )}
     </div>
   )
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, storage: storageSection, inv: invitesSection, pay: paySection, team: team }
+  function analyticsSection() {
+    const d = anData
+    const maxOpen = d && d.perDay.length ? Math.max(1, ...d.perDay.map((p: any) => p.open)) : 1
+    const box: React.CSSProperties = { border: '1px solid var(--line, #e5e5ef)', borderRadius: 14, padding: '14px 16px' }
+    const mut: React.CSSProperties = { color: 'var(--mut)', margin: 0, fontSize: 12 }
+    return (
+      <div>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Analytics</h2>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 0' }}>Opens, feed opens and guest posts across every app.</p>
+          </div>
+          <button className="btn g s" onClick={loadAnalytics} disabled={anBusy}>{anBusy ? 'Loading…' : 'Refresh'}</button>
+        </div>
+        {(!d || d.error) && (
+          <p style={{ color: 'var(--mut)', marginTop: 16 }}>
+            {d && d.error ? `Could not load the ledger: ${d.error}` : 'Loading…'}
+          </p>
+        )}
+        {d && !d.error && (
+          <>
+            <div className="row" style={{ gap: 12, margin: '14px 0', flexWrap: 'wrap' }}>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>APP OPENS</p>
+                <h2 style={{ margin: '4px 0 0' }}>{d.totals.open}</h2>
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>FEED OPENS</p>
+                <h2 style={{ margin: '4px 0 0' }}>{d.totals.feedOpen}</h2>
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>GUEST POSTS</p>
+                <h2 style={{ margin: '4px 0 0' }}>{d.totals.postAdd}</h2>
+              </div>
+            </div>
+            {d.perDay.length > 0 && (
+              <div style={{ ...box, marginBottom: 14 }}>
+                <p style={{ ...mut, marginBottom: 10 }}>OPENS · LAST {d.perDay.length} DAYS</p>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 90 }}>
+                  {d.perDay.map((p: any) => (
+                    <div key={p.id} title={`${p.id}: ${p.open} opens`} style={{ flex: 1, height: `${Math.max(3, Math.round((p.open / maxOpen) * 100))}%`, background: '#2E55D6', borderRadius: 3, opacity: 0.85 }} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {d.rows.length > 0 && (
+              <div style={{ ...box, marginBottom: 14 }}>
+                <p style={{ ...mut, marginBottom: 10 }}>EVERY APP · OPENS LEDGER</p>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--mut)', textAlign: 'left' }}>
+                        <th style={{ padding: '6px 8px', fontWeight: 600 }}>App</th>
+                        <th style={{ padding: '6px 8px', fontWeight: 600 }}>Type</th>
+                        <th style={{ padding: '6px 8px', fontWeight: 600 }}>Opens</th>
+                        <th style={{ padding: '6px 8px', fontWeight: 600 }}>Feed opens</th>
+                        <th style={{ padding: '6px 8px', fontWeight: 600 }}>Last opened</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.rows.map((r: any) => (
+                        <tr key={r.id} style={{ borderTop: '1px solid var(--line, #e5e5ef)' }}>
+                          <td style={{ padding: '8px' }}>{r.name}</td>
+                          <td style={{ padding: '8px', color: 'var(--mut)' }}>{r.type}</td>
+                          <td style={{ padding: '8px', fontWeight: 700 }}>{r.opens}</td>
+                          <td style={{ padding: '8px', color: 'var(--mut)' }}>{r.feedOpens}</td>
+                          <td style={{ padding: '8px', color: 'var(--mut)' }}>{r.last}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+              {d.topApps.length > 0 && (
+                <div style={{ ...box, flex: 1, minWidth: 220 }}>
+                  <p style={{ ...mut, marginBottom: 10 }}>MOST OPENED</p>
+                  {d.topApps.map((a: any) => (
+                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14 }}>
+                      <span>{a.name}</span>
+                      <b>{a.open}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {d.topCountries.length > 0 && (
+                <div style={{ ...box, flex: 1, minWidth: 180 }}>
+                  <p style={{ ...mut, marginBottom: 10 }}>WHERE OPENS COME FROM</p>
+                  {d.topCountries.map((c: any) => (
+                    <div key={c.cc} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14 }}>
+                      <span>{c.cc}</span>
+                      <b>{c.n}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, storage: storageSection, inv: invitesSection, pay: paySection, team: team, stat: analyticsSection }
 
   return (
     <div className="evad">
