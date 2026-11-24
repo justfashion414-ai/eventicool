@@ -80,7 +80,7 @@ export default async (req, context) => {
 
     if (isLand) {
       const day = new Date(now).toISOString().slice(0, 10)
-      const inc: any = { updatedAt: at }
+      const inc = { updatedAt: at }
       if (kind === 'land') {
         inc.visits = FieldValue.increment(1)
         if (sid) inc.v = FieldValue.arrayUnion(sid)
