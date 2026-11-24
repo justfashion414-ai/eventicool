@@ -7864,6 +7864,11 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
   componentDidCatch(error: any, info: any) {
     console.error(`Section "${this.props.label}" failed to render:`, error, info);
   }
+  componentDidUpdate(prev: any) {
+    /* Moving to another tab clears the crash so the old raw error never sits
+       on screen; the section remounts fresh. */
+    if (prev.label !== this.props.label && this.state.error) this.setState({ error: null });
+  }
   render() {
     if (this.state.error) {
       const msg = String(this.state.error?.message || this.state.error || 'Unknown error');
@@ -7872,6 +7877,7 @@ class TabErrorBoundary extends React.Component<{ label: string; isDarkMode: bool
           <h3 className="font-black font-display text-lg text-[#C4453B] mb-1">This section could not load</h3>
           <p className="text-sm opacity-70 mb-2">Section: {this.props.label}. Send the text below to your assistant to get it fixed.</p>
           <code className="block p-3 rounded-lg bg-black/10 text-[0.7rem] break-words whitespace-pre-wrap">{msg}</code>
+          <button type="button" onClick={() => this.setState({ error: null })} className="mt-3 px-4 py-2 rounded-full bg-[#C4453B] text-white text-[0.65rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Try again</button>
         </div>
       );
     }
@@ -8436,7 +8442,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   // Live open count while the section is open.
   useEffect(() => {
     if (DEMO || !docId) return;
-    const unsub = onSnapshot(doc(db, scopedPath('invites'), docId), (s: any) => { if (s.exists()) setOpens((s.data() || {}).opens || 0); });
+    const unsub = onSnapshot(doc(db, scopedPath('invites'), docId), (s: any) => { if (s.exists()) setOpens((s.data() || {}).opens || 0); }, () => { /* transient listener errors keep the last value; nothing here may crash the form */ });
     return () => { try { unsub(); } catch { /* ignore */ } };
   }, [docId]);
 
@@ -8544,6 +8550,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [guests, setGuests] = useState<any[] | null>(null);
   const [guestsErr, setGuestsErr] = useState(false);
   const guestErrTries = useRef(0);
+  const guestErrFlag = useRef(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [delGuest, setDelGuest] = useState<any>(null);
   // Returning from WhatsApp (or any app switch) can leave the live listener
@@ -8552,7 +8559,11 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
   const [guestEpoch, setGuestEpoch] = useState(0);
   useEffect(() => {
     const bump = () => setGuestEpoch((x: number) => x + 1);
-    const onVis = () => { if (!document.hidden) bump(); };
+    /* Only re-subscribe on returning to the app when the listener is known
+       bad. A healthy listener keeps streaming on its own, and the teardown/
+       rebuild churn on every app switch is what trips Firestore's internal
+       assertion. A bfcache restore (pageshow persisted) still rebuilds. */
+    const onVis = () => { if (!document.hidden && guestErrFlag.current) bump(); };
     const onPage = (e: any) => { if (e && e.persisted) bump(); };
     window.addEventListener('pageshow', onPage);
     document.addEventListener('visibilitychange', onVis);
@@ -8575,11 +8586,13 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
       rows.sort((a: any, b: any) => ((a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)));
       guestErrTries.current = 0;
+      guestErrFlag.current = false;
       setGuestsErr(false);
       setGuests(rows);
     }, () => {
       /* A failed or dead listener must never read as "no invitees": keep the
          last rows, flag the error and re-subscribe on a short backoff. */
+      guestErrFlag.current = true;
       setGuestsErr(true);
       if (guestErrTries.current < 4) { guestErrTries.current += 1; setTimeout(() => setGuestEpoch((x: number) => x + 1), 2500); }
     });
@@ -8971,7 +8984,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
             <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50 mb-1.5">Add an invitee</label>
             <div className="flex gap-2">
               <input className={inputCls} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Their name" maxLength={40} />
-              <input className={inputCls} value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} placeholder="WhatsApp number" inputMode="tel" maxLength={20} />
+              <input className={inputCls} value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} placeholder="WhatsApp number" inputMode="tel" maxLength={11} />
               <button type="button" onClick={addGuest} disabled={addingGuest} className="px-4 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest disabled:opacity-50 whitespace-nowrap" style={{ touchAction: 'manipulation' }}>{addingGuest ? 'Adding…' : 'Add'}</button>
             </div>
             <p className="text-[10px] opacity-50 mt-1.5">Their WhatsApp number powers the WhatsApp button on their row.</p>
