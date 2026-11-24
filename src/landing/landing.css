@@ -337,5 +337,5 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 #ev-l .giant{font:400 clamp(100px,26vw,430px)/.78 "Playfair Display",serif;margin-top:22px}
 
 /* footer wordmark: raised clear of the floating back-to-top button and made bigger still (user direction Nov 23 2026) */
-#ev-l .giant{font:400 clamp(110px,28vw,470px)/.78 "Playfair Display",serif;margin:22px 0 96px}
+#ev-l .giant{font:400 clamp(92px,22.5vw,276px)/.9 "Playfair Display",serif;margin:22px 0 96px;text-align:center}
 #ev-l [data-adm]{cursor:pointer}

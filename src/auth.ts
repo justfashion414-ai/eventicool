@@ -85,7 +85,7 @@ export async function signInAdmin(email: string, password: string) {
     })
     throw err
   }
-  if (!r.status || !r.ok || !r.body?.token) {
+  if (!r.status || r.status !== 200 || !r.body?.token) {
     const err: Error & { code?: string; attemptsLeft?: number } = Object.assign(new Error(r.body?.error || 'wrong'), {
       code: r.body?.error === 'wrong' ? 'auth/invalid-credential' : 'eventicor/login-failed',
       attemptsLeft: r.body?.attemptsLeft,

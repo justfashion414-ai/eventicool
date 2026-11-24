@@ -239,8 +239,10 @@ footer p{margin:6px 0 0;font-family:var(--sans);font-size:13px;letter-spacing:.1
 .ph-hold .ph-card.on{opacity:1}
 .ph-glide .ph-card,.ph-flip .ph-card{opacity:1;transition:none;will-change:transform}
 .ph-flip .ph-card{transform-origin:left center}
-p.addr.dc-on{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.dc-lab{font-family:var(--sans);font-size:10px;letter-spacing:.22em;text-transform:uppercase;opacity:.75}
+p.addr.dc-on{display:block;text-align:center}
+.dc-lab{font-family:var(--sans);font-size:10px;letter-spacing:.22em;text-transform:uppercase;opacity:.75;display:block;margin-bottom:10px}
+.dc-chips{display:inline-flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px 16px;max-width:100%}
+.dc-pair{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .dc-sw{width:26px;height:26px;border-radius:50%;display:inline-block;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(60,20,20,.25)}
 .dc-name{font-family:var(--sans);font-size:12px;letter-spacing:.02em;opacity:.9}
 .couple-line{margin:22px 0 4px;font-family:var(--script);font-size:38px;line-height:1.1;color:var(--gold)}
@@ -955,15 +957,18 @@ function colorNameFor(hex) { var rgb = cnParse(hex); if (!rgb) return ''; var be
   host.textContent = '';
   host.classList.add('dc-on');
   var lab = document.createElement('span'); lab.className = 'dc-lab'; lab.textContent = 'Dress colours';
-  host.appendChild(lab);
+  var chips = document.createElement('span'); chips.className = 'dc-chips';
   list.forEach(function (c) {
     var hex = typeof c === 'string' ? c : (c && c.hex);
     if (!hex) return;
     var name = (c && typeof c === 'object' && c.name) || colorNameFor(hex);
     var swEl = document.createElement('span'); swEl.className = 'dc-sw'; swEl.style.background = hex;
     var nm = document.createElement('span'); nm.className = 'dc-name'; nm.textContent = name;
-    host.appendChild(swEl); host.appendChild(nm);
+    var pair = document.createElement('span'); pair.className = 'dc-pair';
+    pair.appendChild(swEl); pair.appendChild(nm);
+    chips.appendChild(pair);
   });
+  host.appendChild(lab); host.appendChild(chips);
   /* Dress-look mockups (user spec Nov 22 2026): the couple's mockups drawn in
      their picked colours. Male is shirt & trouser; female is a gown or blouse
      & skirt. Both mockups show side by side: male on the left, female on the right. */
