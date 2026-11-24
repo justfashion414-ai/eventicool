@@ -183,7 +183,7 @@ export async function runRetentionCleanup(nowMs = Date.now()) {
     ranAt: new Date(nowMs).toISOString(),
     retentionSampleDays: settings.retentionSampleDays,
     retentionRealDays: settings.retentionRealDays,
-    sampleApps: [] as any,
+    sampleApps: [],
     sampleFilesDeleted: 0,
     realApps: [],
     realFilesDeleted: 0,
