@@ -5,6 +5,7 @@ import { runLandingScript } from './landingScript'
 import CelebrationPicker from './CelebrationPicker'
 import { pushRoute } from '../nav'
 import { bySlug, getSavedCelebration, setSavedCelebration, type Celebration } from './celebrations'
+import { HeroShowcase } from './HeroShowcase'
 
 // The prototype ships its own vanilla-JS layer; run it once per page load.
 let ran = false
@@ -93,7 +94,6 @@ export default function LandingMarketing({ type, picker }: { type: string; picke
     applyStatic(prev, cel)
     const w = window as unknown as { __evCelebrate?: (o: { b: string; g: string; oc: string }) => void }
     try { w.__evCelebrate?.({ b: cel.b, g: cel.g, oc: cel.slug, gn: cel.giftNote }) } catch { /* ignore */ }
-    try { (window as unknown as { __evHero?: (l: string[]) => void }).__evHero?.(cel.hero) } catch { /* ignore */ }
     setCurrent(cel.slug)
     if (picker) setOpen(true)
   }, [cel.slug, picker])
@@ -109,6 +109,7 @@ export default function LandingMarketing({ type, picker }: { type: string; picke
   return (
     <>
       <div id="ev-l" dangerouslySetInnerHTML={{ __html: landingHtml }} />
+      <HeroShowcase tpls={cel.heroTpls} />
       {!open && (
         <div className="ev-side">
           <div className="ev-side-word" aria-hidden="true">

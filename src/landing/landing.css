@@ -370,17 +370,15 @@ body.ev-picker-open{overflow:hidden}
  .evc-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 }
 
-/* Hero image carousel: per-celebration photos behind the hero text */
-#ev-l .hero-bg{position:absolute;inset:0;z-index:0;pointer-events:none}
-#ev-l .hero-bg i{position:absolute;inset:0;background-size:cover;background-position:center 35%;opacity:0;transform:scale(1.06);transition:opacity 1.4s ease,transform 8s ease}
-#ev-l .hero-bg i.on{opacity:1;transform:scale(1)}
-#ev-l .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(23,22,46,.68),rgba(23,22,46,.5) 55%,rgba(23,22,46,.74))}
+/* Live template hero: the real template previews playing behind the hero text */
+#ev-l .hero-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+#ev-l .hero-bg .hs-stage{position:absolute;inset:0;transition:opacity 1.2s ease}
 #ev-l .hero .w{position:relative;z-index:1}
-#ev-l .hero h1,#ev-l .hero h1 em{color:#fff}
-#ev-l .hero .sub{color:rgba(255,255,255,.86)}
-#ev-l .hero .trust{color:rgba(255,255,255,.9)}
+#ev-l.ev-heroimg .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(23,22,46,.68),rgba(23,22,46,.5) 55%,rgba(23,22,46,.74))}
+#ev-l.ev-heroimg .hero h1,#ev-l.ev-heroimg .hero h1 em{color:#fff}
+#ev-l.ev-heroimg .hero .sub{color:rgba(255,255,255,.86)}
+#ev-l.ev-heroimg .hero .trust{color:rgba(255,255,255,.9)}
 
-/* Phone: keep the switcher rail clear of the centered hero text */
 @media (max-width:700px){
   .ev-side{top:auto;bottom:112px;transform:none}
 }
