@@ -43,8 +43,8 @@ const TP: Record<string, { name: string; tagline: string; bg: string; fg: string
   halo: { name: 'Halo Arc', tagline: 'A crown of photos above your names', bg: '#fbe1e8', fg: '#4a1530', ac: '#d6285f' },
   hero: { name: 'Hero Deck', tagline: 'A sliding cover of your best moments', bg: '#0c4a36', fg: '#f2f8ee', ac: '#f4b393' },
   book: { name: 'Open Book', tagline: 'A hardback book of your photos that turns its own pages', bg: '#2236b4', fg: '#ffffff', ac: '#f6d36b' },
-  'bd-party': { name: 'Birthday balloons', tagline: 'Balloons and confetti with the celebrant and a giant age', bg: '#e5399e', fg: '#ffffff', ac: '#ffd166' },
-  'bd-gold': { name: 'Birthday gold', tagline: 'A gold-ringed portrait on a deep backdrop for milestone ages', bg: '#191007', fg: '#F5E7C8', ac: '#E7C86A' },
+  'bd-party': { name: 'Birthday Orbit · night', tagline: 'Balloons and confetti with the celebrant and a giant age', bg: '#e5399e', fg: '#ffffff', ac: '#ffd166' },
+  'bd-gold': { name: 'Birthday Arc · light', tagline: 'A gold-ringed portrait on a deep backdrop for milestone ages', bg: '#191007', fg: '#F5E7C8', ac: '#E7C86A' },
 }
 const ACC6: Record<string, { bg: string; ac: string }> = {
   midnight: { bg: '#14122b', ac: '#d8b06a' },
@@ -515,6 +515,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
             templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
             tplmeta: { ...(doc.tplmeta || {}) },
+            eventTypes: { wedding: true, ...(doc.eventTypes || {}) },
           })
         })
         .catch(() => { if (alive) setCat(DEFAULT_CAT) })

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import './birthday-design.css';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, animate, useAnimationFrame, useMotionValue } from 'motion/react';
 import { 
@@ -3571,75 +3572,47 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="#C8932A" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="9 91" style={{ animation: 'ev-edge-run 4.2s linear infinite', willChange: 'stroke-dashoffset' }} />
             </svg>
             {/* SPLASH: wedding keeps its banner; birthday gets its own gold-hour splash */}
-            {demoBirthday() ? (
-            <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
-              <style>{BD_ANIM_CSS}</style>
-              {/* ACCENT GRADIENT WASH + GLOW */}
-              <div aria-hidden="true" className="absolute inset-[-12%] z-0 pointer-events-none"
-                style={{ background: (ACCENT_VARS[accentKey] && ACCENT_VARS[accentKey].grad) || 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)', opacity: 0.55, filter: 'blur(2px)' }} />
-              <div aria-hidden="true" className="absolute z-0 pointer-events-none rounded-full"
-                style={{ width: '130vw', height: '130vw', left: '-15vw', top: '62%', background: 'radial-gradient(circle, rgba(245,184,46,.20) 0%, rgba(245,184,46,0) 62%)' }} />
-              {/* GIANT AGE NUMERAL WATERMARK */}
-              {!DETAILS.ageHidden && DETAILS.celebrantAge ? (
-                <div aria-hidden="true" className="absolute left-1/2 -translate-x-1/2 font-black leading-none select-none pointer-events-none z-0"
-                  style={{ top: '2%', fontSize: 'clamp(12rem,58vw,19rem)', color: 'transparent', WebkitTextStroke: '2px rgba(255,255,255,0.13)' }}>
-                  {DETAILS.celebrantAge}
-                </div>
-              ) : null}
-              {/* DRIFTING BALLOONS */}
-              <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span key={i} className="absolute rounded-[50%_50%_48%_48%/58%_58%_42%_42%]"
-                    style={{
-                      left: `${[7, 25, 66, 83, 47][i]}%`, bottom: -70,
-                      width: [40, 30, 36, 26, 22][i], height: [48, 38, 44, 32, 27][i],
-                      background: ['var(--ann-accent)', 'rgba(255,255,255,.5)', 'var(--ann-accent)', 'rgba(255,255,255,.35)', 'rgba(245,184,46,.8)'][i],
-                      opacity: 0.55,
-                      animation: `ev-balloons ${[10, 13, 11, 14, 12][i]}s ease-in-out ${-i * 2.2}s infinite alternate`,
-                    }} />
-                ))}
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <i key={`s${i}`} className="absolute rounded-full" style={{ left: `${(i * 41 + 6) % 94}%`, top: `${(i * 23 + 8) % 88}%`, width: 3, height: 3, background: '#FFE9A8', opacity: 0, animation: `ev-twinkle ${2 + (i % 4)}s ease-in-out ${-i * 0.55}s infinite` }} />
-                ))}
-              </div>
-              <motion.div
-                initial={{ scale: 0.94, opacity: 0, y: 14 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                transition={{ duration: 0.75, ease: "circOut" }}
-                className="relative z-10"
-              >
-                <p className="text-[0.78rem] font-black uppercase tracking-[0.3em] text-white/70 m-0 mb-5">{cfgIdentity?.kicker || 'Family, friends & well-wishers'}</p>
-                <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0 drop-shadow-[0_6px_24px_rgba(0,0,0,0.45)]">
-                  {demoBride()}
-                </h1>
+            {demoBirthday() ? (() => {
+              const dk = heroTemplate !== 'bd-gold';
+              const bdFirst = String(DETAILS.celebrant || 'the celebrant').split(' ')[0];
+              return (
+              <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
+                <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none" style={{ background: dk ? '#000' : '#F7EDEF' }} />
+                <p className="relative m-0 mb-5" style={{ font: '600 13px "Plus Jakarta Sans",sans-serif', letterSpacing: '.34em', textTransform: 'uppercase', color: dk ? 'rgba(255,255,255,.65)' : '#7A1F3A', paddingLeft: '.34em' }}>Happy birthday</p>
+                <motion.h1
+                  initial={{ scale: 0.94, opacity: 0, y: 14 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  transition={{ duration: 0.75, ease: 'circOut' }}
+                  className="relative font-serif-display m-0"
+                  style={{ fontFamily: '"Great Vibes",cursive', fontSize: 'clamp(3.6rem,19vw,6rem)', lineHeight: 1, color: dk ? '#fff' : '#3A1020', fontWeight: 400 }}
+                >
+                  {bdFirst}
+                </motion.h1>
                 {!DETAILS.ageHidden && DETAILS.celebrantAge ? (
-                  <span className="inline-flex items-center mt-5 px-4 py-1.5 rounded-full text-[0.72rem] font-black uppercase tracking-[0.26em] text-[#241035]"
-                    style={{ background: 'linear-gradient(120deg,#FFE9A8,#F5B82E)' }}>
+                  <span className="relative inline-flex items-center mt-5 px-4 py-1.5 rounded-full"
+                    style={{ font: '800 11px "Plus Jakarta Sans",sans-serif', letterSpacing: '.24em', textTransform: 'uppercase', color: '#fff', background: '#E5332A' }}>
                     The big {DETAILS.celebrantAge}
                   </span>
                 ) : null}
-                <p className="font-serif-display italic text-[#FFE9A8] text-[clamp(1.15rem,5.4vw,1.55rem)] mt-5 mb-0 leading-snug">One day. Every wish. All of you.</p>
-                <p className="text-white/70 text-[0.85rem] mt-4 mb-0">
+                <p className="relative mt-5 mb-0" style={{ font: 'italic 600 15px Fraunces,serif', color: dk ? '#bdbdbd' : '#7A5560' }}>One day. Every wish. All of you.</p>
+                <p className="relative mt-4 mb-0" style={{ font: '600 12px "Plus Jakarta Sans",sans-serif', color: dk ? 'rgba(255,255,255,.55)' : '#7A5560' }}>
                   {(() => { try { return new Date(`${WEDDING_DATE}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return WEDDING_DATE; } })()}
-                  {DETAILS.churchVenue ? ` · ${String(DETAILS.churchVenue).split('|')[0].trim()}` : ''}
                 </p>
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.9, duration: 0.6 }}
-                className="mt-9 relative z-10"
-              >
-                <span className="relative overflow-hidden inline-flex items-center px-8 py-3.5 rounded-full text-white text-[0.75rem] font-black uppercase tracking-[0.28em]"
-                  style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.4)', backdropFilter: 'blur(4px)' }}>
-                  <i aria-hidden="true" className="absolute inset-y-0 left-0 w-1/3 pointer-events-none"
-                    style={{ background: 'linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.5) 50%, rgba(255,255,255,0) 100%)', animation: 'ev-shimmer 2.6s ease-in-out infinite' }} />
-                  <span className="relative">Tap to enter</span>
-                </span>
-                <p className="text-white/55 text-[0.72rem] mt-4 mb-0 font-black uppercase tracking-[0.2em]">Birthday memories, kept for life</p>
-              </motion.div>
-            </div>
-            ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.9, duration: 0.6 }}
+                  className="relative mt-9 z-10"
+                >
+                  <span className="inline-flex items-center px-8 py-3.5 rounded-full text-[0.75rem] font-black uppercase tracking-[0.28em]"
+                    style={{ background: dk ? 'rgba(255,255,255,.12)' : 'rgba(122,31,58,.1)', border: '1px solid', borderColor: dk ? 'rgba(255,255,255,.4)' : 'rgba(122,31,58,.4)', color: dk ? '#fff' : '#7A1F3A' }}>
+                    Tap to enter
+                  </span>
+                  <p className="relative mt-4 mb-0" style={{ font: '700 10px "Plus Jakarta Sans",sans-serif', letterSpacing: '.2em', textTransform: 'uppercase', color: dk ? 'rgba(255,255,255,.5)' : '#7A5560' }}>Birthday memories, kept for life</p>
+                </motion.div>
+              </div>
+              );
+            })() : (
             <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
               <motion.div
                 initial={{ scale: 0.94, opacity: 0, y: 14 }}
@@ -3735,8 +3708,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
-            {heroTemplate === 'bd-party' && <BirthdayHero variant="party" isDarkMode={isDarkMode} images={heroImages} names={demoHeader()} celebrant={DETAILS.celebrant} age={DETAILS.celebrantAge} ageHidden={DETAILS.ageHidden} date={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
-            {heroTemplate === 'bd-gold' && <BirthdayHero variant="gold" isDarkMode={isDarkMode} images={heroImages} names={demoHeader()} celebrant={DETAILS.celebrant} age={DETAILS.celebrantAge} ageHidden={DETAILS.ageHidden} date={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {(heroTemplate === 'bd-party' || heroTemplate === 'bd-gold') && (
+              <BirthdayDesign
+                tpl={heroTemplate}
+                celebrant={DETAILS.celebrant}
+                age={DETAILS.celebrantAge}
+                ageHidden={DETAILS.ageHidden}
+                date={WEDDING_DATE}
+                city={demoCity()}
+                images={heroImages.length > 0 ? heroImages : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES)}
+                events={EVENTS_VIS}
+                openEventId={openEventId}
+                onToggle={(id) => setOpenEventId(openEventId === id ? null : id)}
+                fmtEventDate={fmtEventDate}
+                openFooterLightbox={openFooterLightbox}
+                onRsvp={() => setActiveTab('inbox')}
+              />
+            )}
         </div>
 
 
@@ -3760,7 +3748,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               exit={{ opacity: 0 }}
               className="space-y-0"
             >
-              {/* COUPLE BANNER - DARA & FEMI */}
+              {/* COUPLE BANNER - DARA & FEMI (weddings only: birthday apps use the design-file hero) */}
+              {DETAILS.occasion !== 'birthday' && (
               <div className="rounded-[28px] p-[26px_22px_26px] text-[#F2F7F8] relative overflow-hidden shadow-xl" style={{
                 background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)'
               }}>
@@ -3817,6 +3806,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                               </div>
 
 
+              )}
+
               {/* OUR STORY */}
               {!HIDDEN_SECTIONS.includes('story') && (
               <section className="mt-8">
@@ -3827,25 +3818,9 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
               )}
 
-              {/* THE CELEBRATION (birthday, from the design file) / THE JOURNEY */}
+              {/* THE CELEBRATION lives inside the design-file hero for birthdays; the wish banner follows it */}
               {DETAILS.occasion === 'birthday' && (
-                <>
-                  <BirthdayCelebration
-                    events={EVENTS_VIS}
-                    variant={heroTemplate === 'bd-gold' ? 'gold' : 'party'}
-                    celebrant={String(DETAILS.celebrant || '')}
-                    age={DETAILS.celebrantAge ? String(DETAILS.celebrantAge) : undefined}
-                    ageHidden={!!DETAILS.ageHidden}
-                    date={WEDDING_DATE}
-                    images={heroImages.length > 0 ? heroImages : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES)}
-                    labels={EVENTS_VIS.map((e: any) => e.name)}
-                    openEventId={openEventId}
-                    onToggle={(id) => setOpenEventId(openEventId === id ? null : id)}
-                    fmtEventDate={fmtEventDate}
-                    openFooterLightbox={openFooterLightbox}
-                  />
-                  <BirthdayWishBanner name={String(DETAILS.celebrant || '')} gold={heroTemplate === 'bd-gold'} />
-                </>
+                <BirthdayWishBanner name={String(DETAILS.celebrant || '')} skin={heroTemplate === 'bd-gold' ? 'lt' : 'dk'} />
               )}
               {DETAILS.occasion !== 'birthday' && (
               <section id="journey" className="mt-8">
@@ -11422,7 +11397,7 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
                     <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
-                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book'], ...(weddingDetails?.occasion === 'birthday' ? ([['bd-party', 'Birthday balloons'], ['bd-gold', 'Birthday gold']] as [string, string][]) : [])] as [string, string][]).map(([tk, label]) => (
+                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book'], ...(weddingDetails?.occasion === 'birthday' ? ([['bd-party', 'Birthday Orbit · night'], ['bd-gold', 'Birthday Arc · light']] as [string, string][]) : [])] as [string, string][]).map(([tk, label]) => (
                         <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                           {label}
                         </button>
@@ -12992,7 +12967,6 @@ function CountdownRow({ date, time, bigAge }: { date: string; time: string; bigA
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
 
-// BirthdayHero: the two birthday hero looks. 'party' is the playful one:
 // floating balloons and falling confetti over a bright gradient, the
 // celebrant's name and the giant age numeral. 'gold' is the restrained
 // milestone look: a gold-ringed portrait on a deep, quiet backdrop. Both
@@ -13022,17 +12996,7 @@ function bdSectorClip(ro: number, ri: number, a0: number, a1: number, h: number)
   return `polygon(${pts.join(',')})`;
 }
 
-const BD_ANIM_CSS = `
-@keyframes ev-ring-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-@keyframes ev-bdy-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
-@keyframes ev-burst { 0% { transform: rotate(var(--r)) translateY(0); opacity: 1; } 100% { transform: rotate(var(--r)) translateY(-14px); opacity: 0; } }
-@keyframes ev-strike { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes ev-orbit-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes ev-candle-flicker { 0%,100% { transform: scale(1) skewX(0deg); opacity: 1; } 30% { transform: scale(1.12,.9) skewX(2.5deg); opacity: .92; } 60% { transform: scale(.9,1.14) skewX(-2.5deg); opacity: 1; } }
-@keyframes ev-balloons { 0% { transform: translateY(8vh) rotate(-3deg); } 100% { transform: translateY(-46vh) rotate(4deg); } }
-@keyframes ev-shimmer { 0% { transform: translateX(-140%); } 60%,100% { transform: translateX(340%); } }
-@keyframes ev-twinkle { 0%,100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.25); } }
-`;
+
 
 function BirthdayCalendar({ date, variant }: { date: string; variant: 'gold' | 'party' }) {
   const gold = variant === 'gold';
@@ -13135,135 +13099,224 @@ function BirthdayOrbit({ images, labels, name, age, date }: { images: string[]; 
   );
 }
 
-function BirthdayArcDisc({ images, name }: { images: string[]; name: string }) {
-  const imgs = (images.length ? images : PLACEHOLDER_IMAGES).slice(0, 6);
-  const np = Math.max(imgs.length, 1);
+/* ===== Birthday design: faithful port of the design-file mockups =====
+   bd-party = the orbit ring on the dark skin (first mockup)
+   bd-gold  = the arc carousel on the light skin (second mockup).
+   Geometry and CSS values are ported 1:1 from the design file. */
+const ebdP = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(r * Math.sin(t)).toFixed(1)} ${(-r * Math.cos(t)).toFixed(1)}`; };
+const ebdSec = (ri: number, ro: number, a0: number, a1: number) => `M${ebdP(ro, a0)}A${ro} ${ro} 0 0 1 ${ebdP(ro, a1)}L${ebdP(ri, a1)}A${ri} ${ri} 0 0 0 ${ebdP(ri, a0)}Z`;
+const ebdPoly = (Ri: number, Ro: number, a0: number, a1: number, h: number) => {
+  const R = Ro, q = 180 / Math.PI, o0 = a0 + Math.atan(h / Ro) * q, o1 = a1 - Math.atan(h / Ro) * q, i0 = a0 + Math.atan(h / Ri) * q, i1 = a1 - Math.atan(h / Ri) * q;
+  const C = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(R + r * Math.sin(t)).toFixed(1)}px ${(R - r * Math.cos(t)).toFixed(1)}px`; };
+  const pts: string[] = [];
+  for (let k = 0; k <= 12; k++) pts.push(C(Ro, o0 + ((o1 - o0) * k) / 12));
+  for (let k = 12; k >= 0; k--) pts.push(C(Ri, i0 + ((i1 - i0) * k) / 12));
+  return `polygon(${pts.join(',')})`;
+};
+const EbdRing = ({ dl }: { dl: number }) => (
+  <svg className="ebd-rg" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+    <path pathLength={100} d="M52 4C78 3 97 16 95 32 93 50 66 58 40 56 14 54 3 42 6 26 9 10 30 4 58 6" style={{ animationDelay: `${dl}s` }} />
+  </svg>
+);
+const ebdNumWord = (n: number): string => {
+  const ones = ['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  let w: string;
+  if (n > 0 && n < 20) w = ones[n];
+  else if (n >= 20 && n < 100) w = tens[Math.floor(n / 10)] + (n % 10 ? '-' + ones[n % 10] : '');
+  else w = String(n);
+  return w ? w[0].toUpperCase() + w.slice(1) : String(n);
+};
+
+function EbdWeekStrip({ date }: { date: string }) {
+  const dt = new Date(`${date}T12:00`);
+  if (isNaN(dt.getTime())) return null;
+  const start = new Date(dt); start.setDate(dt.getDate() - dt.getDay());
+  const cells = [];
+  for (let i = 0; i < 7; i++) {
+    const x = new Date(start); x.setDate(start.getDate() + i);
+    const b = x.getDate() === dt.getDate() && x.getMonth() === dt.getMonth();
+    cells.push(
+      <span key={i} className={`ebd-wc${b ? ' wb' : ''}`}>
+        <small>{'SMTWTFS'[i]}</small>
+        {x.getDate()}
+        {b && <EbdRing dl={0.5} />}
+      </span>
+    );
+  }
   return (
-    <div className="relative mx-auto" style={{ width: '100%', maxWidth: 380, aspectRatio: '1 / 1' }}>
-      <div className="absolute inset-0" style={{ animation: 'ev-orbit-spin 30s linear infinite' }}>
-        {Array.from({ length: 6 }).map((_, i) => {
-          const am = ((i * 60 + 30) * Math.PI) / 180;
-          const cx = 190 + 142.5 * Math.sin(am), cy = 190 - 142.5 * Math.cos(am);
-          return (
-            <div key={i} className="absolute inset-0" style={{ clipPath: bdSectorClip(190, 95, i * 60, i * 60 + 60, 2.5) }}>
-              <img src={imgs[i % np]} alt="" loading="lazy" className="absolute rounded-[16px] object-cover" style={{ width: 200, height: 200, left: `${((cx - 100) / 380) * 100}%`, top: `${((cy - 100) / 380) * 100}%` }} />
-            </div>
-          );
-        })}
-      </div>
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-t-full overflow-hidden border-4 border-white shadow-[0_14px_40px_rgba(43,18,71,.28)]" style={{ width: '38%', aspectRatio: '3 / 3.6' }}>
-        <img src={imgs[0]} alt={name} className="w-full h-full object-cover" />
-      </div>
+    <>
+      <div className="ebd-wm">{dt.toLocaleDateString('en-GB', { month: 'long' }).toUpperCase()} {dt.getFullYear()}</div>
+      <div className="ebd-wk">{cells}</div>
+    </>
+  );
+}
+
+function EbdCalendar({ date }: { date: string }) {
+  const dt = new Date(`${date}T12:00`);
+  if (isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear(), dn = dt.getDate();
+  const first = new Date(y, dt.getMonth(), 1).getDay();
+  const dim = new Date(y, dt.getMonth() + 1, 0).getDate();
+  const dl = +(dn * 0.03 + 0.25).toFixed(2);
+  const cells: any[] = ['S','M','T','W','T','F','S'].map((w, i) => <span key={`w${i}`} className="ebd-wd">{w}</span>);
+  for (let i = 0; i < first; i++) cells.push(<span key={`e${i}`} />);
+  for (let k = 1; k <= dim; k++) {
+    if (k === dn) {
+      cells.push(
+        <span key={k} className="ebd-dy bdy">{k}
+          <EbdRing dl={dl} />
+          <span className="ebd-bu">{[0,1,2,3,4,5,6,7].map((j) => <i key={j} style={{ ['--r' as any]: `${j * 45}deg`, animationDelay: `${dl + 0.7}s` }} />)}</span>
+        </span>
+      );
+    } else {
+      cells.push(<span key={k} className={`ebd-dy${k < dn ? ' x' : ''}`} style={{ ['--k' as any]: k }}>{k}</span>);
+    }
+  }
+  return (
+    <div className="ebd-cal">
+      <div className="ebd-calh"><b>{dt.toLocaleDateString('en-GB', { month: 'long' }).toUpperCase()}</b><span>{y}</span></div>
+      <div className="ebd-calg">{cells}</div>
     </div>
   );
 }
 
-function BirthdayCelebration(props: {
-  events: any[]; variant: 'gold' | 'party'; celebrant: string; age?: string; ageHidden?: boolean;
-  date: string; images: string[]; labels: string[];
-  openEventId: string | null; onToggle: (id: string) => void; fmtEventDate: (e: any) => string; openFooterLightbox: (u: string) => void;
-}) {
-  const { events, variant, celebrant, age, ageHidden, date, images, labels, openEventId, onToggle, fmtEventDate, openFooterLightbox } = props;
-  const gold = variant === 'gold';
-  const first = (celebrant || 'the celebrant').split(' ')[0];
-  const chipStyle = (st: string) => {
-    if (st === 'done') return gold ? { background: '#F5B82E', color: '#241035', border: '1px solid #F5B82E' } : { background: '#B3361F', color: '#FFF6E5', border: '1px solid #B3361F' };
-    if (st === 'next') return gold ? { background: 'transparent', color: '#F5B82E', border: '1px solid #F5B82E' } : { background: 'rgba(245,184,46,.18)', color: '#8a5a00', border: '1px solid rgba(245,184,46,.55)' };
-    return gold ? { background: 'rgba(255,255,255,.06)', color: 'rgba(241,232,210,.65)', border: '1px solid rgba(241,232,210,.25)' } : { background: 'rgba(43,18,71,.06)', color: 'rgba(43,18,71,.6)', border: '1px solid rgba(43,18,71,.15)' };
-  };
-  const fmtTime = (t?: string) => {
-    if (!t) return '';
-    const [hh, mm] = t.split(':');
-    const h = Number(hh);
-    if (isNaN(h)) return t;
-    const ap = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 === 0 ? 12 : h % 12;
-    return `${h12}:${mm} ${ap}`;
-  };
+function EbdCountdown({ date, city }: { date: string; city: string }) {
+  const dt = new Date(`${date}T12:00`);
+  const n = isNaN(dt.getTime()) ? 0 : Math.max(0, Math.ceil((dt.getTime() - Date.now()) / 86400000));
+  const ds = isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return (
-    <section id="journey" className="mt-8">
-      <style>{BD_ANIM_CSS}</style>
-      <div
-        className={`relative overflow-hidden rounded-[26px] p-5 ${gold ? 'text-[#F1E8D2]' : 'text-[#2B1247]'}`}
-        style={gold
-          ? { background: 'linear-gradient(168deg,#2B1247 0%,#1A0B2E 55%,#12071F 100%)', border: '1px solid rgba(245,184,46,.18)' }
-          : { background: '#FFF6E5', border: '1px solid rgba(43,18,71,.12)', boxShadow: '0 18px 44px rgba(43,18,71,.10)' }}
-      >
-        {gold && (
-          <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
-            {Array.from({ length: 14 }).map((_, i) => (
-              <i key={i} className="absolute rounded-full" style={{ left: `${(i * 37) % 96}%`, top: `${(i * 53) % 90}%`, width: 3, height: 3, background: '#F5B82E', opacity: 0, animation: `ev-twinkle ${2 + (i % 4)}s ease-in-out ${-i * 0.7}s infinite` }} />
-            ))}
-          </div>
+    <div className="ebd-cd">
+      <div><b>{n}</b>days to go</div>
+      <div><b>{ds}</b>date</div>
+      <div><b className="ebd-cty">{city}</b>city</div>
+    </div>
+  );
+}
+
+function BirthdayDesign({ tpl, celebrant, age, ageHidden, date, city, images, events, openEventId, onToggle, fmtEventDate, openFooterLightbox, onRsvp }: {
+  tpl: string; celebrant?: string; age?: string | number; ageHidden?: boolean; date: string; city?: string;
+  images?: string[]; events: any[]; openEventId: string | null; onToggle: (id: string) => void;
+  fmtEventDate: (e: any) => string; openFooterLightbox: (u: string) => void; onRsvp?: () => void;
+}) {
+  const dk = tpl === 'bd-party';
+  const variant = dk ? 'orbit' : 'arc';
+  const [pz, setPz] = useState(false);
+  const first = String(celebrant || 'the celebrant').split(' ')[0];
+  const ageNum = ageHidden ? '' : String(age || '');
+  const base = (images && images.length ? images : []).slice(0, 10);
+  const safePics = base.length ? base : [''];
+  const np = safePics.length;
+  const evNames = (events || []).map((e: any) => String(e.name || '')).filter(Boolean);
+  const labels = evNames.length ? evNames : ['celebrate', 'joy', 'family', 'friends', 'music', 'cake'];
+  const tagline = ageNum ? `Fabulous & ${ebdNumWord(parseInt(ageNum, 10) || 0)}` : `It's ${first}'s day`;
+  const sub = ageNum ? 'birthday dinner & dance' : 'a day of celebration';
+  const ev0: any = (events && events[0]) || null;
+  const venue = ev0 ? [ev0.venue || city, ev0.time].filter(Boolean).join(' \u00b7 ') : String(city || '');
+  const dtOk = !isNaN(new Date(`${date}T12:00`).getTime());
+
+  const orbitHero = (
+    <div className="ebd-oh" onClick={() => setPz((v) => !v)} title="Tap to pause or resume">
+      <svg className={`ebd-osv ebd-sp${pz ? ' ebd-pz' : ''}`} style={{ animationDuration: '120s' }} viewBox="-330 -330 660 660" aria-hidden="true">
+        <defs>
+          <filter id="ebd-bw"><feColorMatrix type="saturate" values="0" /></filter>
+          {safePics.map((u, i) => (
+            <pattern key={i} id={`ebd-pt${i}`} patternContentUnits="objectBoundingBox" width={1} height={1}>
+              <image href={u} width={1} height={1} preserveAspectRatio="xMidYMid slice" />
+            </pattern>
+          ))}
+        </defs>
+        <g filter="url(#ebd-bw)">
+          {[0,1,2,3,4,5,6,7,8,9].map((i) => {
+            const K = 36, a0 = i * K + 1.2, a1 = (i + 1) * K - 1.2;
+            return <path key={i} d={ebdSec(165, 322, a0, a1)} fill={`url(#ebd-pt${i % np})`} />;
+          })}
+        </g>
+        {[0,1,2,3,4,5,6,7,8,9].map((i) => {
+          const K = 36, r = 322 - 14, am = i * K + K / 2;
+          const L = (labels[i % labels.length] || '').toUpperCase();
+          const sp = ((L.length * 6.8 + 18) / r) * (180 / Math.PI);
+          return (
+            <g key={`l${i}`}>
+              <path id={`la${i}`} d={`M${ebdP(r, am - sp / 2)}A${r} ${r} 0 0 1 ${ebdP(r, am + sp / 2)}`} fill="none" stroke="#000" strokeWidth={15} strokeLinecap="round" />
+              <text fill="#fff" fontSize={8} fontWeight={700} letterSpacing={1.3} dy={2.8} fontFamily="'Plus Jakarta Sans',sans-serif">
+                <textPath href={`#la${i}`} startOffset="50%" textAnchor="middle">{L}</textPath>
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="ebd-disc">
+        <div className="ebd-o1">{first}</div>
+        <svg className="ebd-ck2" viewBox="0 0 80 60" fill="none" stroke="#fff" strokeWidth={1.6} strokeLinecap="round" aria-hidden="true">
+          <path d="M12 54h56M16 54V36h48v18M16 44q6 5 12 0t12 0 12 0 12 0M40 36V26M40 26c-3-4 0-8 0-8s3 4 0 8zM28 36v-7M52 36v-7" />
+          <path d="M26 10l1.5 3 3 1.5-3 1.5L26 19l-1.5-3-3-1.5 3-1.5zM56 8l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
+        </svg>
+        <div className="ebd-scr">{tagline}</div>
+        {ageNum ? (
+          <div className="ebd-o4">Celebrating <span>{ageNum}</span> years<br /><em>of {first}</em></div>
+        ) : (
+          <div className="ebd-o4">It&rsquo;s <em>{first}</em>&rsquo;s day</div>
         )}
-        <header className="relative mb-4">
-          <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-0 leading-[1.25]">The celebration</h2>
-          <p className={`text-[0.9rem] m-[4px_0_0] ${gold ? 'text-[#F1E8D2]/70' : 'text-[#2B1247]/65'}`}>One big day, every moment of it. Tap an event to open it.</p>
-        </header>
-        <div className="relative">
-          <BirthdayCalendar date={date} variant={variant} />
-        </div>
-        <div className="relative mt-6">
-          {gold ? <BirthdayOrbit images={images} labels={labels} name={celebrant || 'the celebrant'} age={ageHidden ? undefined : age} date={date} /> : <BirthdayArcDisc images={images} name={celebrant || 'the celebrant'} />}
-          {!gold && (
-            <div className="text-center mt-3">
-              <div className="font-serif-display italic text-[1.6rem] leading-tight text-[#2B1247]">{first}</div>
-              {age && !ageHidden && <div className="text-[0.7rem] font-black uppercase tracking-[0.26em] text-[#B3361F] mt-0.5">Turning {age}</div>}
+        <div className="ebd-scr2">{sub}</div>
+        {dtOk && <EbdWeekStrip date={date} />}
+        <div className="ebd-o7">{venue}</div>
+        <button className="ebd-rsvp" onClick={(e) => { e.stopPropagation(); if (onRsvp) onRsvp(); }}>RSVP</button>
+      </div>
+    </div>
+  );
+
+  const arcHero = (
+    <div className="ebd-arcH" onClick={() => setPz((v) => !v)} title="Tap to pause or resume">
+      <div className="ebd-hb">HAPPY BIRTHDAY</div>
+      <i className="ebd-spk" style={{ left: 22, top: 84 }} />
+      <i className="ebd-spk" style={{ right: 24, top: 110, animationDelay: '-1s' }} />
+      <i className="ebd-spk" style={{ right: 40, top: 380, animationDelay: '-1.8s' }} />
+      <div className={`ebd-dn ebd-sp${pz ? ' ebd-pz' : ''}`}>
+        {[0,1,2,3,4,5].map((i) => {
+          const am = (i * 60 + 30) * (Math.PI / 180);
+          const cx = 190 + 142.5 * Math.sin(am), cy = 190 - 142.5 * Math.cos(am);
+          return (
+            <div key={i} className="ebd-sc" style={{ clipPath: ebdPoly(95, 190, i * 60, i * 60 + 60, 2.5) }}>
+              <i className={`ebd-sp${pz ? ' ebd-pz' : ''}`} style={{ left: cx - 100, top: cy - 100, backgroundImage: `url(${safePics[i % np]})` }} />
             </div>
-          )}
-        </div>
-        <div className="relative mt-6 space-y-2.5">
-          {events.map((e: any) => {
-            const st = e.status || 'up';
+          );
+        })}
+      </div>
+      <div className="ebd-fig" style={{ backgroundImage: `url(${safePics[0]})` }} />
+      <div className="ebd-sn">{first}</div>
+      {dtOk && <div className="ebd-wkb"><EbdWeekStrip date={date} /></div>}
+    </div>
+  );
+
+  return (
+    <div className={`ebd ${dk ? 'ebd-skin-dk' : 'ebd-skin-lt'}`} style={{ background: 'var(--pl)', color: 'var(--tx)' }}>
+      {dk ? orbitHero : arcHero}
+      <div className="ebd-pad" style={{ paddingTop: dk ? 14 : 12 }}>
+        <EbdCountdown date={date} city={String(city || '')} />
+        {dtOk && <EbdCalendar date={date} />}
+        <div className="ebd-pt" style={{ marginBottom: 8 }}>The celebration</div>
+        <div>
+          {(events || []).map((e: any, i: number) => {
+            const st = e.status === 'done' ? ' s0' : e.status === 'next' ? ' s1' : '';
+            const lbl = e.status === 'done' ? 'Done' : e.status === 'next' ? 'Next up' : 'Upcoming';
             const open = openEventId === e.id;
-            const stepImgs: string[] = ((e as any).images || []);
-            const daysTo = Math.ceil((new Date(`${e.date}T${e.time || '12:00'}:00`).getTime() - Date.now()) / 86400000);
+            const imgs: string[] = e.images || [];
             return (
-              <div
-                key={e.id}
-                className={`relative rounded-[16px] overflow-hidden transition-colors cursor-pointer`}
-                style={{
-                  background: gold ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.72)',
-                  border: `1px solid ${st === 'next' ? (gold ? 'rgba(245,184,46,.6)' : 'rgba(245,184,46,.65)') : (gold ? 'rgba(245,184,46,.2)' : 'rgba(43,18,71,.12)')}`,
-                  boxShadow: st === 'next' ? (gold ? '0 0 0 1px rgba(245,184,46,.12)' : '0 0 0 3px rgba(245,184,46,.15)') : 'none',
-                }}
-                onClick={() => onToggle(e.id)}
-                role="button"
-                aria-expanded={open}
-              >
-                <div className="p-[13px_15px] flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <b className="text-[1rem] font-serif-display leading-tight">{e.name}</b>
-                      <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider" style={chipStyle(st)}>
-                        {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
-                      </span>
-                    </div>
-                    <small className={`block text-[0.78rem] mt-0.5 ${gold ? 'text-[#F1E8D2]/60' : 'text-[#2B1247]/60'}`}>
-                      {fmtTime(e.time)}{e.time ? ' · ' : ''}{fmtEventDate(e)}
-                    </small>
-                  </div>
-                  <svg className={`w-4 h-4 flex-shrink-0 mt-1 opacity-60 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 9l6 6 6-6" /></svg>
-                </div>
+              <div key={e.id || i}>
+                <button type="button" className={`ebd-st${st}`} onClick={() => onToggle(e.id)}>
+                  <i /><b>{e.name}</b><span>{lbl}</span>
+                </button>
                 {open && (
-                  <div className={`px-[15px] pb-[15px] pt-3 border-t space-y-2.5`} style={{ borderColor: gold ? 'rgba(245,184,46,.15)' : 'rgba(43,18,71,.08)' }}>
-                    <p className={`text-[0.9rem] m-0 leading-snug ${gold ? 'text-[#F1E8D2]/75' : 'text-[#2B1247]/70'}`}>{e.desc}</p>
-                    <div className="flex gap-2 flex-wrap">
-                      <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${gold ? 'bg-white/5 text-[#F1E8D2]/70 border border-[#F5B82E]/25' : 'bg-[#FFF6E5] text-[#2B1247]/70 border border-[#2B1247]/12'}`}>{fmtEventDate(e)}</span>
-                      <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${gold ? 'bg-white/5 text-[#F1E8D2]/70 border border-[#F5B82E]/25' : 'bg-[#FFF6E5] text-[#2B1247]/70 border border-[#2B1247]/12'}`}>{e.venue ? e.venue : 'Venue to be announced'}</span>
+                  <div className="ebd-stdet">
+                    {e.desc ? <p style={{ margin: '10px 0 0' }}>{e.desc}</p> : null}
+                    <div className="ebd-dt">
+                      <span>{fmtEventDate(e)}</span>
+                      {e.venue ? <span>{e.venue}</span> : null}
                     </div>
-                    {st === 'next' && daysTo >= 0 && (
-                      <div className="rounded-[10px] px-3 py-2 text-[0.78rem] font-black uppercase tracking-wider" style={{ background: gold ? 'rgba(245,184,46,.14)' : 'rgba(245,184,46,.2)', color: gold ? '#F5B82E' : '#8a5a00', border: `1px solid ${gold ? 'rgba(245,184,46,.3)' : 'rgba(245,184,46,.4)'}` }}>
-                        {daysTo === 0 ? 'Happening today' : `In ${daysTo} day${daysTo === 1 ? '' : 's'}`}
-                      </div>
-                    )}
-                    {stepImgs.length > 0 && (
-                      <div className="flex gap-2 flex-wrap pt-0.5">
-                        {stepImgs.map((u, ii) => (
-                          <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
-                            <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={(ev) => { ev.stopPropagation(); openFooterLightbox(u); }} className="w-full h-full object-cover cursor-zoom-in" />
-                          </div>
-                        ))}
+                    {imgs.length > 0 && (
+                      <div className="ebd-dt" style={{ paddingTop: 8 }}>
+                        {imgs.slice(0, 4).map((u, k) => <img key={k} src={u} alt="" onClick={() => openFooterLightbox(u)} />)}
                       </div>
                     )}
                   </div>
@@ -13273,100 +13326,22 @@ function BirthdayCelebration(props: {
           })}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
-/* ===== BIRTHDAY MAKE-A-WISH BANNER (under the events section) ===== */
-function BirthdayWishBanner({ name, gold }: { name: string; gold: boolean }) {
-  const [lit, setLit] = React.useState<number[]>([]);
-  const first = (name || 'the celebrant').split(' ')[0];
+function BirthdayWishBanner({ name, skin }: { name: string; skin: 'dk' | 'lt' }) {
+  const dk = skin === 'dk';
   return (
-    <section className="mt-8">
-      <style>{BD_ANIM_CSS}</style>
-      <div className="relative overflow-hidden rounded-[26px] px-5 py-7 text-center text-white"
-        style={{ background: 'linear-gradient(150deg,#2B1247 0%,#4A1D5C 55%,#B3361F 135%)' }}>
-        <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <i key={i} className="absolute rounded-full" style={{ left: `${(i * 41) % 94}%`, top: `${(i * 29) % 80}%`, width: 2.5, height: 2.5, background: '#FFE9A8', opacity: 0, animation: `ev-twinkle ${2.5 + (i % 3)}s ease-in-out ${-i * 0.6}s infinite` }} />
-          ))}
-        </div>
-        <div className="relative">
-          <div className="font-serif-display italic text-[1.7rem] leading-tight text-[#FFE9A8]">Make a wish for {first}</div>
-          <p className="text-[0.8rem] text-white/75 mt-1.5 mb-0">
-            {lit.length ? `${lit.length} ${lit.length === 1 ? 'candle' : 'candles'} burning for ${first}.` : 'Every guest lights one before the big day. Tap a candle to light it.'}
-          </p>
-          <div className="flex justify-center items-end gap-3 mt-5">
-            {Array.from({ length: 7 }).map((_, i) => {
-              const on = lit.includes(i);
-              return (
-                <button key={i} type="button" onClick={() => { if (!on) setLit((l) => [...l, i]); }} className="relative border-0 bg-transparent p-0 cursor-pointer active:scale-90 transition-transform" aria-label={on ? 'Candle lit' : 'Light this candle'}>
-                  <span className="relative block" style={{ width: 10, height: 26, borderRadius: 3, background: 'linear-gradient(#FFF6E5,#EAD9C0)', boxShadow: 'inset 0 -4px 6px rgba(43,18,71,.18)' }}>
-                    <i className="absolute left-1/2 -translate-x-1/2 bg-[#5b4636]" style={{ top: -4, width: 1.5, height: 4 }} />
-                    {on ? (
-                      <i className="absolute rounded-full" style={{ left: '50%', top: -15, width: 8, height: 12, marginLeft: -4, background: 'radial-gradient(circle at 50% 72%, #FFF3C4 0%, #F5B82E 55%, rgba(245,184,46,0) 78%)', animation: `ev-candle-flicker .9s ease-in-out ${-i * 0.13}s infinite` }} />
-                    ) : (
-                      <i className="absolute rounded-full bg-white/25" style={{ left: '50%', top: -8, width: 3, height: 3, marginLeft: -1.5 }} />
-                    )}
-                  </span>
-                  <span className="block mx-auto mt-1.5 rounded-[2px]" style={{ width: 16, height: 5, background: 'rgba(255,255,255,.28)' }} />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function BirthdayHero({ variant, isDarkMode, images, names, celebrant, age, ageHidden, date, city, hashtag, eventNames, compact = false }: { variant: 'party' | 'gold', isDarkMode?: boolean, images?: string[], names?: string, celebrant?: string, age?: string, ageHidden?: boolean, date?: string, city?: string, hashtag?: string, eventNames?: string[], compact?: boolean }) {
-  const who = (celebrant || names || 'Guest of honour').trim();
-  const bigAge = !ageHidden && age ? age : '';
-  const kicker = bigAge ? `${who} turns ${bigAge}` : `It's ${who}'s day`;
-  const line = [date, city].filter(Boolean).join(' \u00b7 ');
-  const lineup = (eventNames || []).slice(0, 5).join(' \u00b7 ');
-  const picks = (images || []).slice(0, 3);
-  if (variant === 'gold') {
-    return (
-      <div className="relative w-full overflow-hidden" style={{ minHeight: compact ? '420px' : '78vh', background: 'radial-gradient(120% 100% at 50% 0%, #3d2c12 0%, #191007 55%, #0c0805 100%)' }}>
-        <div className="absolute inset-0 opacity-[0.13]" style={{ background: 'radial-gradient(circle at 18% 22%, #E7C86A 0, transparent 3px), radial-gradient(circle at 82% 14%, #E7C86A 0, transparent 2.5px), radial-gradient(circle at 64% 78%, #E7C86A 0, transparent 2px), radial-gradient(circle at 30% 84%, #E7C86A 0, transparent 2.5px)', backgroundSize: '220px 220px' }} />
-        <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-14">
-          <p className="m-0 text-[0.72rem] font-black uppercase tracking-[0.3em] text-[#E7C86A]/80">{kicker}</p>
-          {picks[0] && <div className="mt-6 w-44 h-44 sm:w-56 sm:h-56 rounded-full p-[3px]" style={{ border: '3px solid #C9A227', boxShadow: '0 0 0 7px rgba(201,162,39,0.18), 0 30px 60px rgba(0,0,0,0.5)' }}><img src={picks[0]} alt={who} className="w-full h-full object-cover rounded-full" /></div>}
-          <h2 className="text-center font-serif-display m-0 mt-7 text-[#F5E7C8] text-[clamp(2.6rem,12vw,3.6rem)] leading-[1]">{who}</h2>
-          {bigAge && <div className="text-center font-serif-display text-[clamp(3rem,15vw,4.6rem)] leading-[0.95] mt-1" style={{ color: '#E7C86A' }}>{bigAge}</div>}
-          {line && <p className="m-0 mt-4 text-[0.9rem] tracking-wide text-[#E7C86A]/70">{line}</p>}
-          {hashtag && <span className="mt-4 px-4 py-1.5 rounded-full text-[0.8rem] font-bold text-[#E7C86A]" style={{ border: '1px solid rgba(231,200,106,0.45)' }}>{hashtag}</span>}
-          {lineup && <p className="m-0 mt-5 text-[0.78rem] text-[#F5E7C8]/55 max-w-[32ch] mx-auto leading-relaxed">{lineup}</p>}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="relative w-full overflow-hidden" style={{ minHeight: compact ? '420px' : '78vh', background: 'radial-gradient(130% 110% at 50% 0%, #ff9ec2 0%, #e5399e 40%, #7a1440 100%)' }}>
-      {['#ffd166', '#7dd3fc', '#c084fc', '#fb7185', '#a3e635', '#f9a8d4'].map((c, i) => (
-        <span key={i} aria-hidden className="absolute rounded-full" style={{ width: 34 + (i % 3) * 16, height: 42 + (i % 3) * 20, left: `${6 + i * 15}%`, top: `${12 + (i % 4) * 18}%`, background: c, opacity: 0.85, animation: `bdFloat ${7 + (i % 3) * 2}s ease-in-out ${i * 0.7}s infinite` }} />
-      ))}
-      {Array.from({ length: 18 }).map((_, i) => (
-        <span key={`c${i}`} aria-hidden className="absolute w-2 h-2 rounded-[2px]" style={{ left: `${(i * 53) % 100}%`, top: '-10px', background: ['#ffd166', '#7dd3fc', '#c084fc', '#fb7185', '#a3e635', '#f9a8d4'][i % 6], animation: `bdFall ${5 + (i % 4)}s linear ${(i % 6) * 0.8}s infinite` }} />
-      ))}
-      <style>{`@keyframes bdFloat{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-18px) rotate(4deg)}}@keyframes bdFall{0%{transform:translateY(0) rotate(0)}100%{transform:translateY(92vh) rotate(340deg)}}`}</style>
-      <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-14">
-        <span className="px-3 py-1 rounded-full bg-white/25 backdrop-blur text-white text-[0.68rem] font-black uppercase tracking-[0.28em]">Birthday</span>
-        <p className="m-0 mt-4 text-white text-[1rem] font-semibold">{kicker}</p>
-        <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.8rem)] leading-[1] mt-2 mb-0">{who}</h2>
-        {bigAge && <div className="font-black text-white/95 text-[clamp(5rem,26vw,8rem)] leading-[0.85] mt-1 drop-shadow-[0_6px_24px_rgba(0,0,0,0.25)]">{bigAge}</div>}
-        {line && <p className="m-0 mt-3 text-white/90 text-[0.9rem] tracking-wide">{line}</p>}
-        {hashtag && <span className="mt-4 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur text-white text-[0.8rem] font-bold">{hashtag}</span>}
-        {picks.length > 0 && (
-          <div className="mt-7 flex items-center gap-2">
-            {picks.map((src, i) => (
-              <img key={i} src={src} alt={`${who} ${i + 1}`} className={`w-20 h-24 sm:w-24 sm:h-28 object-cover rounded-xl shadow-lg bg-white/30 ${i === 1 ? 'rotate-2' : '-rotate-2'}`} />
-            ))}
-          </div>
-        )}
-        {lineup && <p className="m-0 mt-5 text-white/80 text-[0.78rem] max-w-[32ch] mx-auto leading-relaxed">{lineup}</p>}
+    <div style={{ background: dk ? '#0d0d0d' : '#F7EDEF', color: dk ? '#fff' : '#3A1020', borderRadius: 20, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 18 }}>
+      <svg width="30" height="52" viewBox="0 0 30 52" fill="none" aria-hidden="true">
+        <rect x="11" y="18" width="8" height="32" rx="2" fill={dk ? '#ffffff' : '#7A1F3A'} opacity={dk ? 0.9 : 0.85} />
+        <ellipse cx="15" cy="12" rx="3" ry="6" fill="#E5332A" style={{ animation: 'ebd-fl 1.4s ease-in-out infinite alternate' }} />
+        <ellipse cx="15" cy="14" rx="2" ry="3.4" fill="#FFD27A" style={{ animation: 'ebd-fl 1.1s ease-in-out infinite alternate-reverse' }} />
+      </svg>
+      <div>
+        <div style={{ fontFamily: '"Great Vibes",cursive', fontSize: 24, lineHeight: 1.15 }}>Make a wish for {name}</div>
+        <div style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, color: dk ? '#bdbdbd' : '#7A5560', marginTop: 4 }}>One wish, kept on the birthday wall</div>
       </div>
     </div>
   );
