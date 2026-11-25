@@ -7989,7 +7989,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
         )}
       </div>
       {authToast && (
-        <div className="fixed top-5 left-1/2 z-[400] -translate-x-1/2 rounded-full px-5 py-2.5 text-[0.85rem] font-bold shadow-lg bg-[#14262D] text-white" role="status">
+        <div className="fixed top-5 left-1/2 z-[400] -translate-x-1/2 rounded-full px-4 py-1.5 text-[0.72rem] font-bold shadow-lg bg-[#14262D] text-white" role="status">
           {authToast}
         </div>
       )}
@@ -11226,7 +11226,7 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
                       {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book']] as [string, string][]).map(([tk, label]) => (
-                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                           {label}
                         </button>
                       ))}
@@ -11452,7 +11452,7 @@ function AdminDashboardModal({
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap pt-1">
-                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
+                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[#7C8B93] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
                           {partnerEditing && (
                             <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
                           )}
@@ -11505,7 +11505,7 @@ function AdminDashboardModal({
                       <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. Tap a style, then the round eye button on the right to watch it.</p>
                       <div className="flex gap-2 flex-wrap">
                         {(['wall', 'marquee', 'tunnel', 'globe'] as const).map((st) => (
-                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                             {st === 'wall' ? 'Style 1 · Photo wall' : st === 'marquee' ? 'Style 2 · Marquee' : st === 'tunnel' ? 'Style 3 · Photo tunnel' : 'Style 4 · Photo globe'}
                           </button>
                         ))}
