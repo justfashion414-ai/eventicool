@@ -392,7 +392,7 @@ function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r
   // signup ping when a visitor creates their app. The counts land in the
   // Celebration hook: the React landing layer swaps the demo data for the
   // active event type without re-running the whole script.
-  (window as unknown as {__evCelebrate?:unknown}).__evCelebrate=function(o){if(!o)return P.oc;if(o.b)P.b=o.b;if(o.g)P.g=o.g;if(o.oc)P.oc=o.oc;try{var eb=document.getElementById('b'),eg=document.getElementById('g'),mb=document.getElementById('mb'),mg=document.getElementById('mg');if(eb)eb.value=P.b;if(eg)eg.value=P.g;if(mb)mb.value=P.b;if(mg)mg.value=P.g}catch(e){};draw();lkdraw();galbuild();return P.oc};
+  (window as unknown as {__evCelebrate?:unknown}).__evCelebrate=function(o){if(!o)return P.oc;if(o.b)P.b=o.b;if(o.g)P.g=o.g;if(o.oc)P.oc=o.oc;if(o.gn&&G&&G.l)G.l[0][2]=o.gn;try{var eb=document.getElementById('b'),eg=document.getElementById('g'),mb=document.getElementById('mb'),mg=document.getElementById('mg');if(eb)eb.value=P.b;if(eg)eg.value=P.g;if(mb)mb.value=P.b;if(mg)mg.value=P.g}catch(e){};draw();lkdraw();galbuild();try{if(typeof apdraw==='function')apdraw()}catch(e){};return P.oc};
   // landing_daily ledger through the same track endpoint the apps use.
   var lt0=Date.now(),lsid='';
   try{lsid=sessionStorage.getItem('ev-land-sid')||'';if(!lsid){lsid=Math.random().toString(36).slice(2,10)+Date.now().toString(36);sessionStorage.setItem('ev-land-sid',lsid)}}catch(e){}

@@ -28,9 +28,20 @@ function applyStatic(from: Celebration | null, to: Celebration) {
       let v = t.nodeValue || ''
       steps.forEach(([a, b]) => {
         if (!a || a.slug === b.slug) return
-        const subs: Array<[string, string]> = a.slug === 'wedding'
-          ? [[a.b, b.b], [a.g, b.g], [a.sub, b.sub]]
-          : [[a.b, bySlug.wedding.b], [a.g, bySlug.wedding.g], [a.sub, bySlug.wedding.sub]]
+        const de = (z: string) => z.replace('&amp;', '&')
+        const keys: Array<keyof Celebration> = ['b', 'g', 'sub', 'invite', 'rec', 's1', 's2', 'giftSub']
+        const subs: Array<[string, string]> = []
+        keys.forEach((k) => {
+          const av = a.slug === 'wedding' ? String(a[k]) : String(bySlug.wedding[k])
+          const bv = String((a.slug === 'wedding' ? b : bySlug.wedding)[k])
+          if (av && av !== bv) {
+            subs.push([de(av), de(bv)])
+            // Stage names appear in two casings in the demo phones.
+            const ca = av.charAt(0).toUpperCase() + av.slice(1)
+            const cb = bv.charAt(0).toUpperCase() + bv.slice(1)
+            if (ca !== av && ca !== bv) subs.push([de(ca), de(cb)])
+          }
+        })
         subs.forEach(([x, y]) => {
           if (!x) return
           v = v.replace(new RegExp('(^|[^A-Za-z])' + escRe(x) + '(?![A-Za-z])', 'g'), (m, p) => p + y)
@@ -76,7 +87,7 @@ export default function LandingMarketing({ type, picker }: { type: string; picke
     const prev = bySlug[current] || null
     applyStatic(prev, cel)
     const w = window as unknown as { __evCelebrate?: (o: { b: string; g: string; oc: string }) => void }
-    try { w.__evCelebrate?.({ b: cel.b, g: cel.g, oc: cel.slug }) } catch { /* ignore */ }
+    try { w.__evCelebrate?.({ b: cel.b, g: cel.g, oc: cel.slug, gn: cel.giftNote }) } catch { /* ignore */ }
     setCurrent(cel.slug)
     if (picker) setOpen(true)
   }, [cel.slug, picker])
