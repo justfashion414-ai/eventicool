@@ -639,7 +639,7 @@ const DressStudio = ({ open, onClose, colors, outfit, isDarkMode, onSave }: any)
       )}
     </div>
   );
-  const seg = (active: boolean) => `flex-1 px-3 py-2 rounded-full text-[0.62rem] font-black uppercase tracking-widest border ${active ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`;
+  const seg = (active: boolean) => `flex-1 px-3 py-2 rounded-full text-[0.62rem] font-black uppercase tracking-widest border ${active ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`;
   return (
     <BottomSheet title="Dress studio" onClose={onClose} isDarkMode={isDarkMode}>
       <p className="text-[10px] opacity-50 mb-3">Show guests the look, not just the colours: these mockups appear on the invite card and around your app.</p>
@@ -4627,7 +4627,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Which part of the celebration is this?</span>
                 <div className="flex flex-wrap gap-2">
                   {EVENTS.map((e) => (
-                    <button key={e.id} type="button" onClick={() => setNewPostEvent(newPostEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${newPostEvent === e.id ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
+                    <button key={e.id} type="button" onClick={() => setNewPostEvent(newPostEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${newPostEvent === e.id ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
                   ))}
                 </div>
               </div>
@@ -7219,7 +7219,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
   const fmt = (d: { h: number; m: number; ap: string }) => `${d.h}:${String(d.m).padStart(2, '0')} ${d.ap}`;
   const [draft, setDraft] = useState(() => parse(value));
   useEffect(() => { if (open) setDraft(parse(value)); }, [open, value]);
-  const chipCls = (active: boolean) => `py-2.5 rounded-lg text-[0.9rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
+  const chipCls = (active: boolean) => `py-2.5 rounded-lg text-[0.9rem] font-black transition-colors ${active ? 'bg-[#7C8B93] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{String(value || '').trim() || fmt(parse(value))}</button>
@@ -7248,7 +7248,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
             <div className="mt-3 flex items-center gap-2">
               <div className="flex flex-1 rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
                 {(['am', 'pm'] as const).map((ap) => (
-                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2.5 text-[0.78rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
+                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2.5 text-[0.78rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[#7C8B93] text-white' : 'opacity-60'}`}>{ap}</button>
                 ))}
               </div>
               <button type="button" onClick={() => { onChange(fmt(draft)); setOpen(false); }} className="px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
@@ -7297,7 +7297,7 @@ function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, wi) => (<span key={wi} className="text-[0.55rem] font-black uppercase opacity-40">{w}</span>))}
               {Array.from({ length: startDow }).map((_, i) => (<span key={`b${i}`} />))}
               {Array.from({ length: daysIn }, (_, i) => i + 1).map((day) => (
-                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
+                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[#7C8B93] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between">
@@ -11330,7 +11330,7 @@ function AdminDashboardModal({
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Status shown to guests</span>
                               <div className="flex rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
                                 {(['done', 'next', 'up'] as const).map((s) => (
-                                  <button key={s} type="button" onClick={() => setEvDraft(evDraft.map((x) => x.id === e.id ? { ...x, status: s } : (s === 'next' && x.status === 'next' ? { ...x, status: 'up' } : x)))} className={`px-4 py-2 text-[0.65rem] font-black uppercase tracking-widest ${e.status === s || (!e.status && s === 'up') ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>
+                                  <button key={s} type="button" onClick={() => setEvDraft(evDraft.map((x) => x.id === e.id ? { ...x, status: s } : (s === 'next' && x.status === 'next' ? { ...x, status: 'up' } : x)))} className={`px-4 py-2 text-[0.65rem] font-black uppercase tracking-widest ${e.status === s || (!e.status && s === 'up') ? 'bg-[#7C8B93] text-white' : 'opacity-60'}`}>
                                     {s === 'done' ? 'Done' : s === 'next' ? 'Next up' : 'Upcoming'}
                                   </button>
                                 ))}
