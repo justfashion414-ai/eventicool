@@ -163,9 +163,10 @@ export default function App() {
     return <LandingMarketing type={(slugPath || slugQuery) as string} />
   }
   if (route === '/') {
-    const saved = getSavedCelebration()
-    if (saved) return <LandingMarketing type={saved} />
-    return <LandingMarketing type="wedding" picker />
+    // The wedding home IS the main URL (user direction Nov 26 2026): no
+    // picker screen first; other event types are reached through the
+    // vertical switcher on the edge of the screen.
+    return <LandingMarketing type="wedding" />
   }
   return <LandingMarketing />
 }
