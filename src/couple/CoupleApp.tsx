@@ -6,15 +6,21 @@ import { enableRealAuth } from './lib/authShim';
 import BootLoader from '../components/BootLoader';
 
 // Six Eventicor accents, mapped onto the couple app's palette.
-const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = {
+const ACCENTS: Record<string, { accent: string; hero: string; soft: string; grad?: string }> = {
   midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
   blush:    { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
   emerald:  { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
   royal:    { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
   sunset:   { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
   sage:     { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+  party:    { accent: '#e5399e', hero: '#8f1650', soft: '#fde5f1' },
+  sunbeam:  { accent: '#ea580c', hero: '#7c2d12', soft: '#ffedd5' },
+  jubilee:  { accent: '#F5B82E', hero: '#241035', soft: '#FFF6E5', grad: 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)' },
+  orchid:   { accent: '#A855F7', hero: '#2A1240', soft: '#F3E8FF', grad: 'linear-gradient(150deg,#2A1240 0%,#6D28D9 70%,#EC4899 125%)' },
+  peacock:  { accent: '#22D3EE', hero: '#062E2B', soft: '#E0F7F4', grad: 'linear-gradient(150deg,#062E2B 0%,#0E7490 70%,#22D3EE 125%)' },
+  ember:    { accent: '#FB7185', hero: '#3B0A1E', soft: '#FFE4E6', grad: 'linear-gradient(150deg,#3B0A1E 0%,#BE123C 62%,#FB923C 130%)' },
 };
-const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
+const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal', 'bd-party': 'party', 'bd-gold': 'jubilee' };
 
 // Sample apps are marketing leads an admin shares by hand. Their link carries
 // its own 3-day expiry (?exp=unix seconds) plus the lead id (?lead=), so a
@@ -297,7 +303,7 @@ export default function CoupleApp() {
   const tplRaw = params.get('tpl') || 'classic';
   // The landing names Hero Deck 'carousel'; normalize it onto the app's 'hero'
   // key so a Hero Deck app never falls back to Classic.
-  const tpl: string = tplRaw === 'carousel' ? 'hero' : (['classic', 'halo', 'hero', 'book'].includes(tplRaw) ? tplRaw : 'classic');
+  const tpl: string = tplRaw === 'carousel' ? 'hero' : (['classic', 'halo', 'hero', 'book', 'bd-party', 'bd-gold'].includes(tplRaw) ? tplRaw : 'classic');
   // A dashboard-chosen accent wins over the link's ?acc= (same rule as the
   // hero style: the dashboard choice always wins over the link).
   const savedAcc = (() => { try { return localStorage.getItem(`ann-${APP_ID}-accent`); } catch { return ''; } })();
@@ -325,13 +331,26 @@ export default function CoupleApp() {
     if (!leadId && !siteId) return;
     let alive = true;
     const bail = window.setTimeout(() => { if (alive) setLead((l) => (l === undefined ? null : l)); }, 4000);
-    (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
+    const applyLead = (l: LeadData | null) => {
       if (!alive) return;
-      window.clearTimeout(bail);
       if (l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt) setLeadExpired(true);
       setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, weddingDate: l.weddingDate, weddingTime: l.weddingTime } : null);
       setLead(l || null);
+      if (l) trackAppEvent(siteId || leadId, 'open');
       try { setCoupleInfo((l as any)?.plan, (l as any)?.platform) } catch { /* defaults stay */ }
+    };
+    (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
+      if (!alive) return;
+      window.clearTimeout(bail);
+      const staleExpired = !!(l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt);
+      if (!staleExpired) { applyLead(l); return; }
+      // A cached or preloaded lead copy can be older than the live lead doc
+      // (user report Nov 25 2026: active trial apps briefly flashed the
+      // expired screen). The live doc decides before any expired screen shows.
+      fetch(`/api/couple?site=${encodeURIComponent(leadId || siteId)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: any) => { applyLead(j && (j.bride || j.groom) ? (j as LeadData) : l); })
+        .catch(() => { applyLead(l); });
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);
@@ -460,5 +479,6 @@ export default function CoupleApp() {
 }
 
 import { setLeadOverride, goLive } from './lib/demoMode';
+import { trackAppEvent } from './lib/track';
 import { setCoupleInfo } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';

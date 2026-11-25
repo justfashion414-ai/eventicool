@@ -339,3 +339,47 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 /* footer wordmark: raised clear of the floating back-to-top button and made bigger still (user direction Nov 23 2026) */
 #ev-l .giant{font:400 clamp(92px,22.5vw,276px)/.9 "Playfair Display",serif;margin:22px 0 96px;text-align:center}
 #ev-l [data-adm]{cursor:pointer}
+
+/* ---- What are you celebrating: picker + side widget ---- */
+body.ev-picker-open{overflow:hidden}
+.ev-picker{position:fixed;inset:0;z-index:120;overflow:auto;background:
+ radial-gradient(900px 520px at 85% 0%,#e9edff,transparent 60%),
+ radial-gradient(720px 440px at 8% 100%,#fdf3e3,transparent 55%),
+ #fbfaf6}
+.evc-in{min-height:100%;display:flex;flex-direction:column}
+.evc-top{display:flex;align-items:center;justify-content:space-between;max-width:1080px;margin:0 auto;width:100%;padding:22px 24px 0}
+.evc-brand{font:600 22px 'Playfair Display',serif;color:#151F63}
+.evc-x{width:38px;height:38px;border-radius:50%;border:1px solid #d9d6ea;background:#fff;color:#151F63;font-size:20px;cursor:pointer}
+.evc-head{max-width:1080px;margin:0 auto;width:100%;padding:34px 24px 0;text-align:center}
+.evc-head h1{font:600 clamp(32px,5vw,56px)/1.1 'Playfair Display',serif;color:#151F63;margin:0}
+.evc-head p{color:#5a5878;font:400 16px/1.5 'Plus Jakarta Sans',sans-serif;margin:12px auto 0;max-width:560px}
+.evc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:14px;max-width:1080px;margin:30px auto 0;width:100%;padding:0 24px}
+.evc-card{position:relative;text-align:left;border:1px solid #e3e0f0;border-radius:18px;padding:20px 18px 16px;background:#fff;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease;font-family:inherit}
+.evc-card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(21,31,99,.13)}
+.evc-dot{display:block;width:34px;height:34px;border-radius:11px;margin-bottom:14px}
+.evc-name{display:block;font:600 24px 'Playfair Display',serif;color:#151F63}
+.evc-blurb{display:block;color:#5a5878;font:400 13.5px/1.45 'Plus Jakarta Sans',sans-serif;margin-top:6px}
+.evc-go{display:inline-block;margin-top:14px;font:700 12.5px 'Plus Jakarta Sans',sans-serif;color:#2E55D6;letter-spacing:.2px}
+.evc-foot{max-width:1080px;margin:auto auto 0;width:100%;padding:30px 24px 26px;text-align:center;color:#8a87a3;font:400 13px 'Plus Jakarta Sans',sans-serif}
+.ev-side{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:80;display:flex;flex-direction:column;align-items:center;gap:8px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid #e3e0f0;border-radius:999px;padding:12px 6px;box-shadow:0 8px 30px rgba(21,31,99,.14)}
+.ev-side-word{display:flex;flex-direction:column;align-items:center;gap:3px;font:700 10.5px/1 'Plus Jakarta Sans',sans-serif;color:#151F63;text-transform:uppercase;letter-spacing:.4px}
+.ev-side-open{width:34px;height:34px;border-radius:50%;border:none;background:linear-gradient(135deg,#2E55D6,#151F63);color:#fff;cursor:pointer;display:grid;place-items:center;box-shadow:0 2px 8px rgba(21,31,99,.25)}
+.ev-side-open:hover{transform:scale(1.06)}
+#ev-l{overflow-x:clip}
+@media (max-width:700px){
+ .evc-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+}
+
+/* Live template hero: the real template previews playing behind the hero text */
+#ev-l .hero-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+#ev-l .hero-bg .hs-stage{position:absolute;inset:0;transition:opacity 1.2s ease}
+#ev-l .hero .w{position:relative;z-index:1}
+#ev-l.ev-heroimg .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(23,22,46,.8),rgba(23,22,46,.66) 55%,rgba(23,22,46,.84))}
+#ev-l.ev-heroimg .hero-bg .hs-stage{filter:blur(7px) saturate(1.08);transform:scale(1.07)}
+#ev-l.ev-heroimg .hero h1,#ev-l.ev-heroimg .hero h1 em{color:#fff}
+#ev-l.ev-heroimg .hero .sub{color:rgba(255,255,255,.86)}
+#ev-l.ev-heroimg .hero .trust{color:rgba(255,255,255,.9)}
+
+@media (max-width:700px){
+  .ev-side{top:auto;bottom:112px;transform:none}
+}

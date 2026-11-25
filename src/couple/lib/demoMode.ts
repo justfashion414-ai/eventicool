@@ -12,6 +12,13 @@ export let DEMO = true;
 // expired links stay in demo mode.
 export const goLive = () => { DEMO = false; };
 
+// ?occ=birthday previews the birthday occasion pack: the WHOLE demo app reads
+// birthday content (names, story, line-up, captions, photos), not just the hero.
+// Read once at load from the address bar; only /app previews carry ?occ=.
+let BD = false;
+try { BD = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('occ') === 'birthday'; } catch {}
+export const demoBirthday = () => BD;
+
 export const DEMO_COUPLE = {
   bride: 'Amara',
   groom: 'Daniel',
@@ -30,7 +37,21 @@ export const DEMO_WEDDING_TIME = '10:00';
 export const DEMO_STORY =
   "Amara and Daniel met at a friend's birthday dinner in 2021. Four years, two families and countless inside jokes later, here we are. This page keeps every moment of it in one place, for life.";
 
-export const DEMO_DETAILS = {
+export const DEMO_DETAILS = BD ? {
+  churchTime: '12:00 pm',
+  churchVenue: 'The Grand Marquee, Ikeja, Lagos',
+  receptionTime: '',
+  receptionVenue: '',
+  asoEbi: 'gold and white',
+  hashtag: '#AmaraAndDaniel',
+  giftInfo: {
+    enabled: true,
+    bank: 'Guaranty Trust Bank',
+    accountNumber: '0123456789',
+    accountName: 'Chidera',
+    note: 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.',
+  },
+} : {
   churchTime: '10:00 am',
   churchVenue: 'Central Chapel, Ikeja, Lagos',
   receptionTime: '3:00 pm',
@@ -46,17 +67,25 @@ export const DEMO_DETAILS = {
   },
 };
 
-export const DEMO_PHOTOS = [
-  '/demo/photo1.jpg',
-  '/demo/photo2.jpg',
-  '/demo/photo3.jpg',
-  '/demo/photo4.jpg',
-  '/demo/photo5.jpg',
-  '/demo/photo6.jpg',
-  '/demo/photo7.jpg',
-];
+const WED_PHOTOS = ['/demo/photo1.jpg','/demo/photo2.jpg','/demo/photo3.jpg','/demo/photo4.jpg','/demo/photo5.jpg','/demo/photo6.jpg','/demo/photo7.jpg'];
+// The birthday pack ships its own party photos: the wedding couple's pictures
+// never appear in a birthday preview.
+const BD_PHOTOS = ['/demo/birthday1.jpg','/demo/birthday2.jpg','/demo/birthday3.jpg','/demo/birthday4.jpg'];
+export const DEMO_PHOTOS = BD ? BD_PHOTOS : WED_PHOTOS;
 
 export function demoEvents(): any[] {
+  if (BD) {
+    // One-day line-up instead of the wedding journey: the whole party is one day.
+    const D = demoWeddingDate();
+    return [
+      { id: 'bd-arrive', name: 'Arrival & red carpet', type: 'The party', date: D, time: '12:00', desc: 'Guests arrive, welcome drinks and red-carpet photos.', status: 'next', images: demoStageImages(0) },
+      { id: 'bd-games', name: 'Games & dancing', type: 'The party', date: D, time: '13:00', desc: 'Party games, the dance floor opens and the DJ takes over.', status: 'up', images: demoStageImages(1) },
+      { id: 'bd-cake', name: 'Cake cutting', type: 'The party', date: D, time: '15:00', desc: 'The big cake comes out and the hall sings for the celebrant.', status: 'up', images: demoStageImages(2) },
+      { id: 'bd-toast', name: 'Toast & tributes', type: 'The party', date: D, time: '15:30', desc: 'Family and friends raise their glasses and share their words.', status: 'up', images: demoStageImages(3) },
+      { id: 'bd-photos', name: 'Photo booth', type: 'The party', date: D, time: '16:30', desc: 'Props, costumes and pictures with the celebrant.', status: 'up', images: [] },
+      { id: 'bd-close', name: 'Closing & farewell', type: 'The party', date: D, time: '18:00', desc: 'One last dance, souvenirs and goodbyes.', status: 'up', images: [] },
+    ];
+  }
   const T = (t: string) => demoText(t);
   const rel = (days: number) => {
     // Seeded stages anchor to the couple's own wedding day when the app has
@@ -79,7 +108,16 @@ export function demoEvents(): any[] {
 
 export const DEMO_GUESTS = ['Aunty Ronke', 'Tolu', 'Chidi', 'Kemi', 'Bisi', 'Emeka', 'Ngozi', 'Fola'];
 
-export const DEMO_CAPTIONS = [
+export const DEMO_CAPTIONS = BD ? [
+  'The entrance was everything! Chidera danced in like it was her day. Because it is.',
+  'The hall was ready before the first guest arrived. Fifty looks good.',
+  'Happy birthday, Chidera! More grace, more years.',
+  'Still not over the cake. Three tiers, gone in minutes.',
+  'The toast had half the hall in tears. Happy tears.',
+  'A lifetime of joy for the celebrant!',
+  'Best party of the year, no debate!',
+  'The photo booth queue has not moved all evening.',
+] : [
   'The entrance was everything! Daniel could not stop smiling.',
   'Amara walked in with her aunties. We cried before the first prayer.',
   'God bless your union, Amara and Daniel!',
@@ -90,7 +128,12 @@ export const DEMO_CAPTIONS = [
   'Daniel and the groomsmen did not disappoint.',
 ];
 
-export const DEMO_REELS = [
+export const DEMO_REELS = BD ? [
+  { src: '/reels/r1.mp4', by: 'Kemi', cap: 'The hall came together beautifully' },
+  { src: '/reels/r2.mp4', by: 'Chidi', cap: 'Every detail was ready before the celebrant walked in' },
+  { src: '/reels/r3.mp4', by: 'Bisi', cap: 'Chidera, moments before the grand entrance' },
+  { src: '/reels/r4.mp4', by: 'Fola', cap: 'One celebrant, one unforgettable day' },
+] : [
   { src: '/reels/r1.mp4', by: 'Kemi', cap: 'The venue came together beautifully' },
   { src: '/reels/r2.mp4', by: 'Chidi', cap: 'Every detail was ready before she walked in' },
   { src: '/reels/r3.mp4', by: 'Bisi', cap: 'The bride, moments before the walk' },
@@ -99,7 +142,7 @@ export const DEMO_REELS = [
 
 // Preview access code: the composer in a preview validates against this local
 // demo code, never the real couple's code from Firebase.
-export const DEMO_ACCESS_CODE = 'AMARA26';
+export const DEMO_ACCESS_CODE = BD ? 'CHID50' : 'AMARA26';
 
 // Guest access code derived from the couple's own names: the first three
 // letters of each name, then 26. Sol & Okx -> SOLOKX26. Every app's code is
@@ -126,9 +169,9 @@ export interface LeadOverride {
 let LEAD: LeadOverride | null = null;
 export function setLeadOverride(l: LeadOverride | null) { LEAD = l; }
 export function leadOverride(): LeadOverride | null { return LEAD; }
-export function demoBride(): string { return LEAD?.bride || DEMO_COUPLE.bride; }
-export function demoGroom(): string { return LEAD?.groom || DEMO_COUPLE.groom; }
-export function demoHeader(): string { return LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header; }
+export function demoBride(): string { return BD ? 'Chidera' : (LEAD?.bride || DEMO_COUPLE.bride); }
+export function demoGroom(): string { return BD ? '' : (LEAD?.groom || DEMO_COUPLE.groom); }
+export function demoHeader(): string { return BD ? 'Chidera' : (LEAD ? `${LEAD.bride} & ${LEAD.groom}` : DEMO_COUPLE.header); }
 export function demoCity(): string { return LEAD?.city || DEMO_COUPLE.city; }
 // A bound couple's chosen wedding day rides the same overlay as their names,
 // so the countdown and hero show THEIR date instead of the seeded one.
@@ -138,6 +181,7 @@ export function demoWeddingTime(): string { return LEAD?.weddingTime || DEMO_WED
 // name the lead's couple instead, so the story, captions and journey blurbs
 // stay coherent with the header.
 export function demoText(t: string): string {
+  if (BD) return t.replace(/Amara and Daniel|Amara & Daniel/g, 'Chidera').replace(/Amara/g, 'Chidera').replace(/Daniel/g, 'Chidera');
   if (!LEAD) return t;
   return t.replace(/Amara/g, LEAD.bride).replace(/Daniel/g, LEAD.groom);
 }

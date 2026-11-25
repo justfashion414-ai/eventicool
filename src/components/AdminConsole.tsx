@@ -5,6 +5,29 @@ import { consoleAuth, consoleAuthReady, signOutEverywhere, type User } from '../
 // Every console call rides the console's OWN auth session, never the couple
 // apps' session, so the two can never act as each other.
 const consoleCall = (op: string, payload?: Record<string, unknown>) => proxyCall(op, payload, consoleAuth)
+
+// The storage console talks to its own function rather than the generic
+// proxy, so it can ask Cloudinary and run the retention cleanup itself.
+const storageCall = async (op: string, extra?: Record<string, unknown>) => {
+  const u = consoleAuth.currentUser
+  const token = u ? await u.getIdToken() : ''
+  const res = await fetch('/api/storage-overview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ op, ...(extra || {}) }),
+  })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((j as any).error || `Storage error ${res.status}`)
+  return j as any
+}
+
+const fmtBytes = (b?: number) => {
+  const n = Number(b) || 0
+  if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return '0'
+}
 // Last loaded lists, for painting the console instantly on a refresh.
 const CONSOLE_CACHE_KEY = 'ev-console-cache-v1'
 import { proxyCall } from '../firebase'
@@ -20,6 +43,8 @@ const TP: Record<string, { name: string; tagline: string; bg: string; fg: string
   halo: { name: 'Halo Arc', tagline: 'A crown of photos above your names', bg: '#fbe1e8', fg: '#4a1530', ac: '#d6285f' },
   hero: { name: 'Hero Deck', tagline: 'A sliding cover of your best moments', bg: '#0c4a36', fg: '#f2f8ee', ac: '#f4b393' },
   book: { name: 'Open Book', tagline: 'A hardback book of your photos that turns its own pages', bg: '#2236b4', fg: '#ffffff', ac: '#f6d36b' },
+  'bd-party': { name: 'Birthday Orbit · night', tagline: 'Balloons and confetti with the celebrant and a giant age', bg: '#e5399e', fg: '#ffffff', ac: '#ffd166' },
+  'bd-gold': { name: 'Birthday Arc · light', tagline: 'A gold-ringed portrait on a deep backdrop for milestone ages', bg: '#191007', fg: '#F5E7C8', ac: '#E7C86A' },
 }
 const ACC6: Record<string, { bg: string; ac: string }> = {
   midnight: { bg: '#14122b', ac: '#d8b06a' },
@@ -38,7 +63,7 @@ const tsMs = (v: any): number => {
   return sec ? sec * 1000 : 0
 }
 
-const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal', 'bd-party': 'party', 'bd-gold': 'sunbeam' }
 const EV_FOOTER_STYLES = [
   { id: 'wall', n: 'Style 1 · Photo wall', d: 'Grey photo grid with a light scan sweeping the rows' },
   { id: 'marquee', n: 'Style 2 · Marquee', d: 'Dark wall with rounded photo rows drifting past' },
@@ -59,11 +84,13 @@ const NAV = [
   { id: 'leads', label: 'Leads' },
   { id: 'cust', label: 'Free trial apps' },
   { id: 'sites', label: 'Premium apps' },
+  { id: 'stat', label: 'Analytics' },
   { id: 'ord', label: 'Orders' },
-  { id: 'cat', label: 'Plans and templates' },
+  { id: 'cat', label: 'Templates' },
+  { id: 'storage', label: 'Storage' },
   { id: 'settings', label: 'Settings' },
   { id: 'inv', label: 'Inbox invite' },
-  { id: 'pay', label: 'Payment details' },
+  { id: 'pay', label: 'Payment and plans' },
   { id: 'team', label: 'Team and audit' },
 ] as const
 type SecId = (typeof NAV)[number]['id']
@@ -105,7 +132,7 @@ interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; 
 interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
-interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
+interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta>; eventTypes?: Record<string, boolean> }
 
 const DEFAULT_CAT: Cat = {
   prices: { essential: 30000, complete: 50000, legacy: 100000 },
@@ -119,13 +146,26 @@ function fmtDate(ev?: { seconds?: number }) {
   return new Date(ev.seconds * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Birthday palettes, deliberately unlike the wedding's: richer, gradient-led,
+// uncommon pairings drawn from the birthday design file and beyond.
+const BD_PALS: { k: string; n: string; a: string; b: string }[] = [
+  { k: 'party', n: 'Candy', a: '#e5399e', b: '#8f1650' },
+  { k: 'sunbeam', n: 'Sunbeam', a: '#ea580c', b: '#7c2d12' },
+  { k: 'jubilee', n: 'Jubilee', a: '#F5B82E', b: '#B3361F' },
+  { k: 'orchid', n: 'Orchid', a: '#A855F7', b: '#EC4899' },
+  { k: 'peacock', n: 'Peacock', a: '#22D3EE', b: '#0E7490' },
+  { k: 'ember', n: 'Ember', a: '#FB7185', b: '#BE123C' },
+]
+
 const ICONS: Record<SecId, string> = {
+  storage: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   over: '<path d="M3 12l9-9 9 9M5 10v10h14V10"/>',
   pipe: '<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/>',
   leads: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.7-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><path d="M17.5 12a3.2 3.2 0 1 0-1.8-5.9"/><path d="M18.5 14.6c2 .8 3 2.4 3 4.9"/>',
   cust: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c.8-3.6 3.4-5.2 6.5-5.2s5.7 1.6 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M15.6 15c2.8.3 4.9 1.9 5.6 5"/>',
   sites: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 22h8"/>',
   ord: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
+  stat: '<rect x="4" y="13" width="4" height="7" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="16" y="4" width="4" height="16" rx="1"/>',
   cat: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   inv: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   pay: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h5"/>',
@@ -204,7 +244,13 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [events, setEvents] = useState<EvDoc[] | null>(null)
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
+  const [openType, setOpenType] = useState<string | null>('wedding')
   const [toast, setToast] = useState('')
+  // Storage tab: live Cloudinary usage, per-app breakdown, retention settings.
+  const [stor, setStor] = useState<any | null>(null)
+  const [storBusy, setStorBusy] = useState('')
+  const [storConfirm, setStorConfirm] = useState(false)
+  const [storForm, setStorForm] = useState<{ sample: string; real: string; warn: string } | null>(null)
   // Account management: extend trial, suspend or delete a customer's app.
   const [manage, setManage] = useState<LeadDoc | null>(null)
   const [extH, setExtH] = useState(24)
@@ -217,6 +263,79 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   // sites filters
   const [leads, setLeads] = useState<LeadDoc[] | null>(null)
+  // Platform analytics (Analytics tab): the daily ledger, aggregated in the
+  // console, plus the per-app opens ledger for every lead and premium app.
+  const [anData, setAnData] = useState<any>(null)
+  const [anBusy, setAnBusy] = useState(false)
+  const loadAnalytics = async () => {
+    setAnBusy(true)
+    try {
+      // Landing-page traffic: one doc per day in landing_daily
+      // (visits, seconds of time on page from visitors who left, signups).
+      const landRes: any = await consoleCall('list', { collection: 'landing_daily', limit: 120, orderBy: 'name-desc' })
+      const land: any[] = Array.isArray(landRes?.docs) ? landRes.docs : []
+      land.sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      const n = (v: any) => Number(v) || 0
+      const avgOf = (secs: number, left: number) => (left > 0 ? Math.round(secs / left) : 0)
+      const ukeys = new Set<string>()
+      const bagOf = (m: any, k: string) => { if (!m[k]) m[k] = { visits: 0, seconds: 0, left: 0, signups: 0 }; return m[k] }
+      const wk: any = {}, mo: any = {}
+      for (const d of land) {
+        const id = String(d.id || '')
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(id)) continue
+        for (const sidv of Array.isArray(d.v) ? d.v : []) ukeys.add(String(sidv))
+        const dt = new Date(id + 'T00:00:00Z')
+        const dow = (dt.getUTCDay() + 6) % 7
+        const monday = new Date(dt); monday.setUTCDate(dt.getUTCDate() - dow)
+        const wb = bagOf(wk, monday.toISOString().slice(0, 10))
+        const mb = bagOf(mo, id.slice(0, 7))
+        for (const b of [wb, mb]) { b.visits += n(d.visits); b.seconds += n(d.seconds); b.left += n(d.left); b.signups += n(d.signups) }
+      }
+      const daily = land.slice(-14).map((d) => ({ id: String(d.id), visits: n(d.visits), uniq: Array.isArray(d.v) ? d.v.length : n(d.visits), avg: avgOf(n(d.seconds), n(d.left)), signups: n(d.signups) }))
+      const weekly = Object.keys(wk).sort().slice(-8).map((k) => ({ id: k, ...wk[k], avg: avgOf(wk[k].seconds, wk[k].left) }))
+      const monthly = Object.keys(mo).sort().slice(-6).map((k) => ({ id: k, ...mo[k], avg: avgOf(mo[k].seconds, mo[k].left) }))
+      const tot = { visits: 0, seconds: 0, left: 0, signups: 0, uniq: ukeys.size }
+      for (const d of land) { tot.visits += n(d.visits); tot.seconds += n(d.seconds); tot.left += n(d.left); tot.signups += n(d.signups) }
+      // Sample apps only (user direction: customer apps stay out of the
+      // console analytics for now): opens, feed opens and last opened.
+      const samples = (leads || []).filter((l: any) => !l.email && l.source !== 'landing')
+      const rows: any[] = []
+      for (let i = 0; i < samples.length; i += 8) {
+        const batch = samples.slice(i, i + 8)
+        const got = await Promise.all(batch.map((r: any) => consoleCall('get', { collection: `apps/${r.id}/meta`, id: 'stats' }).catch(() => null)))
+        batch.forEach((r: any, k: number) => {
+          const st: any = got[k]
+          if (!st) return
+          const tms = st.lastOpenAt ? tsMs(st.lastOpenAt) : 0
+          const la = tms ? new Date(tms) : null
+          rows.push({
+            id: r.id,
+            name: `${r.bride || ''} & ${r.groom || ''}`.trim() || r.id,
+            opens: Number(st.open) || 0,
+            feedOpens: Number(st.feedOpen) || 0,
+            last: la ? la.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + la.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-',
+          })
+        })
+      }
+      rows.sort((a, b) => b.opens - a.opens)
+      setAnData({ land: { tot, daily, weekly, monthly }, rows })
+    } catch (e) {
+      setAnData({ land: { tot: { visits: 0, seconds: 0, left: 0, signups: 0, uniq: 0 }, daily: [], weekly: [], monthly: [] }, rows: [], error: String(e) })
+    }
+    setAnBusy(false)
+  }
+  useEffect(() => { if (sec === 'stat' && !anData && !anBusy) loadAnalytics() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sec])
+  // Name-change history for one app, shown in the Manage dialog and the app
+  // drawer: what the names were, what they became, when and by whom.
+  const [nameHist, setNameHist] = useState<any>(null)
+  const loadNameHistory = (id: string) => {
+    setNameHist({ forId: id, rows: null })
+    consoleCall('list', { collection: `apps/${id}/name_history`, orderBy: 'name-desc', limit: 20 })
+      .then((res: any) => setNameHist({ forId: id, rows: (res?.docs || []).slice().reverse() }))
+      .catch(() => setNameHist({ forId: id, rows: [] }))
+  }
+  useEffect(() => { if (manage?.id) loadNameHistory(manage.id) }, [manage])
+  useEffect(() => { if (drawerId) loadNameHistory(drawerId) }, [drawerId])
   // The sample takes after the template the admin was last checking: the
   // Preview buttons remember their template and the form opens on it.
   const [ld, setLd] = useState(() => {
@@ -396,6 +515,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             channels: { ...DEFAULT_CAT.channels, ...(doc.channels || {}) },
             templates: { ...DEFAULT_CAT.templates, ...(doc.templates || {}) },
             tplmeta: { ...(doc.tplmeta || {}) },
+            eventTypes: { wedding: true, ...(doc.eventTypes || {}) },
           })
         })
         .catch(() => { if (alive) setCat(DEFAULT_CAT) })
@@ -1131,133 +1251,201 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   function catalogSection() {
     if (!cat) {
-      return <>{head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
+      return <>{head('Templates', 'Turn event types and their looks on or off. Preview opens the real app.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
     }
+    const TYPES: { k: string; label: string; locked?: boolean }[] = [
+      { k: 'wedding', label: 'Wedding', locked: true },
+      { k: 'birthday', label: 'Birthday' },
+      { k: 'coronation', label: 'Coronation' },
+      { k: 'naming', label: 'Naming ceremony' },
+      { k: 'anniversary', label: 'Anniversary' },
+      { k: 'christmas', label: 'Christmas' },
+    ]
+    const subHead = (t: string, note?: string) => (
+      <div style={{ margin: '14px 0 8px' }}>
+        <b style={{ fontSize: 13.5, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--mut)' }}>{t}</b>
+        {note && <p style={{ color: 'var(--mut)', fontSize: 12.5, margin: '3px 0 0' }}>{note}</p>}
+      </div>
+    )
+    const footerRows = (note: string, tpl: string) => (
+      <>
+        {subHead('Footer styles', note)}
+        {EV_FOOTER_STYLES.map((s) => (
+          <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+              <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+            </div>
+            <div className="row">
+              <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => window.open(`${location.origin}/app?tpl=${tpl}${tpl === 'bd-party' ? '&occ=birthday' : ''}&fs=${s.id}`, '_blank')}>Preview</button>
+            </div>
+          </div>
+        ))}
+      </>
+    )
+    const inviteRows = (note: string, names: string[], date: string, venue: string) => (
+      <>
+        {subHead('Invite styles', note)}
+        {IV_IV_STYLES.map((s) => (
+          <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+              <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+            </div>
+            <div className="row">
+              <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                const q = new URLSearchParams({ name1: names[0], name2: names[1], date, venue, address: '12 Palm Avenue, Lekki, Lagos' })
+                window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+              }}>Preview</button>
+            </div>
+          </div>
+        ))}
+      </>
+    )
     return (
       <>
-        {head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
+        {head('Templates', 'Turn an event type on or off, then tap it to see its templates, footers and invites below. Preview opens the real app. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
         <div className="card">
-          <h3>Plans</h3>
-          {Object.keys(PL).map((k) => (
-            <div className="rw" key={k}>
-              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].gb} GB of photos and videos</small></div>
-              <div className="row">
-                <input
-                  value={cat.prices[k] ?? PL[k].price}
-                  style={{ width: 110 }}
-                  aria-label={`${PL[k].name} price`}
-                  onChange={(e) => setCat({ ...cat, prices: { ...cat.prices, [k]: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 } })}
-                />
-                <span className="row">
-                  {CHANNELS.map((n, i) => (
-                    <button
-                      key={n}
-                      className={`chip ${(cat.channels[k] || DEFAULT_CAT.channels[k])[i] ? 'on' : ''}`}
-                      onClick={() => {
-                        const cur = [...(cat.channels[k] || DEFAULT_CAT.channels[k])]
-                        cur[i] = !cur[i]
-                        setCat({ ...cat, channels: { ...cat.channels, [k]: cur } })
-                      }}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <h3>Wedding templates</h3>
-          {Object.keys(TP).map((k) => {
-            const meta = cat.tplmeta[k] || {}
-            const acc = meta.acc || DEF_ACC[k]
-            const pal = ACC6[acc] || TP[k]
+          {TYPES.map(({ k, label, locked }, ti) => {
+            const on = k === 'wedding' ? true : !!(cat.eventTypes || {})[k]
+            const open = openType === k
             return (
-              <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
-                <div className="row" style={{ flex: 1, minWidth: 250 }}>
-                  <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
-                  {editTpl === k ? (
-                    <>
-                      <input
-                        value={meta.name ?? ''}
-                        placeholder={TP[k].name}
-                        aria-label={`${TP[k].name} display name`}
-                        style={{ width: 110 }}
-                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, name: e.target.value } } })}
-                      />
-                      <input
-                        value={meta.d ?? ''}
-                        placeholder={TP[k].tagline}
-                        aria-label={`${TP[k].name} tagline`}
-                        style={{ flex: 1, minWidth: 150 }}
-                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, d: e.target.value } } })}
-                      />
-                      <button className="btn g s" aria-label={`Done editing ${TP[k].name}`} onClick={() => setEditTpl(null)}>Done</button>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ flex: 1, minWidth: 150 }}>
-                        <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
-                        <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</div>
-                      </div>
-                      <button className="btn g s" aria-label={`Edit ${TP[k].name} name`} onClick={() => setEditTpl(k)}>Edit</button>
-                    </>
-                  )}
-                </div>
-                <div className="row">
-                  {Object.keys(ACC6).map((ak) => (
-                    <button
-                      key={ak}
-                      title={`${ak[0].toUpperCase() + ak.slice(1)} accent`}
-                      aria-label={`Use the ${ak} accent for ${TP[k].name}`}
-                      onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, acc: ak } } })}
-                      style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
+              <div key={k} style={ti ? { borderTop: '1px solid #ecebf3', marginTop: 14, paddingTop: 14 } : undefined}>
+                <div className="rw" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    className="border-0 bg-transparent p-0 cursor-pointer text-left"
+                    style={{ flex: 1, minWidth: 180 }}
+                    aria-expanded={open}
+                    onClick={() => setOpenType(open ? null : k)}
+                  >
+                    <b style={{ fontSize: 15.5 }}>{label}</b>
+                    <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5 }}>
+                      {locked ? 'Always on: every app is built on it' : on ? 'Couples can create this' : 'Hidden from couples'}
+                    </small>
+                  </button>
+                  <div className="row">
+                    <button className="btn g s" aria-label={`${open ? 'Hide' : 'Show'} ${label}`} onClick={() => setOpenType(open ? null : k)}>{open ? 'Hide' : 'Show'}</button>
+                    <span
+                      className={`sw ${on ? 'on' : ''}`}
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={`Toggle ${label} apps`}
+                      style={locked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                      onClick={() => { if (locked) return; setCat({ ...cat, eventTypes: { wedding: true, ...(cat.eventTypes || {}), [k]: !on } }) }}
                     />
-                  ))}
-                  <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', k) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
-                  <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
+                  </div>
                 </div>
+                {open && (
+                  <div style={{ marginTop: 6 }}>
+                    {k === 'wedding' && (
+                      <>
+                        {subHead('Event templates', 'Toggle each look on or off, rename it, and pick its accent. Preview opens the real app.')}
+                        {(['classic', 'halo', 'hero', 'book'] as const).map((tk) => {
+                          const meta = cat.tplmeta[tk] || {}
+                          const acc = meta.acc || DEF_ACC[tk]
+                          const pal = ACC6[acc] || TP[tk]
+                          return (
+                            <div className="rw" key={tk} style={{ flexWrap: 'wrap' }}>
+                              <div className="row" style={{ flex: 1, minWidth: 250 }}>
+                                <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
+                                {editTpl === tk ? (
+                                  <>
+                                    <input
+                                      value={meta.name ?? ''}
+                                      placeholder={TP[tk].name}
+                                      aria-label={`${TP[tk].name} display name`}
+                                      style={{ width: 110 }}
+                                      onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, name: e.target.value } } })}
+                                    />
+                                    <input
+                                      value={meta.d ?? ''}
+                                      placeholder={TP[tk].tagline}
+                                      aria-label={`${TP[tk].name} tagline`}
+                                      style={{ flex: 1, minWidth: 150 }}
+                                      onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, d: e.target.value } } })}
+                                    />
+                                    <button className="btn g s" aria-label={`Done editing ${TP[tk].name}`} onClick={() => setEditTpl(null)}>Done</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div style={{ flex: 1, minWidth: 150 }}>
+                                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[tk].name}</b>
+                                      <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[tk].tagline}</div>
+                                    </div>
+                                    <button className="btn g s" aria-label={`Edit ${TP[tk].name} name`} onClick={() => setEditTpl(tk)}>Edit</button>
+                                  </>
+                                )}
+                              </div>
+                              <div className="row">
+                                {Object.keys(ACC6).map((ak) => (
+                                  <button
+                                    key={ak}
+                                    title={`${ak[0].toUpperCase() + ak.slice(1)} accent`}
+                                    aria-label={`Use the ${ak} accent for ${TP[tk].name}`}
+                                    onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, acc: ak } } })}
+                                    style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
+                                  />
+                                ))}
+                                <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', tk) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${tk}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
+                                <button className={`sw ${cat.templates[tk] ? 'on' : ''}`} aria-label={`Toggle ${TP[tk].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [tk]: !cat.templates[tk] } })} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {footerRows('The big photo wall at the bottom of every wedding app. Preview opens a sample app showing that footer style.', 'halo')}
+                        {inviteRows('The invitation cards couples send their guests from the app\'s Inbox invite section. Preview opens the full card, opening animation included.', ['Amara', 'Daniel'], '2027-06-12 14:00', 'The Grand Pavilion')}
+                      </>
+                    )}
+                    {k === 'birthday' && (
+                      <>
+                        {subHead('Event templates', 'Toggle each look on or off, then pick its palette. Preview opens the real birthday app.')}
+                        {(['bd-party', 'bd-gold'] as const).map((tk) => {
+                          const meta = cat.tplmeta[tk] || {}
+                          const acc = meta.acc || (tk === 'bd-gold' ? 'jubilee' : 'party')
+                          const pal = BD_PALS.find((b) => b.k === acc) || BD_PALS[2]
+                          return (
+                            <div className="rw" key={tk} style={{ flexWrap: 'wrap' }}>
+                              <div className="row" style={{ flex: 1, minWidth: 250 }}>
+                                <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.a},${pal.b})` }} />
+                                <div style={{ flex: 1, minWidth: 150 }}>
+                                  <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[tk].name}</b>
+                                  <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[tk].tagline}</div>
+                                </div>
+                              </div>
+                              <div className="row">
+                                {BD_PALS.map((b) => (
+                                  <button
+                                    key={b.k}
+                                    title={`${b.n} palette`}
+                                    aria-label={`Use the ${b.n} palette for ${TP[tk].name}`}
+                                    onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, acc: b.k } } })}
+                                    style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === b.k ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${b.a},${b.b})` }}
+                                  />
+                                ))}
+                                <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', tk) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${tk}&occ=birthday${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
+                                <button className={`sw ${cat.templates[tk] ? 'on' : ''}`} aria-label={`Toggle ${TP[tk].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [tk]: !cat.templates[tk] } })} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {footerRows('Same looks as the wedding footers for now; birthday\'s own footers swap in here when they land.', 'bd-party')}
+                        {inviteRows('Same looks as the wedding invites for now; birthday\'s own invites swap in here when they land.', ['Chidera', ''], '2027-03-25 12:00', 'The Grand Marquee')}
+                      </>
+                    )}
+                    {k !== 'wedding' && k !== 'birthday' && (
+                      <div className="rw">
+                        <div>
+                          <b style={{ fontSize: 15 }}>Templates for {label.toLowerCase()}</b>
+                          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 13 }}>Next on the build list; nothing to preview yet</small>
+                        </div>
+                        <span className="pl">Soon</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
-          <div className="rw">
-            <div><b>Birthdays and anniversaries</b><small>Shown as “soon” on the landing page</small></div>
-            <span className="pl">Soon</span>
-          </div>
-        </div>
-        <div className="card">
-          <h3>Giant footer styles</h3>
-          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The big photo wall at the bottom of every app. Preview opens a sample app showing that footer style.</p>
-          {EV_FOOTER_STYLES.map((s) => (
-            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
-                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
-              </div>
-              <div className="row">
-                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => { let t = 'halo'; try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${t}&fs=${s.id}`, '_blank') }}>Preview</button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <h3>Inbox invite styles</h3>
-          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The invitation cards couples send their guests from the app's Inbox invite section. Preview opens the full card, opening animation included.</p>
-          {IV_IV_STYLES.map((s) => (
-            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
-                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
-              </div>
-              <div className="row">
-                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
-                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
-                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
-                }}>Preview</button>
-              </div>
-            </div>
-          ))}
         </div>
       </>
     )
@@ -1453,6 +1641,47 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '12px 0 0' }}>Customers pay by bank transfer to this account. When a receipt is uploaded it appears on that customer's row in Customers; Confirm payment there activates their app for a year.</p>
           {paySaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '10px 0 0' }}>{paySaved}</p>}
         </div>
+        <div className="card">
+          <h3>Plans</h3>
+          {!cat ? (
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: 0 }}>Loading plans…</p>
+          ) : (
+          <>
+          {Object.keys(PL).map((k) => (
+            <div className="rw" key={k}>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].gb} GB of photos and videos</small></div>
+              <div className="row">
+                <input
+                  value={cat.prices[k] ?? PL[k].price}
+                  style={{ width: 110 }}
+                  aria-label={`${PL[k].name} price`}
+                  onChange={(e) => setCat({ ...cat, prices: { ...cat.prices, [k]: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 } })}
+                />
+                <span className="row">
+                  {CHANNELS.map((n, i) => (
+                    <button
+                      key={n}
+                      className={`chip ${(cat.channels[k] || DEFAULT_CAT.channels[k])[i] ? 'on' : ''}`}
+                      onClick={() => {
+                        const cur = [...(cat.channels[k] || DEFAULT_CAT.channels[k])]
+                        cur[i] = !cur[i]
+                        setCat({ ...cat, channels: { ...cat.channels, [k]: cur } })
+                      }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            </div>
+          ))}
+          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>Prices and payment channels save with the button below.</small>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn g" disabled={busy} onClick={saveCatalog}>Save plans</button>
+          </div>
+          </>
+          )}
+        </div>
       </>
     )
   }
@@ -1628,7 +1857,263 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     )
   }
 
-  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, inv: invitesSection, pay: paySection, team: team }
+  const refreshStorage = async () => {
+    setStorBusy('overview')
+    try {
+      const d = await storageCall('overview', { force: 1 })
+      setStor(d)
+      setStorForm({ sample: String(d.settings?.retentionSampleDays ?? 30), real: String(d.settings?.retentionRealDays ?? 90), warn: String(d.settings?.warnPercent ?? 80) })
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)) } finally { setStorBusy('') }
+  }
+  const saveStorageSettings = async () => {
+    if (!storForm) return
+    setStorBusy('save')
+    try {
+      const d = await storageCall('save-settings', { retentionSampleDays: Number(storForm.sample), retentionRealDays: Number(storForm.real), warnPercent: Number(storForm.warn) })
+      setStor((s: any) => (s ? { ...s, settings: d.settings } : s))
+      setToast('Retention settings saved')
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)) } finally { setStorBusy('') }
+  }
+  const runStorageCleanup = async () => {
+    setStorBusy('cleanup')
+    try {
+      const d = await storageCall('cleanup')
+      const log = d.log || {}
+      setToast(`Cleanup done: ${log.sampleApps?.length || 0} sample apps, ${log.realApps?.length || 0} real apps freed`)
+      await refreshStorage()
+    } catch (e: any) { setToast(String(e && e.message ? e.message : e)); setStorBusy('') }
+  }
+  useEffect(() => {
+    if (sec !== 'storage') return
+    let alive = true
+    setStorBusy('load')
+    storageCall('overview')
+      .then((d) => {
+        if (!alive) return
+        setStor(d)
+        setStorForm({ sample: String(d.settings?.retentionSampleDays ?? 30), real: String(d.settings?.retentionRealDays ?? 90), warn: String(d.settings?.warnPercent ?? 80) })
+      })
+      .catch((e) => { if (alive) setStor({ error: String(e && e.message ? e.message : e) }) })
+      .finally(() => { if (alive) setStorBusy('') })
+    return () => { alive = false }
+  }, [sec])
+  const storageSection = () => (
+    <div>
+      <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h1 style={{ margin: 0 }}>Storage</h1>
+        <button className="btn g s" disabled={storBusy !== ''} onClick={refreshStorage}>
+          {storBusy === 'overview' || storBusy === 'load' ? 'Checking…' : 'Refresh'}
+        </button>
+      </div>
+      {stor?.error && (
+        <div className="card"><p style={{ color: 'var(--mut)', margin: 0 }}>{stor.error}</p></div>
+      )}
+      {stor && !stor.error && (
+        <>
+          {stor.warn && (
+            <div className="card" style={{ border: '1px solid #d1694a', marginBottom: 12 }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                Cloudinary is at {stor.usage && stor.usage.credits.limit ? Math.round((stor.usage.credits.usage / stor.usage.credits.limit) * 100) : '?'}% of the plan's credits. Free space or upgrade the plan before uploads start failing.
+              </p>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <div className="card"><small>Cloudinary total</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.usage?.storageBytes)}</div><small>{stor.usage?.plan || 'plan —'}</small></div>
+            <div className="card"><small>Credits this month</small><div style={{ fontWeight: 700, fontSize: 20 }}>{stor.usage ? `${stor.usage.credits.usage} / ${stor.usage.credits.limit || '—'}` : '—'}</div><small>warns at {stor.settings?.warnPercent ?? 80}%</small></div>
+            <div className="card"><small>Real apps</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.real)}</div><small>couples' uploads</small></div>
+            <div className="card"><small>Sample apps</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.sample)}</div><small>free after retention</small></div>
+            <div className="card"><small>Eventicor platform</small><div style={{ fontWeight: 700, fontSize: 20 }}>{fmtBytes(stor.breakdown?.other)}</div><small>hero images and media</small></div>
+          </div>
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0 }}>Real apps by storage</h2>
+              <small style={{ color: 'var(--mut)' }}>{stor.recomputed ? 'recounted just now' : 'cached · Refresh recounts live'}</small>
+            </div>
+            {!stor.apps || stor.apps.length === 0 ? (
+              <p style={{ color: 'var(--mut)', margin: '8px 0 0' }}>No real-app uploads found yet.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+                <thead><tr style={{ color: 'var(--mut)', textAlign: 'left' }}><th style={{ padding: '6px 4px' }}>App</th><th style={{ padding: '6px 4px' }}>Plan</th><th style={{ padding: '6px 4px', textAlign: 'right' }}>Size</th><th style={{ padding: '6px 4px', textAlign: 'right' }}>Created</th></tr></thead>
+                <tbody>
+                  {stor.apps.map((a: any) => (
+                    <tr key={a.id} style={{ borderTop: '1px solid rgba(128,128,140,.2)' }}>
+                      <td style={{ padding: '8px 4px' }}>{a.name}{a.paid ? ' · paid' : ''}</td>
+                      <td style={{ padding: '8px 4px' }}>{a.plan || '—'}</td>
+                      <td style={{ padding: '8px 4px', textAlign: 'right' }}>{fmtBytes(a.bytes)}</td>
+                      <td style={{ padding: '8px 4px', textAlign: 'right' }}>{a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="card">
+            <h2 style={{ margin: '0 0 4px' }}>Retention and cleanup</h2>
+            <p style={{ color: 'var(--mut)', margin: '0 0 12px' }}>
+              Every night a sweep deletes apps past their retention day, Firestore records and Cloudinary files included. Sample apps go after their days, real apps after theirs. Paid apps are never auto-deleted.
+            </p>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Sample apps (days)
+                <input type="number" min={1} value={storForm?.sample ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, sample: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Real apps (days)
+                <input type="number" min={1} value={storForm?.real ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, real: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                Warn at (% of credits)
+                <input type="number" min={1} max={100} value={storForm?.warn ?? ''} onChange={(e) => setStorForm((f: any) => (f ? { ...f, warn: e.target.value } : f))} style={{ width: 110, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(128,128,140,.35)', background: 'transparent', color: 'inherit' }} />
+              </label>
+              <button className="btn g s" disabled={storBusy !== ''} onClick={saveStorageSettings}>{storBusy === 'save' ? 'Saving…' : 'Save'}</button>
+              <button className="btn g s" disabled={storBusy !== ''} onClick={() => { if (!storConfirm) { setStorConfirm(true); window.setTimeout(() => setStorConfirm(false), 4000); return } setStorConfirm(false); runStorageCleanup() }}>
+                {storBusy === 'cleanup' ? 'Cleaning…' : storConfirm ? 'Confirm: delete expired now' : 'Clean up expired now'}
+              </button>
+            </div>
+            <small style={{ color: 'var(--mut)' }}>
+              {stor.lastCleanup && stor.lastCleanup.at
+                ? `Last cleanup: ${new Date(stor.lastCleanup.at.seconds ? stor.lastCleanup.at.seconds * 1000 : Date.parse(stor.lastCleanup.at) || 0).toLocaleString()} — ${stor.lastCleanup.sampleApps || 0} sample apps, ${stor.lastCleanup.realApps || 0} real apps${stor.lastCleanup.skippedPaid ? `, ${stor.lastCleanup.skippedPaid} paid apps skipped` : ''}`
+                : 'No cleanup has run yet. The nightly sweep starts once this goes live.'}
+            </small>
+          </div>
+        </>
+      )}
+    </div>
+  )
+  function analyticsSection() {
+    const d = anData
+    const land = d && d.land ? d.land : { tot: { visits: 0, seconds: 0, left: 0, signups: 0, uniq: 0 }, daily: [], weekly: [], monthly: [] }
+    const maxV = land.daily.length ? Math.max(1, ...land.daily.map((p: any) => p.visits)) : 1
+    const fmtSec = (s: number) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`)
+    const totAvg = land.tot.left > 0 ? Math.round(land.tot.seconds / land.tot.left) : 0
+    const conv = land.tot.uniq > 0 ? Math.round((land.tot.signups / land.tot.uniq) * 100) : 0
+    const box: React.CSSProperties = { border: '1px solid var(--line, #e5e5ef)', borderRadius: 14, padding: '14px 16px' }
+    const mut: React.CSSProperties = { color: 'var(--mut)', margin: 0, fontSize: 12 }
+    const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600 }
+    const td: React.CSSProperties = { padding: '8px' }
+    const monthName = (id: string) => { const dt = new Date(id.length === 10 ? id + 'T00:00:00Z' : id + '-01T00:00:00Z'); return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) }
+    return (
+      <div>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Analytics</h2>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 0' }}>Landing page traffic, and how the sample apps are doing.</p>
+          </div>
+          <button className="btn g s" onClick={loadAnalytics} disabled={anBusy}>{anBusy ? 'Loading…' : 'Refresh'}</button>
+        </div>
+        {(!d || d.error) && (
+          <p style={{ color: 'var(--mut)', marginTop: 16 }}>
+            {d && d.error ? `Could not load the analytics: ${d.error}` : 'Loading…'}
+          </p>
+        )}
+        {d && !d.error && (
+          <>
+            <h3 style={{ margin: '18px 0 0' }}>Landing page</h3>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 10px' }}>Who visits the Eventicor landing page, how long they stay, and how many create an app.</p>
+            <div className="row" style={{ gap: 12, margin: '0 0 14px', flexWrap: 'wrap' }}>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>VISITORS</p>
+                <h2 style={{ margin: '4px 0 0' }}>{land.tot.uniq}</h2>
+                <small style={{ color: 'var(--mut)' }}>over the last {land.daily.length ? '120 days' : ''} tracked</small>
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>AVG TIME ON PAGE</p>
+                <h2 style={{ margin: '4px 0 0' }}>{totAvg ? fmtSec(totAvg) : '-'}</h2>
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>APPS CREATED</p>
+                <h2 style={{ margin: '4px 0 0' }}>{land.tot.signups}</h2>
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 150 }}>
+                <p style={mut}>CONVERSION</p>
+                <h2 style={{ margin: '4px 0 0' }}>{land.tot.uniq ? `${conv}%` : '-'}</h2>
+                <small style={{ color: 'var(--mut)' }}>of visitors create an app</small>
+              </div>
+            </div>
+            {land.daily.length > 0 && (
+              <div style={{ ...box, marginBottom: 14 }}>
+                <p style={{ ...mut, marginBottom: 10 }}>VISITORS · LAST {land.daily.length} DAYS</p>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 90 }}>
+                  {land.daily.map((p: any) => (
+                    <div key={p.id} title={`${monthName(p.id)}: ${p.uniq} visitors${p.signups ? `, ${p.signups} created an app` : ''}`} style={{ flex: 1, height: `${Math.max(3, Math.round((p.visits / maxV) * 100))}%`, background: '#2E55D6', borderRadius: 3, opacity: 0.85 }} />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div style={{ ...box, flex: 1, minWidth: 260 }}>
+                <p style={{ ...mut, marginBottom: 10 }}>WEEKLY</p>
+                {land.weekly.length === 0 ? <p style={mut}>No traffic yet.</p> : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead><tr style={{ color: 'var(--mut)', textAlign: 'left' }}><th style={th}>Week of</th><th style={th}>Visitors</th><th style={th}>Avg time</th><th style={th}>Apps</th></tr></thead>
+                    <tbody>
+                      {land.weekly.map((w: any) => (
+                        <tr key={w.id} style={{ borderTop: '1px solid var(--line, #e5e5ef)' }}>
+                          <td style={td}>{monthName(w.id)}</td>
+                          <td style={td}>{w.visits}</td>
+                          <td style={{ ...td, color: 'var(--mut)' }}>{w.avg ? fmtSec(w.avg) : '-'}</td>
+                          <td style={td}>{w.signups}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{ ...box, flex: 1, minWidth: 260 }}>
+                <p style={{ ...mut, marginBottom: 10 }}>MONTHLY</p>
+                {land.monthly.length === 0 ? <p style={mut}>No traffic yet.</p> : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead><tr style={{ color: 'var(--mut)', textAlign: 'left' }}><th style={th}>Month</th><th style={th}>Visitors</th><th style={th}>Avg time</th><th style={th}>Apps</th></tr></thead>
+                    <tbody>
+                      {land.monthly.map((m: any) => (
+                        <tr key={m.id} style={{ borderTop: '1px solid var(--line, #e5e5ef)' }}>
+                          <td style={td}>{new Date(m.id + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</td>
+                          <td style={td}>{m.visits}</td>
+                          <td style={{ ...td, color: 'var(--mut)' }}>{m.avg ? fmtSec(m.avg) : '-'}</td>
+                          <td style={td}>{m.signups}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+            <h3 style={{ margin: '18px 0 0' }}>Sample apps</h3>
+            <p style={{ color: 'var(--mut)', margin: '4px 0 10px' }}>How the sample apps you created have been opened.</p>
+            {land.tot.uniq === 0 && <p style={{ color: 'var(--mut)', marginTop: 8 }}>No landing traffic yet. The numbers start filling in once the landing page loads with this build.</p>}
+            <div style={{ ...box }}>
+              <p style={{ ...mut, marginBottom: 10 }}>SAMPLE APPS · OPENS</p>
+              {(!d.rows || d.rows.length === 0) ? <p style={mut}>No sample app has been opened yet.</p> : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--mut)', textAlign: 'left' }}>
+                        <th style={th}>App</th>
+                        <th style={th}>Opens</th>
+                        <th style={th}>Feed opens</th>
+                        <th style={th}>Last opened</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.rows.map((r: any) => (
+                        <tr key={r.id} style={{ borderTop: '1px solid var(--line, #e5e5ef)' }}>
+                          <td style={td}>{r.name}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{r.opens}</td>
+                          <td style={{ ...td, color: 'var(--mut)' }}>{r.feedOpens}</td>
+                          <td style={{ ...td, color: 'var(--mut)' }}>{r.last}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+  const VIEWS: Record<SecId, () => React.ReactNode> = { over: overview, pipe: pipeline, leads: leadsSection, cust: customersSection, settings: settingsSection, sites: sitesSection, ord: orders, cat: catalogSection, storage: storageSection, inv: invitesSection, pay: paySection, team: team, stat: analyticsSection }
 
   return (
     <div className="evad">
@@ -1676,6 +2161,29 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
             <p style={{ color: 'var(--mut)', margin: '4px 0 14px' }}>
               {drawer.slug}.eventicor.com · since {drawer.since} {drawer.status ? '· ' + drawer.status[0].toUpperCase() + drawer.status.slice(1) : ''}
             </p>
+            <div style={{ borderTop: '1px solid var(--line, #e5e5ef)', marginTop: 12, paddingTop: 12 }}>
+              <b style={{ fontSize: 13 }}>Name changes</b>
+              {nameHist && nameHist.forId === drawerDoc.id && (!nameHist.rows || nameHist.rows.length === 0) && (
+                <small style={{ display: 'block', color: 'var(--mut)', marginTop: 4 }}>No name changes recorded.</small>
+              )}
+              {nameHist && nameHist.forId === drawerDoc.id && Array.isArray(nameHist.rows) && nameHist.rows.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {nameHist.rows.map((h: any) => {
+                    const t = h.at ? tsMs(h.at) : 0
+                    return (
+                      <div key={h.id} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--line, #e5e5ef)' }}>
+                        <div>{String(h.fromBride || h.fromGroom || '—')} → {String(h.toBride || '')} & {String(h.toGroom || '')}</div>
+                        <div style={{ color: 'var(--mut)', fontSize: 12 }}>
+                          {t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                          {h.fromSlug !== h.toSlug ? ` · link ${h.fromSlug || '—'} → ${h.toSlug || '—'}` : ''}
+                          {h.by ? ` · by ${h.by}` : ''}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             <div className="rw">
               <div><b>Plan</b><small>{drawer.plan ? `${ng(PL[drawer.plan]?.price || 0)} · ${PL[drawer.plan]?.gb || '—'} GB` : 'Not set'}</small></div>
               <select style={{ width: 'auto' }} value={drawer.plan || ''} disabled={busy} onChange={(e) => patchEvent(drawer.id, { plan: e.target.value }, `Changed ${drawer.slug} to ${PL[e.target.value]?.name}`)}>
@@ -1760,6 +2268,29 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <div style={{ background: 'var(--card)', borderRadius: 18, maxWidth: 430, width: '100%', padding: 20, boxShadow: '0 30px 60px rgba(10,10,22,.4)' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0, fontSize: 19 }}>{leadName(manage)}</h3>
             <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '6px 0 14px' }}>Manage this account. Extensions apply immediately; suspending or deleting revokes the app link for visitors.</p>
+            <div style={{ borderTop: '1px solid var(--line, #e5e5ef)', marginTop: 12, paddingTop: 12 }}>
+              <b style={{ fontSize: 13 }}>Name changes</b>
+              {nameHist && nameHist.forId === manage.id && (!nameHist.rows || nameHist.rows.length === 0) && (
+                <small style={{ display: 'block', color: 'var(--mut)', marginTop: 4 }}>No name changes recorded.</small>
+              )}
+              {nameHist && nameHist.forId === manage.id && Array.isArray(nameHist.rows) && nameHist.rows.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  {nameHist.rows.map((h: any) => {
+                    const t = h.at ? tsMs(h.at) : 0
+                    return (
+                      <div key={h.id} style={{ fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--line, #e5e5ef)' }}>
+                        <div>{String(h.fromBride || h.fromGroom || '—')} → {String(h.toBride || '')} & {String(h.toGroom || '')}</div>
+                        <div style={{ color: 'var(--mut)', fontSize: 12 }}>
+                          {t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                          {h.fromSlug !== h.toSlug ? ` · link ${h.fromSlug || '—'} → ${h.toSlug || '—'}` : ''}
+                          {h.by ? ` · by ${h.by}` : ''}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
             {manage.lastPayment && (
               <button className="chip" style={{ width: '100%', marginBottom: 12, fontWeight: 700 }} onClick={() => { setManage(null); setPayView(manage) }}>
                 Payment receipt uploaded{manage.lastPayment.plan ? ` · ${manage.lastPayment.plan}` : ''} — view it

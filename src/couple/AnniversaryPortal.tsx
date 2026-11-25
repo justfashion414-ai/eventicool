@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import './birthday-design.css';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, animate, useAnimationFrame, useMotionValue } from 'motion/react';
 import { 
@@ -52,10 +53,11 @@ import { db as platformDb } from '../firebase';
 import { APP_ID, lsKey, scopedPath } from './lib/appScope';
 import { disableNetwork, enableNetwork, Timestamp } from 'firebase/firestore';
 import { where } from './lib/firestoreShim';
+import { trackAppEvent } from './lib/track';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, setLeadOverride, demoWeddingTime } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, setLeadOverride, demoWeddingTime, demoBirthday } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -79,7 +81,9 @@ import {
   writeBatch,
   increment,
   updateDoc,
-  getDocs
+  getDocs,
+  limit,
+  startAfter
 } from './lib/firestoreShim';
 
 
@@ -248,7 +252,7 @@ const fmtEventDate = (e: { date: string; time?: string }) =>
 
 // The story text is computed at call time: a bound couple's names replace
 // the placeholder ones before anything is shown or seeded into their config.
-const demoStory = () => demoText(DEMO_STORY);
+const demoStory = () => demoBirthday() ? 'Chidera has spent fifty years gathering the people she loves, and today they all gather back for her. This page keeps every photo, message and memory of the party in one place, for life.' : demoText(DEMO_STORY);
 
 // Details are generic until the couple edits them. Under a bound couple the
 // venue lines point at THEIR city (no invented hall names) and the hashtag
@@ -294,10 +298,66 @@ const derivedHashtag = (): string => {
 };
 // A saved hashtag that is still the demo placeholder (or empty) falls back to
 // the couple's own derived one; anything they typed themselves stays.
+// Birthday apps derive their own hashtag: the celebrant and the age they
+// turn (#TundeAt50), or #TundeBirthday when the age is hidden. A hashtag the
+// couple typed themselves still wins.
+const birthdayHashtag = (d: any): string | null => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const c = cap(d.celebrant || '');
+  if (!c) return null;
+  const age = String(parseInt(String(d.celebrantAge || ''), 10) || '');
+  return d.ageHidden || !age ? `#${c}Birthday` : `#${c}At${age}`;
+};
 const withDerivedHashtag = (d: any): any => {
   if (!d || typeof d !== 'object') return d;
+  if (d.occasion === 'birthday') {
+    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag)) || String(d.hashtag).toLowerCase() === derivedHashtag().toLowerCase()) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
+    return d;
+  }
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
   return d;
+};
+// The birthday fields exist on every app's details; they only matter once the
+// occasion is a birthday.
+const withBirthdayDefaults = (d: any): any => {
+  if (!d || typeof d !== 'object') return d;
+  return { celebrant: '', celebrantAge: '', ageHidden: false, hostedBy: '', ...d, occasion: d.occasion === 'birthday' ? 'birthday' : 'wedding' };
+};
+
+// A rename carries the names through the words already saved: the story text
+// (whole first names move to the new ones) and a hashtag or gift account name
+// that still follows the couple's derived form. Anything they typed that is
+// NOT the derived form stays untouched.
+const renameSwapPairs = (fromB: string, fromG: string, toB: string, toG: string): [string, string][] => {
+  const clean = (v: string) => (v || '').replace(/[^A-Za-z]/g, '');
+  const fb = clean(fromB), fg = clean(fromG), tb = clean(toB), tg = clean(toG);
+  const pairs: [string, string][] = [];
+  if (fb && tb && fb.toLowerCase() !== tb.toLowerCase()) pairs.push([fb, tb]);
+  if (fg && tg && fg.toLowerCase() !== tg.toLowerCase()) pairs.push([fg, tg]);
+  return pairs;
+};
+const renameSwapText = (text: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  let out = String(text || '');
+  for (const [o, n] of renameSwapPairs(fromB, fromG, toB, toG)) {
+    out = out.replace(new RegExp('\\b' + o + '\\b', 'gi'), (m: string) => (m[0] === m[0].toUpperCase() ? n.charAt(0).toUpperCase() + n.slice(1) : n.toLowerCase()));
+  }
+  return out;
+};
+const renameSwapHashtag = (tag: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const t = String(tag || '').trim();
+  const ob = cap(fromB), og = cap(fromG), nb = cap(toB), ng = cap(toG);
+  if (!ob || !og || !nb || !ng) return t;
+  if (new RegExp('^#' + ob + 'And' + og + '$', 'i').test(t)) return `#${nb}And${ng}`;
+  return t;
+};
+const renameSwapAccountName = (name: string, fromB: string, fromG: string, toB: string, toG: string): string => {
+  const s = String(name || '').trim();
+  const ob = (fromB || '').replace(/[^A-Za-z]/g, ''), og = (fromG || '').replace(/[^A-Za-z]/g, '');
+  const nb = (toB || '').replace(/[^A-Za-z]/g, ''), ng = (toG || '').replace(/[^A-Za-z]/g, '');
+  if (!ob || !og || !nb || !ng) return s;
+  if (new RegExp('^' + ob + '\\s*(&|and)\\s*' + og + '$', 'i').test(s)) return `${nb} & ${ng}`;
+  return s;
 };
 // The gifts account name is the couple's own from the moment their app is
 // created: the demo placeholder never shows as the account name, and an empty
@@ -600,7 +660,7 @@ const DressStudio = ({ open, onClose, colors, outfit, isDarkMode, onSave }: any)
       )}
     </div>
   );
-  const seg = (active: boolean) => `flex-1 px-3 py-2 rounded-full text-[0.62rem] font-black uppercase tracking-widest border ${active ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`;
+  const seg = (active: boolean) => `flex-1 px-3 py-2 rounded-full text-[0.62rem] font-black uppercase tracking-widest border ${active ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`;
   return (
     <BottomSheet title="Dress studio" onClose={onClose} isDarkMode={isDarkMode}>
       <p className="text-[10px] opacity-50 mb-3">Show guests the look, not just the colours: these mockups appear on the invite card and around your app.</p>
@@ -867,14 +927,22 @@ const ACCENT_CHOICES: [string, string, string][] = [
   ['royal', 'Royal', '#2236b4'],
   ['sunset', 'Sunset', '#e07a4f'],
   ['sage', 'Sage', '#2e5c45'],
+  ['party', 'Party', '#e5399e'],
+  ['sunbeam', 'Sunbeam', '#ea580c'],
 ];
-const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }> = {
+const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string; grad?: string }> = {
   midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
   blush: { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
   emerald: { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
   royal: { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
   sunset: { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
   sage: { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+  party: { accent: '#e5399e', hero: '#8f1650', soft: '#fde5f1' },
+  sunbeam: { accent: '#ea580c', hero: '#7c2d12', soft: '#ffedd5' },
+  jubilee: { accent: '#F5B82E', hero: '#241035', soft: '#FFF6E5', grad: 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)' },
+  orchid: { accent: '#A855F7', hero: '#2A1240', soft: '#F3E8FF', grad: 'linear-gradient(150deg,#2A1240 0%,#6D28D9 70%,#EC4899 125%)' },
+  peacock: { accent: '#22D3EE', hero: '#062E2B', soft: '#E0F7F4', grad: 'linear-gradient(150deg,#062E2B 0%,#0E7490 70%,#22D3EE 125%)' },
+  ember: { accent: '#FB7185', hero: '#3B0A1E', soft: '#FFE4E6', grad: 'linear-gradient(150deg,#3B0A1E 0%,#BE123C 62%,#FB923C 130%)' },
 };
 const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
@@ -958,12 +1026,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero style: which of the four hero designs the app shows. The link's
   // template decides the starting look; a choice saved in the dashboard always
   // wins and persists like the footer style does.
-  const [heroTpl, setHeroTpl] = useState<'classic' | 'halo' | 'hero' | 'book'>(() => {
+  const HERO_IDS = ['classic', 'halo', 'hero', 'book', 'bd-party', 'bd-gold'];
+  const [heroTpl, setHeroTpl] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(lsKey('hero-tpl'));
-      if (saved === 'classic' || saved === 'halo' || saved === 'hero' || saved === 'book') return saved;
+      if (saved && HERO_IDS.includes(saved)) return saved;
     } catch { /* ignore */ }
-    return (template || 'classic') as 'classic' | 'halo' | 'hero' | 'book';
+    return (template as string) || 'classic';
   });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
@@ -1161,6 +1230,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [cfgIdentity, setCfgIdentity] = useState<{ bride: string; groom: string; kicker: string; tagline: string } | null>(null);
   const identitySigRef = useRef<string>('');
   function applyIdentity(ci: { bride?: string; groom?: string; kicker?: string; tagline?: string } | null) {
+    // The browser tab follows a rename immediately, not on the next reload.
+    try { const tb = String(ci?.bride || '').trim(), tg = String(ci?.groom || '').trim(); if (tb && tg) document.title = tb + ' & ' + tg; else if (tb || tg) document.title = tb || tg; } catch { /* cosmetic */ }
     let sig = '';
     try { sig = [ci?.bride || '', ci?.groom || '', ci?.kicker || '', ci?.tagline || ''].join('\u00a6'); } catch { sig = ''; }
     if (sig && sig === identitySigRef.current) return;
@@ -1179,7 +1250,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       setLeadOverride(ov);
     }
   }
-  const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: 'Together with their families', tagline: 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
+  // A pending rename that would change the app's address: held here until the
+  // couple confirms they understand the old address stops matching.
+  const [renameAsk, setRenameAsk] = useState<{ payload: { bride: string; groom: string; kicker: string; tagline: string }; curSlug: string; newSlug: string } | null>(null);
+  const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: demoBirthday() ? 'Family, friends & well-wishers' : 'Together with their families', tagline: demoBirthday() ? 'is celebrating the day. Share every moment with us, from the arrival to the last dance.' : 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
   // A fresh saved identity syncs the editing draft; the signature guard keeps
   // unrelated config writes from wiping what is being typed.
   useEffect(() => {
@@ -1236,6 +1310,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [gateBusy, setGateBusy] = useState<boolean>(false);
   const [feedPageSize, setFeedPageSize] = useState(0); // 0 = show every post (no pagination)
   const [feedPage, setFeedPage] = useState(1);
+  // Read-level pagination wiring: the guest feed listener fills the live
+  // window (the newest feedPageSize posts) and exposes an on-demand fetch
+  // for the next older page, so a busy feed stops re-reading every post
+  // for every visitor.
+  const loadOlderRef = useRef<null | (() => Promise<void>)>(null);
+  const hasMoreOlderRef = useRef<null | (() => boolean)>(null);
+  const loadedApprovedRef = useRef(0);
   const [pushEnabled, setPushEnabled] = useState<boolean>(true);
   // Feed action button mode: 'share' opens the share sheet, 'download' saves the
   // media straight to the guest's device. Chosen by the admin in the console
@@ -2034,7 +2115,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setFooterThanks(data.footerThanks);
           try { localStorage.setItem(lsKey('footer-thanks'), data.footerThanks); } catch {}
         }
-        if (data.heroTemplate === 'classic' || data.heroTemplate === 'halo' || data.heroTemplate === 'hero' || data.heroTemplate === 'book') {
+        if (HERO_IDS.includes(data.heroTemplate)) {
           setHeroTpl(data.heroTemplate);
           try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
         }
@@ -2379,9 +2460,26 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // render used to reset the details form while the couple was still typing,
   // so edits in Events & details snapped back before they could save.
   const leadWedDate = leadOverride()?.weddingDate as string | undefined;
-  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents, leadWedDate]);
+  // Birthday apps tell one day, not a journey: until the couple builds their
+  // own running order, the app defaults to a one-day line-up.
+  const birthdayLineup = (): WeddingEvent[] => {
+    const mk = (id: string, name: string, time: string, desc: string): WeddingEvent => ({ id, name, type: 'Birthday line-up', date: WEDDING_DATE, time, desc, status: 'up', images: [] });
+    return [
+      mk('bd-arrive', 'Arrival & red carpet', '12:00', 'Guests arrive, welcome drinks and red carpet photos.'),
+      mk('bd-games', 'Games & dancing', '13:00', 'Party games, competitions and the dance floor opens.'),
+      mk('bd-cake', 'Cake cutting', '15:00', 'The birthday cake comes out and we sing for the celebrant.'),
+      mk('bd-toast', 'Toast & tributes', '15:30', 'Family and friends raise a glass and share tributes.'),
+      mk('bd-photos', 'Photo booth', '16:30', 'Props, backdrops and portraits with the celebrant.'),
+      mk('bd-close', 'Closing & farewell', '18:00', 'Thank you, goodie bags and safe trips home.'),
+    ];
+  };
+  // ?occ=birthday (previews only): forces the birthday pack on a generic app
+  // so the console can preview birthday looks without a real app. Never
+  // applies to a real couple's app, which runs with DEMO off.
+  const demoOcc: any = (() => { try { if (DEMO && new URLSearchParams(window.location.search).get('occ') === 'birthday') return { occasion: 'birthday', celebrant: 'Chidera', celebrantAge: '50', hostedBy: 'Friends & family' }; } catch { /* ignore */ } return null; })();
+  const DETAILS: any = useMemo(() => withBirthdayDefaults(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || (demoOcc ? { ...detailsData(), ...demoOcc } : detailsData()))))), [cfgDetails]);
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : (DETAILS.occasion === 'birthday' ? birthdayLineup() : eventsData())), [cfgEvents, leadWedDate, DETAILS]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = useMemo(() => withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || detailsData()))), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
@@ -2625,11 +2723,11 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
       showToast('Saved for this preview.');
-      return;
+      return true;
     }
     if (!isAdmin || !isAdminSessionValid) {
       showToast('Sign in again to save your changes.', 'error');
-      return;
+      return false;
     }
     try {
       await setDoc(doc(db, scopedPath('app_config'), 'main'), { ...patch, lastUpdated: serverTimestamp() }, { merge: true });
@@ -2637,27 +2735,129 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       if ('story' in patch) setCfgStory(patch.story);
       if ('weddingDetails' in patch) setCfgDetails(patch.weddingDetails);
       showToast('Saved. Guests see this on the Home screen.');
+      return true;
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'app_config/main');
       showToast('Could not save. Please try again.', 'error');
+      return false;
     }
+  };
+
+  // Birthday pack: the occasion and celebrant details, saved with the details.
+  const [bdDraft, setBdDraft] = useState<{ celebrant: string; celebrantAge: string; ageHidden: boolean; hostedBy: string }>({ celebrant: '', celebrantAge: '', ageHidden: false, hostedBy: '' });
+  useEffect(() => { setBdDraft({ celebrant: String(cfgDetails?.celebrant || ''), celebrantAge: String(cfgDetails?.celebrantAge || ''), ageHidden: !!cfgDetails?.ageHidden, hostedBy: String(cfgDetails?.hostedBy || '') }); }, [cfgDetails]);
+  const saveOccasion = (o: 'wedding' | 'birthday') => {
+    // The birthday look lives on brighter accents: when the app still wears
+    // its template's default colour, a switch to Birthday re-dresses it in
+    // the Party palette. A deliberately chosen colour is left alone.
+    if (o === 'birthday' && accentKey === (TPL_DEFAULT_ACCENT[heroTemplate] || 'midnight')) updateAccent('party', true);
+    updateWeddingSection({ weddingDetails: { ...(cfgDetails || {}), occasion: o } });
+  };
+  const saveBirthday = () => {
+    updateWeddingSection({ weddingDetails: { ...(cfgDetails || {}), occasion: 'birthday', ...bdDraft, celebrantAge: String(parseInt(bdDraft.celebrantAge || '', 10) || '') } });
   };
 
   // Saves the couple's names and the intro words around them (Events & photos
   // card): the names ride the boot overlay, the words go to app_config.
-  const saveCoupleIdentity = async () => {
-    const bride = (idDraft.bride || '').trim();
-    const groom = (idDraft.groom || '').trim();
-    if (!bride || !groom) { showToast('Both names are needed.', 'error'); return; }
-    const payload = {
-      bride,
-      groom,
-      kicker: (idDraft.kicker || '').trim() || 'Together with their families',
-      tagline: (idDraft.tagline || '').trim() || 'are getting married. Share every moment with us, from the first introduction to the last dance.',
-    };
-    applyIdentity(payload);
-    await updateWeddingSection({ coupleIdentity: payload });
+  // The couple's identity (names plus the words above and below them) saves
+  // through the page's single Save bar (user direction Nov 25 2026): no
+  // separate button on the identity card. A rename that would change the
+  // app's address asks first, so the couple knows what a changed link means
+  // before it happens.
+  const startIdentitySave = async (payload: { bride: string; groom: string; kicker: string; tagline: string }): Promise<'ok' | 'ask' | false> => {
+    if (isAdmin) {
+      try {
+        const src = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'events', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
+        const doc0: any = src && src.id ? src : await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'leads', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
+        const curB = String(doc0?.bride || '').trim();
+        const curG = String(doc0?.groom || '').trim();
+        const curSlug = String(doc0?.slug || '');
+        if ((curB || curG) && (bride !== curB || groom !== curG)) {
+          const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'our-event';
+          const newSlug = slugify(`${bride}-${groom}`);
+          if (newSlug && newSlug !== curSlug) {
+            const chk: any = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'check-slug', slug: newSlug }) }).then((r) => r.json()).catch(() => null);
+            if (chk && !chk.taken) {
+              setRenameAsk({ payload, curSlug, newSlug });
+              return 'ask';
+            }
+          }
+        }
+      } catch { /* the address check is best effort; the save itself still runs */ }
+    }
+    const wok = await commitCoupleIdentity(payload);
+    return wok === false ? false : 'ok';
   };
+
+  // Applies the names everywhere: the open app and tab, the app_config doc,
+  // and the app's own document, invites, story, hashtag and address through
+  // the rename op.
+  const commitCoupleIdentity = async (payload: { bride: string; groom: string; kicker: string; tagline: string }, newSlug?: string) => {
+    const fromNames = { bride: String((cfgIdentity as any)?.bride || '').trim(), groom: String((cfgIdentity as any)?.groom || '').trim() };
+    applyIdentity(payload);
+    const wok = await updateWeddingSection({ coupleIdentity: payload });
+    if (wok === false) return false;
+    // Propagate the names to every surface that reads them from the app's own
+    // document: the share card, invite pages, the install manifest and the
+    // reminder emails. The rename op verifies this dashboard's admin
+    // server-side before touching anything, and logs the change for the
+    // admin's history list.
+    if (isAdmin) {
+      try {
+        const tk = await auth?.currentUser?.getIdToken?.();
+        const rn = await fetch('/api/set-app-names', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+          body: JSON.stringify({ appId: APP_ID, bride: payload.bride, groom: payload.groom, ...(fromNames.bride || fromNames.groom ? { from: fromNames } : {}), ...(newSlug ? { slug: newSlug } : {}) })
+        });
+        const rj: any = await rn.json().catch(() => null);
+        if (rn.ok && rj && rj.slugChanged && rj.slug) showToast(`Your app's address is now ${rj.slug}.eventicor.com`);
+        if (rn.ok && (fromNames.bride || fromNames.groom)) {
+          // The saved words follow the rename: the story text moves its whole
+          // first names to the new ones, and a hashtag or gift account name
+          // that still follows the couple's derived form moves with them.
+          // A hashtag or account name the couple typed themselves stays.
+          const ns = renameSwapText(cfgStory || '', fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+          const nd: any = cfgDetails ? { ...cfgDetails } : null;
+          let detChanged = false;
+          if (nd) {
+            const nh = renameSwapHashtag(nd.hashtag, fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+            if (nh !== nd.hashtag) { nd.hashtag = nh; detChanged = true; }
+            if (nd.giftInfo && typeof nd.giftInfo === 'object') {
+              const na = renameSwapAccountName(nd.giftInfo.accountName, fromNames.bride, fromNames.groom, payload.bride, payload.groom);
+              if (na !== nd.giftInfo.accountName) { nd.giftInfo = { ...nd.giftInfo, accountName: na }; detChanged = true; }
+            }
+          }
+          const storyChanged = ns !== (cfgStory || '');
+          if (storyChanged || detChanged) {
+            if (DEMO) {
+              try {
+                const cur = JSON.parse(localStorage.getItem(lsKey('demo-cfg')) || '{}');
+                localStorage.setItem(lsKey('demo-cfg'), JSON.stringify({ ...cur, ...(storyChanged ? { story: ns } : {}), ...(detChanged ? { weddingDetails: nd } : {}) }));
+              } catch { /* preview storage is best effort */ }
+            } else {
+              try {
+                await setDoc(doc(db, scopedPath('app_config'), 'main'), {
+                  ...(storyChanged ? { story: ns } : {}),
+                  ...(detChanged && nd ? { weddingDetails: nd, det: JSON.stringify(withDerivedHashtag(nd)) } : {}),
+                  lastUpdated: serverTimestamp()
+                }, { merge: true });
+              } catch (err) { console.warn('Saved words sync skipped:', err); }
+            }
+            if (storyChanged) setCfgStory(ns);
+            if (detChanged && nd) setCfgDetails(nd);
+          }
+        }
+      } catch (err) { console.warn('Name sync skipped:', err); }
+    }
+  };
+
+  // Feed opens are counted once per session for the platform analytics; this
+  // one effect covers the home button, the nav and the private-feed gate.
+  useEffect(() => {
+    if (activeTab === 'feed') trackAppEvent(APP_ID, 'feed_open');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // Giant footer style (dashboard setting; couples pick the look).
   const updateFooterStyle = async (style: 'wall' | 'marquee' | 'tunnel' | 'globe', quiet = false, thanks?: string) => {
@@ -2681,7 +2881,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero style (dashboard setting): which of the four hero designs the app
   // shows. The four templates differ only by their hero, so this switches the
   // look without touching anything else.
-  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book', quiet = false) => {
+  const updateHeroTemplate = async (t: string, quiet = false) => {
     setHeroTpl(t);
     try { localStorage.setItem(lsKey('hero-tpl'), t); } catch {}
     if (DEMO) { if (!quiet) showToast('Hero style saved for this preview.'); return; }
@@ -2885,7 +3085,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const txt = p.text || p.caption || '';
       return `<section class="card"><header><b>${esc(p.authorName || 'A guest')}</b><span>${esc(evName)}</span></header>${img}<p>${esc(txt)}</p></section>`;
     }).join('');
-    win.document.write(`<!doctype html><html><head><title>${esc(demoHeader())} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(demoHeader())}</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
+    win.document.write(`<!doctype html><html><head><title>${esc(demoHeader())} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(demoHeader())}</h1><p class="sub">${DETAILS.occasion === 'birthday' ? 'Birthday memories' : 'Wedding memories'} &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
     win.document.close();
   };
 
@@ -3017,26 +3217,69 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       // Two provable queries: everything approved, plus this viewer's own
       // post that is still waiting for approval (shown with the tag).
       const myUid = user?.uid || '';
+      // With a platform feed page size, the live listener covers only the
+      // newest pageSize approved posts; "Older posts" fetches the next page
+      // on demand. The Firestore rules enforce the same cap on list reads,
+      // so the page size is backed, not just a display slice.
+      const pageSize = feedPageSize > 0 ? feedPageSize : 0;
       let docsApproved: any[] = [];
       let docsMine: any[] = [];
+      let docsOlder: any[] = [];
       let gotApproved = false;
       let gotMine = myUid ? false : true;
       let cacheApproved = false; let cacheMine = false;
+      let hasMoreOlder = pageSize > 0;
+      let olderFetching = false;
       const flush = () => {
         const seen = new Set<string>();
         const merged: any[] = [];
-        for (const d of [...docsApproved, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        for (const d of [...docsApproved, ...docsOlder, ...docsMine]) { if (seen.has(d.id)) continue; seen.add(d.id); merged.push(d); }
+        loadedApprovedRef.current = docsApproved.length + docsOlder.length;
         apply(merged, gotApproved && gotMine, cacheApproved || cacheMine);
       };
-      unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', false)), (snapshot) => {
-        docsApproved = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        cacheApproved = !!(snapshot as any).metadata?.fromCache;
-        if (!cacheApproved) gotApproved = true;
-        flush();
-      }, onErr));
+      const postsCol = collection(db, scopedPath('posts'));
+      if (pageSize > 0) {
+        unsubs.push(onSnapshot(query(postsCol, where('pending', '==', false), orderBy('timestamp', 'desc'), limit(pageSize)), (snapshot: any) => {
+          docsApproved = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+          cacheApproved = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheApproved) gotApproved = true;
+          flush();
+        }, onErr));
+        loadOlderRef.current = async () => {
+          if (olderFetching || !hasMoreOlder) return;
+          const base = [...docsApproved, ...docsOlder];
+          const anchor: any = base.length > 0 ? base[base.length - 1] : null;
+          if (!anchor || !anchor.timestamp) return;
+          olderFetching = true;
+          try {
+            const snap: any = await getDocs(query(postsCol, where('pending', '==', false), orderBy('timestamp', 'desc'), startAfter(anchor.timestamp), limit(pageSize)));
+            const got = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+            docsOlder = [...docsOlder, ...got];
+            if (got.length < pageSize) hasMoreOlder = false;
+            flush();
+          } catch (err: unknown) {
+            handleFirestoreError(err, OperationType.LIST, 'posts');
+          }
+          olderFetching = false;
+        };
+        hasMoreOlderRef.current = () => hasMoreOlder;
+      } else {
+        unsubs.push(onSnapshot(query(postsCol, where('pending', '==', false)), (snapshot: any) => {
+          docsApproved = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+          cacheApproved = !!(snapshot as any).metadata?.fromCache;
+          if (!cacheApproved) gotApproved = true;
+          flush();
+        }, onErr));
+        loadOlderRef.current = null;
+        hasMoreOlderRef.current = null;
+        loadedApprovedRef.current = 0;
+      }
       if (myUid) {
-        unsubs.push(onSnapshot(query(collection(db, scopedPath('posts')), where('pending', '==', true), where('authorUid', '==', myUid)), (snapshot) => {
-          docsMine = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const mineQ = pageSize > 0
+          ? query(postsCol, where('pending', '==', true), where('authorUid', '==', myUid), limit(pageSize))
+          : query(postsCol, where('pending', '==', true), where('authorUid', '==', myUid));
+        unsubs.push(onSnapshot(mineQ, (snapshot: any) => {
+          docsMine = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
           cacheMine = !!(snapshot as any).metadata?.fromCache;
           if (!cacheMine) gotMine = true;
           flush();
@@ -3044,7 +3287,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       }
     }
     return () => { window.clearTimeout(bail); unsubs.forEach((u) => { try { u(); } catch { /* already closed */ } }); };
-  }, [isAdmin, user?.uid]);
+  }, [isAdmin, user?.uid, feedPageSize]);
 
   // Web push: the service worker must be registered before any subscription
   // can be created. Registration is silent; permission is only ever asked
@@ -3246,6 +3489,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // first page so nobody lands mid-list on a size they didn't pick.
   useEffect(() => { setFeedPage(1); }, [feedPageSize]);
 
+  // Read-level pagination: when the visitor pages past what is loaded, the
+  // next older page is fetched here (one bounded query per tap).
+  useEffect(() => {
+    if (isAdmin || feedPageSize <= 0) return;
+    const need = feedPage * feedPageSize;
+    if (loadedApprovedRef.current >= need) return;
+    if (hasMoreOlderRef.current && !hasMoreOlderRef.current()) return;
+    loadOlderRef.current?.();
+  }, [feedPage, feedPageSize, posts.length, isAdmin]);
+
   // Feed pagination and storage come from the Eventicor console
   // (platform/settings), not from this app's config: Eventicor manages the
   // feed for every app. Picked up live, so an admin change lands mid-session.
@@ -3311,7 +3564,55 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             onClick={() => enterApp()}
             className="fixed inset-0 z-[500] overflow-hidden flex items-center justify-center bg-[var(--ann-hero)] cursor-pointer select-none"
           >
-            {/* SPLASH: DARA & FEMI */}
+            {/* EDGE ANIMATION: a light line travels the banner's edges, one
+                full loop around the screen at a time, while the banner shows. */}
+            <style>{`@keyframes ev-edge-run { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }`}</style>
+            <svg className="absolute inset-0 z-[5] w-full h-full pointer-events-none" aria-hidden="true">
+              <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
+              <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="#C8932A" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="9 91" style={{ animation: 'ev-edge-run 4.2s linear infinite', willChange: 'stroke-dashoffset' }} />
+            </svg>
+            {/* SPLASH: wedding keeps its banner; birthday gets its own gold-hour splash */}
+            {demoBirthday() ? (() => {
+              const dk = heroTemplate !== 'bd-gold';
+              const bdFirst = String(DETAILS.celebrant || 'the celebrant').split(' ')[0];
+              return (
+              <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
+                <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none" style={{ background: dk ? '#000' : '#F7EDEF' }} />
+                <p className="relative m-0 mb-5" style={{ font: '600 13px "Plus Jakarta Sans",sans-serif', letterSpacing: '.34em', textTransform: 'uppercase', color: dk ? 'rgba(255,255,255,.65)' : '#7A1F3A', paddingLeft: '.34em' }}>Happy birthday</p>
+                <motion.h1
+                  initial={{ scale: 0.94, opacity: 0, y: 14 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  transition={{ duration: 0.75, ease: 'circOut' }}
+                  className="relative font-serif-display m-0"
+                  style={{ fontFamily: '"Great Vibes",cursive', fontSize: 'clamp(3.6rem,19vw,6rem)', lineHeight: 1, color: dk ? '#fff' : '#3A1020', fontWeight: 400 }}
+                >
+                  {bdFirst}
+                </motion.h1>
+                {!DETAILS.ageHidden && DETAILS.celebrantAge ? (
+                  <span className="relative inline-flex items-center mt-5 px-4 py-1.5 rounded-full"
+                    style={{ font: '800 11px "Plus Jakarta Sans",sans-serif', letterSpacing: '.24em', textTransform: 'uppercase', color: '#fff', background: '#E5332A' }}>
+                    The big {DETAILS.celebrantAge}
+                  </span>
+                ) : null}
+                <p className="relative mt-5 mb-0" style={{ font: 'italic 600 15px Fraunces,serif', color: dk ? '#bdbdbd' : '#7A5560' }}>One day. Every wish. All of you.</p>
+                <p className="relative mt-4 mb-0" style={{ font: '600 12px "Plus Jakarta Sans",sans-serif', color: dk ? 'rgba(255,255,255,.55)' : '#7A5560' }}>
+                  {(() => { try { return new Date(`${WEDDING_DATE}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return WEDDING_DATE; } })()}
+                </p>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.9, duration: 0.6 }}
+                  className="relative mt-9 z-10"
+                >
+                  <span className="inline-flex items-center px-8 py-3.5 rounded-full text-[0.75rem] font-black uppercase tracking-[0.28em]"
+                    style={{ background: dk ? 'rgba(255,255,255,.12)' : 'rgba(122,31,58,.1)', border: '1px solid', borderColor: dk ? 'rgba(255,255,255,.4)' : 'rgba(122,31,58,.4)', color: dk ? '#fff' : '#7A1F3A' }}>
+                    Tap to enter
+                  </span>
+                  <p className="relative mt-4 mb-0" style={{ font: '700 10px "Plus Jakarta Sans",sans-serif', letterSpacing: '.2em', textTransform: 'uppercase', color: dk ? 'rgba(255,255,255,.5)' : '#7A5560' }}>Birthday memories, kept for life</p>
+                </motion.div>
+              </div>
+              );
+            })() : (
             <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
               <motion.div
                 initial={{ scale: 0.94, opacity: 0, y: 14 }}
@@ -3335,6 +3636,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <span className="inline-flex items-center px-8 py-3.5 rounded-full bg-white/15 border border-white/35 text-white text-[0.75rem] font-black uppercase tracking-[0.28em]">Tap to enter</span>
               </motion.div>
             </div>
+            )}
             {/* EVENTICOR BRANDING, BOTTOM OF THE ENTRY BANNER */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -3406,6 +3708,23 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {(heroTemplate === 'bd-party' || heroTemplate === 'bd-gold') && (
+              <BirthdayDesign
+                tpl={heroTemplate}
+                celebrant={DETAILS.celebrant}
+                age={DETAILS.celebrantAge}
+                ageHidden={DETAILS.ageHidden}
+                date={WEDDING_DATE}
+                city={demoCity()}
+                images={heroImages.length > 0 ? heroImages : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES)}
+                events={EVENTS_VIS}
+                openEventId={openEventId}
+                onToggle={(id) => setOpenEventId(openEventId === id ? null : id)}
+                fmtEventDate={fmtEventDate}
+                openFooterLightbox={openFooterLightbox}
+                onRsvp={() => setActiveTab('inbox')}
+              />
+            )}
         </div>
 
 
@@ -3429,17 +3748,27 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               exit={{ opacity: 0 }}
               className="space-y-0"
             >
-              {/* COUPLE BANNER - DARA & FEMI */}
+              {/* COUPLE BANNER - DARA & FEMI (weddings only: birthday apps use the design-file hero) */}
+              {DETAILS.occasion !== 'birthday' && (
               <div className="rounded-[28px] p-[26px_22px_26px] text-[#F2F7F8] relative overflow-hidden shadow-xl" style={{
                 background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)'
               }}>
-                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">{cfgIdentity?.kicker || 'Together with their families'}</p>
-                <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  {demoBride()}
-                  <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  {demoGroom()}
-                </h2>
-                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}</p>
+                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">{DETAILS.occasion === 'birthday' && DETAILS.celebrant ? ((DETAILS.ageHidden || !DETAILS.celebrantAge) ? `It's ${DETAILS.celebrant}'s day` : `${DETAILS.celebrant} turns ${DETAILS.celebrantAge}`) : (cfgIdentity?.kicker || 'Together with their families')}</p>
+                {DETAILS.occasion === 'birthday' && DETAILS.celebrant ? (
+                  <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
+                    {DETAILS.celebrant}
+                    {!DETAILS.ageHidden && DETAILS.celebrantAge && <span className="block text-[clamp(4.5rem,24vw,7rem)] text-[#C8932A] leading-[0.9] mt-1">{DETAILS.celebrantAge}</span>}
+                  </h2>
+                ) : (
+                  <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
+                    {demoBride()}
+                    <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
+                    {demoGroom()}
+                  </h2>
+                )}
+                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || (DETAILS.occasion === 'birthday' ? 'is celebrating the day. Share every moment with us, from the arrival to the last dance.' : 'are getting married. Share every moment with us, from the first introduction to the last dance.')}</p>
+
+                {DETAILS.occasion === 'birthday' && DETAILS.hostedBy && <p className="m-0 text-center text-[0.85rem] opacity-80 mt-2">Hosted by {DETAILS.hostedBy}</p>}
 
                 {phase === 'before' && (
                   <div className="mt-5 mx-auto bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md">
@@ -3453,7 +3782,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
                       </div>
                     </div>
-                    <CountdownRow date={WEDDING_DATE} time={WEDDING_TIME} />
+                    <CountdownRow date={WEDDING_DATE} time={WEDDING_TIME} bigAge={DETAILS.occasion === 'birthday' && !DETAILS.ageHidden && DETAILS.celebrantAge ? DETAILS.celebrantAge : undefined} />
                   </div>
                 )}
 
@@ -3477,6 +3806,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                               </div>
 
 
+              )}
+
               {/* OUR STORY */}
               {!HIDDEN_SECTIONS.includes('story') && (
               <section className="mt-8">
@@ -3487,9 +3818,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
               )}
 
-              {/* THE JOURNEY — expandable dropdowns, one open at a time */}
+              {/* THE CELEBRATION lives inside the design-file hero for birthdays; the wish banner follows it */}
+              {DETAILS.occasion === 'birthday' && (
+                <BirthdayWishBanner name={String(DETAILS.celebrant || '')} skin={heroTemplate === 'bd-gold' ? 'lt' : 'dk'} />
+              )}
+              {DETAILS.occasion !== 'birthday' && (
               <section id="journey" className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? "The day's line-up" : 'The journey'}</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
                   {EVENTS_VIS.map((e, ji) => {
@@ -3552,26 +3887,29 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   })}
                 </div>
               </section>
+              )}
 
                             {/* WEDDING DAY DETAILS */}
               {!HIDDEN_SECTIONS.includes('details') && (
               <section className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? 'The big day' : 'Wedding day'}</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
                 <div className={`p-[16px_18px] rounded-[20px] border space-y-3.5 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                   <div>
-                    <strong className="block text-[0.93rem]">Church wedding · {DETAILS.churchTime}</strong>
+                    <strong className="block text-[0.93rem]">{DETAILS.occasion === 'birthday' ? 'The party' : 'Church wedding'} · {DETAILS.churchTime}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.churchVenue}</p>
                   </div>
+                  {DETAILS.occasion !== 'birthday' && (<>
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <div>
                     <strong className="block text-[0.93rem]">Reception · {DETAILS.receptionTime}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.receptionVenue}</p>
                   </div>
+                  </>)}
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <DressMockup outfit={(DETAILS || {}).dressOutfit} isDarkMode={isDarkMode} />
                   <div>
-                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
+                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">{DETAILS.occasion === 'birthday' ? 'Dress code:' : 'Aso-ebi:'}{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{demoText(DETAILS.hashtag)}</span></p>
                   </div>
                 </div>
@@ -3582,7 +3920,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* CTA */}
               <section className="mt-8 mb-2">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Say something to the couple</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? `Say something to ${DETAILS.celebrant || 'the celebrant'}` : 'Say something to the couple'}</h2>
                 <button
                   onClick={() => setActiveTab('feed')}
                   className="w-full border-0 rounded-[16px] py-3.5 font-bold bg-[var(--ann-accent)] text-white text-[0.95rem] hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -3596,7 +3934,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <section className="mt-8">
                   <div className={`relative overflow-hidden rounded-[24px] border p-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--ann-accent)]/15 blur-2xl pointer-events-none" />
-                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">Gift the couple</span>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">{DETAILS.occasion === 'birthday' ? 'Gift the celebrant' : 'Gift the couple'}</span>
                     <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
                     <p className={`text-[0.9rem] mt-1.5 mb-4 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
                     <div className="space-y-2.5">
@@ -3636,7 +3974,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
                 <div className="flex flex-col gap-3">
                   {(partners || []).map((p: any) => (
-                      <PartnerHomeCard key={p.id || p.name} p={p} isDarkMode={isDarkMode} />
+                      <PartnerHomeCard key={p.id || p.name} p={DETAILS.occasion === 'birthday' && (p.id === 'demo-lens' || p.id === 'demo-kiln') ? { ...p, description: p.description.replace('the wedding day', 'the party day').replace('the wedding film', 'the party film') } : p} isDarkMode={isDarkMode} />
                     ))}
                 </div>
               </section>
@@ -3665,10 +4003,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{demoHeader()}</h4>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || `Happy Wedding · ${WED_LONG}`}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || (DETAILS.occasion === 'birthday' ? `Happy Birthday · ${WED_LONG}` : `Happy Wedding · ${WED_LONG}`)}</p>
                   </div>
                   <div className="pt-2 opacity-40">
-                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || 'Wedding memories, kept for life'}</p>
+                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || (DETAILS.occasion === 'birthday' ? 'Birthday memories, kept for life' : 'Wedding memories, kept for life')}</p>
                   </div>
                 </div>
               </footer>
@@ -3879,7 +4217,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                       }
                     });
 
-                    if (feedPageSize > 0 && regularPosts.length > pagedPosts.length) {
+                    if (feedPageSize > 0 && (regularPosts.length > pagedPosts.length
+                      || (feedPage * feedPageSize >= regularPosts.length && regularPosts.length > 0 && !!hasMoreOlderRef.current?.()))) {
                       feedElements.push(
                         <div key="feed-next-page" className="flex w-full justify-center">
                           <button onClick={() => setFeedPage((v: number) => v + 1)} className="my-6 px-6 py-3 rounded-full border border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest active:scale-95 transition-transform">Older posts</button>
@@ -4017,7 +4356,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     <label className={`block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50 ${isDarkMode ? 'text-white' : 'text-[#14262D]'}`}>Display Name</label>
                     <input 
                       type="text"
-                      placeholder="e.g. Tolu (the bride's cousin)"
+                      placeholder={DETAILS.occasion === 'birthday' ? "e.g. Tolu (the celebrant's cousin)" : "e.g. Tolu (the bride's cousin)"}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className={`w-full p-4 rounded-xl border-none outline-none font-bold transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
@@ -4101,18 +4440,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px]">
                   <strong className="block text-[1rem]">{demoHeader()}{DEMO ? '' : ' 2026'}</strong>
-                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
+                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Birthday Memories Portal. Made with love.' : 'Wedding Memories Portal. Made with love.'}</small>
                 </div>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
                   <div>
                     <strong className="block text-[1rem]">Report a problem</strong>
-                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tell the couple if something looks wrong</small>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Tell the celebrant if something looks wrong' : 'Tell the couple if something looks wrong'}</small>
                   </div>
                   <button onClick={() => { setReportText(''); setReportOpen(true); }} className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
                 </div>
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
                   <span className={`text-xs font-bold tracking-wide select-none ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                    Happy Wedding, {demoHeader()}
+                    {DETAILS.occasion === 'birthday' ? 'Happy Birthday,' : 'Happy Wedding,'} {demoHeader()}
                   </span>
                 </div>
               </div>
@@ -4181,7 +4520,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onSaveWedding={updateWedding}
         idDraft={idDraft}
         setIdDraft={setIdDraft}
-        saveCoupleIdentity={saveCoupleIdentity}
+        onSaveIdentity={startIdentitySave}
+        idBase={cfgIdentity}
+        bdDraft={bdDraft}
+        setBdDraft={setBdDraft}
+        saveOccasion={saveOccasion}
+        saveBirthday={saveBirthday}
         vendors={vendors}
         partners={partners}
         blockedUids={blockedUids}
@@ -4426,7 +4770,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-2">Which part of the celebration is this?</span>
                 <div className="flex flex-wrap gap-2">
                   {EVENTS.map((e) => (
-                    <button key={e.id} type="button" onClick={() => setNewPostEvent(newPostEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${newPostEvent === e.id ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
+                    <button key={e.id} type="button" onClick={() => setNewPostEvent(newPostEvent === e.id ? '' : e.id)} className={`px-4 py-2 rounded-full text-[0.8rem] font-bold border transition-all ${newPostEvent === e.id ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>{e.name}</button>
                   ))}
                 </div>
               </div>
@@ -4670,6 +5014,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                           loveCount: 0,
                           timestamp: serverTimestamp()
                         });
+                        trackAppEvent(APP_ID, 'post_add');
                         setUploadingPost(null);
 
                         showToast(pendingFlag ? 'Shared! Your post will be approved soon' : (approveGuestPosts ? 'Posted instantly. Only guest posts wait for approval.' : 'Memory shared successfully!'), 'success');
@@ -4902,7 +5247,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setReportOpen(false)}>
           <div className={`w-full max-w-[360px] rounded-[24px] p-6 text-left ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
             <h3 className="font-black font-display text-lg mb-1">Report a problem</h3>
-            <p className="text-sm opacity-60 mb-4">Tell the couple what went wrong. It reaches them with your name{avatar ? ' and photo' : ''}.</p>
+            <p className="text-sm opacity-60 mb-4">{DETAILS.occasion === 'birthday' ? 'Tell the celebrant what went wrong.' : 'Tell the couple what went wrong.'} It reaches them with your name{avatar ? ' and photo' : ''}.</p>
             {displayName.trim() ? (
               <>
                 <textarea
@@ -4993,6 +5338,19 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           onClose={() => setActiveMediaIndex(null)}
         />
       )}
+          {renameAsk && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setRenameAsk(null)} className="fixed inset-0 bg-black/60 z-[800] backdrop-blur-sm" />
+          )}
+          {renameAsk && (
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[340px] z-[801] rounded-[28px] p-6 shadow-2xl text-center ${isDarkMode ? 'bg-[#13232A] border border-[#22363E]' : 'bg-white border border-[#DAD8E3]'}`}>
+              <h3 className="text-lg font-black font-display tracking-tight mb-2">Change the couple's names?</h3>
+              <p className="text-sm opacity-60 mb-4">Your app's address changes from <b>{renameAsk.curSlug}.eventicor.com</b> to <b>{renameAsk.newSlug}.eventicor.com</b>. Anyone who saved the old address won't reach the app. Invitation messages already sent keep working.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setRenameAsk(null)} className={`flex-1 py-3 rounded-full font-bold text-xs uppercase tracking-widest ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`}>Cancel</button>
+                <button onClick={async () => { const ra = renameAsk; setRenameAsk(null); if (ra) await commitCoupleIdentity(ra.payload, ra.newSlug); }} className="flex-1 py-3 rounded-full bg-[var(--ann-accent)] text-white font-bold text-xs uppercase tracking-widest shadow-lg">Change names</button>
+              </div>
+            </motion.div>
+          )}
     </div>
   );
 }
@@ -6530,11 +6888,13 @@ function GiantFooterWall({ images = [], isDarkMode, onTap, thanks, paused }: { i
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
           <span className="text-[clamp(0.85rem,3.1vw,1.3rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
@@ -6555,11 +6915,13 @@ function GiantFooterMarquee({ images = [], onTap, thanks, paused }: { images?: s
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
           <span className="flex-1 border-t border-dashed border-white/60" />
           <span className="text-[clamp(0.8rem,2.9vw,1.15rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
@@ -6593,7 +6955,7 @@ function GiantFooterNames({ bride, groom, wed, thanks, compact = false }: { brid
   return (
     <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
       <small>{(thanks || '').trim() || EVFW_THANKS}</small>
-      <h2>{bride} <i>&amp;</i> {groom}</h2>
+      <h2>{groom ? (<>{bride} <i>&amp;</i> {groom}</>) : bride}</h2>
       <p>{wed}</p>
     </div>
   );
@@ -7004,7 +7366,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
   const fmt = (d: { h: number; m: number; ap: string }) => `${d.h}:${String(d.m).padStart(2, '0')} ${d.ap}`;
   const [draft, setDraft] = useState(() => parse(value));
   useEffect(() => { if (open) setDraft(parse(value)); }, [open, value]);
-  const chipCls = (active: boolean) => `py-2.5 rounded-lg text-[0.9rem] font-black transition-colors ${active ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
+  const chipCls = (active: boolean) => `py-2.5 rounded-lg text-[0.9rem] font-black transition-colors ${active ? 'bg-[#7C8B93] text-white' : (isDarkMode ? 'bg-white/5 text-white/70 hover:bg-white/10' : 'bg-[#EEEDF3] text-[#14262D] hover:bg-[#E2E0EA]')}`;
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((v) => !v)} className={`${inputCls} text-left`}>{String(value || '').trim() || fmt(parse(value))}</button>
@@ -7033,7 +7395,7 @@ function BrandedTimeField({ value, onChange, isDarkMode, inputCls }: any) {
             <div className="mt-3 flex items-center gap-2">
               <div className="flex flex-1 rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
                 {(['am', 'pm'] as const).map((ap) => (
-                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2.5 text-[0.78rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>{ap}</button>
+                  <button key={ap} type="button" onClick={() => setDraft((d: any) => ({ ...d, ap }))} className={`flex-1 py-2.5 text-[0.78rem] font-black uppercase tracking-widest ${draft.ap === ap ? 'bg-[#7C8B93] text-white' : 'opacity-60'}`}>{ap}</button>
                 ))}
               </div>
               <button type="button" onClick={() => { onChange(fmt(draft)); setOpen(false); }} className="px-5 py-2 rounded-full bg-[var(--ann-accent)] text-white text-[0.65rem] font-black uppercase tracking-widest">Done</button>
@@ -7082,7 +7444,7 @@ function BrandedDateField({ value, onChange, isDarkMode, inputCls }: any) {
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, wi) => (<span key={wi} className="text-[0.55rem] font-black uppercase opacity-40">{w}</span>))}
               {Array.from({ length: startDow }).map((_, i) => (<span key={`b${i}`} />))}
               {Array.from({ length: daysIn }, (_, i) => i + 1).map((day) => (
-                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[var(--ann-accent)] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
+                <button key={day} type="button" onClick={() => setView((v: any) => ({ ...v, day }))} className={`py-1.5 rounded-lg text-[0.72rem] font-bold transition-colors ${view.day === day ? 'bg-[#7C8B93] text-white' : (isDarkMode ? 'text-white/70 hover:bg-white/10' : 'text-[#14262D] hover:bg-[#EEEDF3]')}`}>{day}</button>
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between">
@@ -7774,7 +8136,7 @@ function AuthScreen({ screen, setScreen, onClose, onSignIn, onForgot, onVerify, 
         )}
       </div>
       {authToast && (
-        <div className="fixed top-5 left-1/2 z-[400] -translate-x-1/2 rounded-full px-5 py-2.5 text-[0.85rem] font-bold shadow-lg bg-[#14262D] text-white" role="status">
+        <div className="fixed top-5 left-1/2 z-[400] -translate-x-1/2 rounded-full px-4 py-1.5 text-[0.72rem] font-bold shadow-lg bg-[#14262D] text-white" role="status">
           {authToast}
         </div>
       )}
@@ -8057,12 +8419,12 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       {/* Wedding day */}
       {!mockHidden.includes('details') && (
       <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Wedding day</h2>
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'The big day' : 'Wedding day'}</h2>
         <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">{wedFull}</p>
         <div className="p-[14px_16px] rounded-[16px] border bg-white border-[#DAD8E3] space-y-3">
           {details && details.churchTime && (
             <div>
-              <strong className="block text-[0.85rem]">Church wedding · {details.churchTime}</strong>
+              <strong className="block text-[0.85rem]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'The party' : 'Church wedding'} · {details.churchTime}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.churchVenue}</p>
             </div>
           )}
@@ -8075,7 +8437,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           {details && details.dressOutfit && <DressMockup outfit={details.dressOutfit} isDarkMode={false} />}
           {details && details.asoEbi && (
             <div>
-              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
+              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">{details.occasion === 'birthday' ? 'Dress code:' : 'Aso-ebi:'}{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
             </div>
           )}
@@ -8085,7 +8447,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       
       {/* Feed CTA */}
       <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'Say something to the celebrant' : 'Say something to the couple'}</h2>
         <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
       </section>
       {/* Gifts & support: mirrors the real home section */}
@@ -8213,6 +8575,7 @@ const IV_STYLES = [
   { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
   { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
+  { id: 'confetti', n: 'Confetti burst', d: 'Balloons and a confetti burst reveal the party details', iv: true },
 ];
 
 // Collapsible invite-form section. Defined at module level on purpose: a local
@@ -8413,8 +8776,8 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
       setOpens(best.opens || 0);
       if (IV_STYLES.some((s) => s.id === best.tpl)) setTpl(best.tpl);
       setF({
-        bride: best.bride || demoBride() || 'Amara',
-        groom: best.groom || demoGroom() || 'Daniel',
+        bride: demoBride() || 'Amara',
+        groom: demoGroom() || 'Daniel',
         date: best.wedDate || wedDate || '',
         venue: best.venue || weddingDetails?.receptionVenue || weddingDetails?.churchVenue || '',
         city: best.city || demoCity() || '',
@@ -8722,7 +9085,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">Card style</label>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {IV_STYLES.map((s) => (
+          {IV_STYLES.filter((s) => s.id !== 'confetti' || weddingDetails?.occasion === 'birthday').map((s) => (
             <div key={s.id} className={`relative rounded-2xl border p-4 cursor-pointer transition-all ${tpl === s.id ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/30' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} onClick={() => setTpl(s.id)}>
               {tpl === s.id && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center"><Check className="w-3 h-3" /></span>}
               <b className="text-sm font-black block pr-6">{s.n}</b>
@@ -9088,7 +9451,12 @@ function AdminDashboardModal({
   onAdminDemoPost,
   idDraft,
   setIdDraft,
-  saveCoupleIdentity,
+  onSaveIdentity,
+  idBase,
+  bdDraft,
+  setBdDraft,
+  saveOccasion,
+  saveBirthday,
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
   const [revokeArmed, setRevokeArmed] = useState(false);
@@ -9734,7 +10102,12 @@ function AdminDashboardModal({
 
   const [evDraft, setEvDraft] = useState<WeddingEvent[]>(events);
   const [storyDraft, setStoryDraft] = useState<string>(story);
-  const [detDraft, setDetDraft] = useState<any>(() => withDerivedHashtag(withDerivedAccountName({ ...(weddingDetails || {}), hiddenSections: weddingDetails?.hiddenSections || [] })));
+  // One seed for the details draft: the saved values, the couple's derived
+  // hashtag and account name standing in for demo placeholders, and
+  // hiddenSections always present. The dirty baseline uses the same seed, so
+  // freshly loaded saved content never reads as "unsaved changes".
+  const seedDetDraft = (wd: any): any => withDerivedHashtag(withDerivedAccountName({ ...(wd || {}), hiddenSections: (wd && wd.hiddenSections) || [] }));
+  const [detDraft, setDetDraft] = useState<any>(() => seedDetDraft(weddingDetails));
   const [detColors, setDetColors] = useState<string[]>(() => {
     try { const v = JSON.parse(localStorage.getItem(lsKey('dress-colors')) || 'null'); if (Array.isArray(v)) return v; } catch { /* private mode */ }
     return (weddingDetails && weddingDetails.dressColors) || [];
@@ -9758,9 +10131,12 @@ function AdminDashboardModal({
     try { await setDoc(doc(db, scopedPath('app_config'), 'main'), { weddingDetails: { dressColors: next } }, { merge: true }); } catch { /* the next full save carries it */ }
   };
   const [weddingBusy, setWeddingBusy] = useState(false);
-  useEffect(() => { setEvDraft(events); }, [events]);
-  useEffect(() => { setStoryDraft(story); }, [story]);
-  useEffect(() => { setDetDraft(withDerivedHashtag(withDerivedAccountName(weddingDetails))); }, [weddingDetails]);
+  // Saved data arriving (first load, another device, a rename) re-seeds the
+  // drafts AND moves the dirty baseline along with them, so loaded saved
+  // content never reads as "unsaved changes".
+  useEffect(() => { setEvDraft(events as WeddingEvent[]); if (draftBaseRef.current) draftBaseRef.current.ev = JSON.stringify(events); }, [events]);
+  useEffect(() => { setStoryDraft(story); if (draftBaseRef.current) draftBaseRef.current.story = story; }, [story]);
+  useEffect(() => { const d = seedDetDraft(weddingDetails); setDetDraft(d); if (draftBaseRef.current) draftBaseRef.current.det = JSON.stringify(d); }, [weddingDetails]);
 
   const inputCls = `w-full p-3.5 rounded-xl border-none outline-none font-bold text-sm ${isDarkMode ? 'bg-[#0B171C] text-white' : 'bg-[#EEEDF3] text-[#14262D]'}`;
   // One page, one save (Nov 20 2026 direction): every edit on Events & photos
@@ -9775,6 +10151,7 @@ function AdminDashboardModal({
     if (key && key !== heroSyncKeyRef.current) {
       heroSyncKeyRef.current = key;
       setHeroImgDraft((prev: string[]) => (prev.length ? prev : heroImages as string[]));
+      if (!heroImgDraft.length && draftBaseRef.current) draftBaseRef.current.hero = JSON.stringify((heroImages as string[]).slice(0, 20));
     }
   }, [heroImages.join('|')]);
   const [heroLabelDraft, setHeroLabelDraft] = useState<Record<string, string>>(() => ({ ...(heroImageLabels || {}) }));
@@ -9783,8 +10160,8 @@ function AdminDashboardModal({
   const [footerThanksDraft, setFooterThanksDraft] = useState<string>(footerThanks || '');
   // Gifts & support draft (Events & photos): initializes straight from the
   // saved details, so the page's single Save bar owns it from the first render.
-  const [giftDraft, setGiftDraft] = useState<any>(() => {
-    const gi = (weddingDetails || ({} as any)).giftInfo || {};
+  const seedGiftDraft = (wd: any): any => {
+    const gi = (wd || ({} as any)).giftInfo || {};
     const seed = DEMO && !gi.accountNumber && !gi.accountName ? ((DEMO_DETAILS as any).giftInfo || {}) : ({} as any);
     return {
       enabled: gi.enabled !== false,
@@ -9793,33 +10170,59 @@ function AdminDashboardModal({
       accountName: gi.accountName || seed.accountName || '',
       note: gi.note || seed.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'
     };
-  });
+  };
+  const [giftDraft, setGiftDraft] = useState<any>(() => seedGiftDraft(weddingDetails));
   // Footer (Events & photos): the words at the very bottom of the home page,
   // after the photo wall. Empty fields keep the app's default wording.
-  const [footerDraft, setFooterDraft] = useState<any>(() => {
-    const fi = (weddingDetails || ({} as any)).footer || {};
+  const seedFooterDraft = (wd: any): any => {
+    const fi = (wd || ({} as any)).footer || {};
     return { message: fi.message || '', caption: fi.caption || '' };
-  });
+  };
+  const [footerDraft, setFooterDraft] = useState<any>(() => seedFooterDraft(weddingDetails));
   const draftBaseRef = useRef<any>(null);
   if (!draftBaseRef.current) {
     draftBaseRef.current = {
-      story,
-      det: JSON.stringify(withDerivedHashtag(weddingDetails)),
-      ev: JSON.stringify(events),
-      hero: JSON.stringify(heroImages),
-      heroLabels: JSON.stringify(heroImageLabels || {}),
+      story: storyDraft,
+      det: JSON.stringify(seedDetDraft(weddingDetails)),
+      ev: JSON.stringify(evDraft),
+      hero: JSON.stringify(heroImgDraft.slice(0, 20)),
+      heroLabels: JSON.stringify(heroLabelDraft || {}),
       gift: JSON.stringify(giftDraft || {}),
       footer: JSON.stringify(footerDraft || {}),
-      heroTpl,
-      footerStyle,
-      footerThanks
+      heroTpl: heroTplDraft,
+      footerStyle: footerStyleDraft,
+      footerThanks: footerThanksDraft
     };
   }
+  // Gifts, footer, labels and the style picks follow saved changes the same
+  // way, with the dirty baseline moving along, so a rename or a save from
+  // another device never leaves the page reading "unsaved changes".
+  useEffect(() => { const g = seedGiftDraft(weddingDetails); setGiftDraft(g); if (draftBaseRef.current) draftBaseRef.current.gift = JSON.stringify(g); }, [JSON.stringify((weddingDetails || ({} as any)).giftInfo || {})]);
+  useEffect(() => { const f = seedFooterDraft(weddingDetails); setFooterDraft(f); if (draftBaseRef.current) draftBaseRef.current.footer = JSON.stringify(f); }, [JSON.stringify((weddingDetails || ({} as any)).footer || {})]);
+  useEffect(() => { const l = { ...(heroImageLabels || {}) }; setHeroLabelDraft(l); if (draftBaseRef.current) draftBaseRef.current.heroLabels = JSON.stringify(l); }, [JSON.stringify(heroImageLabels || {})]);
+  useEffect(() => { setHeroTplDraft(heroTpl); if (draftBaseRef.current) draftBaseRef.current.heroTpl = heroTpl; }, [heroTpl]);
+  useEffect(() => { setFooterStyleDraft(footerStyle); if (draftBaseRef.current) draftBaseRef.current.footerStyle = footerStyle; }, [footerStyle]);
+  useEffect(() => { setFooterThanksDraft(footerThanks || ''); if (draftBaseRef.current) draftBaseRef.current.footerThanks = footerThanks || ''; }, [footerThanks]);
   // The photos the hero shows right now: the draft list when one exists,
   // otherwise the built-in placeholder photos the site falls back to.
   // Editing from the admin grid always writes the full draft list, so removing
   // a placeholder or adding a photo takes the hero over from the placeholders.
   const heroShown: string[] = heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES;
+  // The identity card no longer carries its own save button (user direction
+  // Nov 25 2026): its fields ride the same single Save bar. The baseline is
+  // the saved identity; empty saved fields never read as dirty (their draft
+  // shows the shared fallback wording).
+  const ID_KICKER = 'Together with their families';
+  const ID_TAGLINE = 'are getting married. Share every moment with us, from the first introduction to the last dance.';
+  const idNorm = (v: any, def: string) => (String(v || '').trim() || def);
+  const identityChanged = () => {
+    if (!idBase) return false;
+    const baseB = (idBase.bride || '').trim(), baseG = (idBase.groom || '').trim();
+    return (baseB ? (idDraft.bride || '').trim() !== baseB : false)
+      || (baseG ? (idDraft.groom || '').trim() !== baseG : false)
+      || idNorm(idDraft.kicker, ID_KICKER) !== idNorm(idBase.kicker, ID_KICKER)
+      || idNorm(idDraft.tagline, ID_TAGLINE) !== idNorm(idBase.tagline, ID_TAGLINE);
+  };
   const pageDirty = storyDraft !== draftBaseRef.current.story
     || JSON.stringify(detDraft) !== draftBaseRef.current.det
     || JSON.stringify(evDraft) !== draftBaseRef.current.ev
@@ -9829,7 +10232,8 @@ function AdminDashboardModal({
     || footerStyleDraft !== draftBaseRef.current.footerStyle
     || (footerThanksDraft || '') !== draftBaseRef.current.footerThanks
     || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift
-    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer;
+    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer
+    || identityChanged();
 
   // One Save for the whole page: story, wedding day details, the journey, hero
   // photos and labels, hero style and the giant footer style commit together.
@@ -9841,6 +10245,16 @@ function AdminDashboardModal({
   const saveEverything = async () => {
     setWeddingBusy(true);
     try {
+      // The couple's names save first through the same bar (user direction
+      // Nov 25 2026). A rename ask pauses the save until the couple confirms;
+      // a refused save leaves everything dirty for its own toast.
+      if (identityChanged()) {
+        const bride = (idDraft.bride || '').trim();
+        const groom = (idDraft.groom || '').trim();
+        if (!bride || !groom) { showToast('Both names are needed.', 'error'); return; }
+        const res = await onSaveIdentity({ bride, groom, kicker: idNorm(idDraft.kicker, ID_KICKER), tagline: idNorm(idDraft.tagline, ID_TAGLINE) });
+        if (res === 'ask' || res === false) return;
+      }
       const mergedDet = {
         ...(detDraft || {}),
         giftInfo: {
@@ -9856,24 +10270,32 @@ function AdminDashboardModal({
         }
       };
       setDetDraft(mergedDet);
-      await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      // The section save reports whether it really wrote. A refused save
+      // (signed out, or the write failed) leaves the drafts dirty and lets
+      // its own toast explain, instead of pretending everything is saved.
+      const ok = await onSaveWeddingSection({ story: storyDraft, weddingDetails: mergedDet, events: evDraft });
+      if (ok === false) return;
       onUpdateHeroImages(heroImgDraft.slice(0, 20));
       onUpdateHeroLabels(heroLabelDraft || {});
       if (onUpdateHeroTemplate) await onUpdateHeroTemplate(heroTplDraft, true);
       if (onUpdateFooterStyle) await onUpdateFooterStyle(footerStyleDraft, true, (footerThanksDraft || '').trim());
+      // The det baseline runs through the exact pipeline the draft re-seed
+      // applies to saved data, so the two can never disagree after a save.
       draftBaseRef.current = {
         story: storyDraft,
-        det: JSON.stringify(mergedDet),
+        det: JSON.stringify(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(mergedDet)))),
         ev: JSON.stringify(evDraft),
         hero: JSON.stringify(heroImgDraft.slice(0, 20)),
         heroLabels: JSON.stringify(heroLabelDraft || {}),
         heroTpl: heroTplDraft,
         footerStyle: footerStyleDraft,
-        footerThanks: (footerThanksDraft || '').trim(),
+        footerThanks: footerThanksDraft,
         gift: JSON.stringify(giftDraft || {}),
         footer: JSON.stringify(footerDraft || {})
       };
       showToast('Saved. Your app now shows these changes.', 'success');
+    } catch (err) {
+      showToast('Could not save. Check your connection and try again.', 'error');
     } finally { setWeddingBusy(false); }
   };
   // Section eye toggles (Events & photos): 'story', 'details' and 'gifts' keys
@@ -10817,6 +11239,26 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app. The eye button on a section hides it from your app until you bring it back.</p>
                   </div>
 
+                  {/* OCCASION & CELEBRANT: what the app is for and, on a birthday, who it celebrates. */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Occasion &amp; celebrant</h3>
+                    <p className="text-sm opacity-60 mb-4">What the app is for. Birthday adds the celebrant's name, the age they turn and who is hosting.</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {(['wedding', 'birthday'] as const).map((o) => (
+                        <button key={o} type="button" onClick={() => saveOccasion(o)} className={`px-4 py-2 rounded-full text-sm font-semibold border ${weddingDetails?.occasion === o ? 'bg-[var(--ann-accent)] text-white border-transparent' : (isDarkMode ? 'border-[#22363E] text-white/80' : 'border-[#DAD8E3]')}`}>{o === 'wedding' ? 'Wedding' : 'Birthday'}</button>
+                      ))}
+                    </div>
+                    {weddingDetails?.occasion === 'birthday' && (
+                      <div className="space-y-3">
+                        <input value={bdDraft.celebrant} onChange={(e) => setBdDraft({ ...bdDraft, celebrant: e.target.value })} placeholder="Celebrant's name, e.g. Tunde" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <input value={bdDraft.celebrantAge} onChange={(e) => setBdDraft({ ...bdDraft, celebrantAge: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) })} inputMode="numeric" placeholder="The age they turn, e.g. 50" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!bdDraft.ageHidden} onChange={(e) => setBdDraft({ ...bdDraft, ageHidden: e.target.checked })} /> Hide the age everywhere</label>
+                        <input value={bdDraft.hostedBy} onChange={(e) => setBdDraft({ ...bdDraft, hostedBy: e.target.value })} placeholder="Who is hosting? e.g. The Adeyemi family" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <button type="button" onClick={saveBirthday} className="px-5 py-2.5 rounded-full text-sm font-bold bg-[var(--ann-accent)] text-white">Save occasion details</button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* THE COUPLE: the names and the words around them, editable.
                       A couple's signup names are no longer locked in; a change
                       rides the boot overlay, so every name spot follows. */}
@@ -10839,9 +11281,8 @@ function AdminDashboardModal({
                     </div>
                     <div className="mt-3">
                       <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Words under the names</span>
-                      <textarea value={idDraft.tagline} rows={2} maxLength={160} onChange={(e) => setIdDraft({ ...idDraft, tagline: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                      <textarea value={idDraft.tagline} rows={4} maxLength={160} onChange={(e) => setIdDraft({ ...idDraft, tagline: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
                     </div>
-                    <button type="button" onClick={saveCoupleIdentity} className="mt-4 w-full py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Save</button>
                   </div>
 
                   {adminPermissions?.canUploadImages && (
@@ -10891,7 +11332,7 @@ function AdminDashboardModal({
                           </div>
                         ))}
                         {heroShown.length < 20 && (
-                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[#7C8B93]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[#7C8B93]/5 transition-colors">
                             <input
                               type="file"
                               multiple
@@ -10938,10 +11379,10 @@ function AdminDashboardModal({
                               }}
                             />
                             {isBulkUploading ? (
-                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                              <RefreshCw className="w-5 h-5 text-[#7C8B93] animate-spin" />
                             ) : (
                               <>
-                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <Plus className="w-5 h-5 text-[#7C8B93]" />
                                 <span className="text-[10px] font-bold mt-1 uppercase">Add ({20 - heroShown.length})</span>
                               </>
                             )}
@@ -10956,22 +11397,17 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
                     <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
-                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book']] as [string, string][]).map(([tk, label]) => (
-                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book'], ...(weddingDetails?.occasion === 'birthday' ? ([['bd-party', 'Birthday Orbit · night'], ['bd-gold', 'Birthday Arc · light']] as [string, string][]) : [])] as [string, string][]).map(([tk, label]) => (
+                        <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                           {label}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[0.7rem] opacity-50 mt-2">Classic · Halo Arc · Hero Deck · Open Book</p>
+                    <p className="text-[0.7rem] opacity-50 mt-2">{weddingDetails?.occasion === 'birthday' ? 'Classic · Halo Arc · Hero Deck · Open Book · Birthday balloons · Birthday gold' : 'Classic · Halo Arc · Hero Deck · Open Book'}</p>
                   </section>
 
                   <section>
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <h3 className="font-black font-display text-lg">Accent color</h3>
-                      <button type="button" onClick={() => setSitePreviewOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.6rem] font-black uppercase tracking-widest opacity-70 hover:opacity-100" style={{ touchAction: 'manipulation' }} title="Preview the accent color">
-                        <Eye className="w-3.5 h-3.5" /> Preview
-                      </button>
-                    </div>
+                    <h3 className="font-black font-display text-lg mb-1">Accent color</h3>
                     <p className="text-sm opacity-60 mb-3">The color your app is dressed in: buttons, highlights and headings. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
                       {ACCENT_CHOICES.map(([k, label, hex]) => (
@@ -11066,7 +11502,7 @@ function AdminDashboardModal({
                               <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Status shown to guests</span>
                               <div className="flex rounded-full border border-[#DAD8E3] dark:border-[#22363E] overflow-hidden">
                                 {(['done', 'next', 'up'] as const).map((s) => (
-                                  <button key={s} type="button" onClick={() => setEvDraft(evDraft.map((x) => x.id === e.id ? { ...x, status: s } : (s === 'next' && x.status === 'next' ? { ...x, status: 'up' } : x)))} className={`px-4 py-2 text-[0.65rem] font-black uppercase tracking-widest ${e.status === s || (!e.status && s === 'up') ? 'bg-[var(--ann-accent)] text-white' : 'opacity-60'}`}>
+                                  <button key={s} type="button" onClick={() => setEvDraft(evDraft.map((x) => x.id === e.id ? { ...x, status: s } : (s === 'next' && x.status === 'next' ? { ...x, status: 'up' } : x)))} className={`px-4 py-2 text-[0.65rem] font-black uppercase tracking-widest ${e.status === s || (!e.status && s === 'up') ? 'bg-[#7C8B93] text-white' : 'opacity-60'}`}>
                                     {s === 'done' ? 'Done' : s === 'next' ? 'Next up' : 'Upcoming'}
                                   </button>
                                 ))}
@@ -11083,7 +11519,7 @@ function AdminDashboardModal({
                         </div>
                       ))}
                     </div>
-                    <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[var(--ann-accent)] text-[var(--ann-accent)] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
+                    <button type="button" onClick={() => setEvDraft([...evDraft, { id: `ev${Date.now()}`, name: '', type: '', date: '', venue: '', desc: '', status: 'up' } as WeddingEvent])} className="mt-4 px-5 py-3 rounded-full border border-dashed border-[#7C8B93] text-[#7C8B93] text-[0.7rem] font-black uppercase tracking-widest">+ Add event</button>
                   </div>
 
                                     <section className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
@@ -11188,7 +11624,7 @@ function AdminDashboardModal({
                           </div>
                         </div>
                         <div className="flex gap-2 flex-wrap pt-1">
-                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
+                          <button type="button" onClick={savePartner} className="px-6 py-3 rounded-full bg-[#7C8B93] text-white text-[0.7rem] font-black uppercase tracking-widest">{partnerEditing ? 'Save changes' : 'Add partner'}</button>
                           {partnerEditing && (
                             <button type="button" onClick={() => { setPartnerEditing(null); setPartnerForm({ name: '', category: '', description: '', photo: '', whatsapp: '', instagram: '', website: '', tiktok: '', facebook: '', youtube: '' }); }} className="px-6 py-3 rounded-full border border-[#DAD8E3] dark:border-[#22363E] text-[0.7rem] font-black uppercase tracking-widest">Cancel</button>
                           )}
@@ -11241,7 +11677,7 @@ function AdminDashboardModal({
                       <p className="text-sm opacity-60 mb-3">How the big photo wall at the bottom of Home looks. Tap a style, then the round eye button on the right to watch it.</p>
                       <div className="flex gap-2 flex-wrap">
                         {(['wall', 'marquee', 'tunnel', 'globe'] as const).map((st) => (
-                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[var(--ann-accent)] text-white border-[var(--ann-accent)]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
+                          <button key={st} type="button" onClick={() => setFooterStyleDraft(st)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${footerStyleDraft === st ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                             {st === 'wall' ? 'Style 1 · Photo wall' : st === 'marquee' ? 'Style 2 · Marquee' : st === 'tunnel' ? 'Style 3 · Photo tunnel' : 'Style 4 · Photo globe'}
                           </button>
                         ))}
@@ -11340,8 +11776,8 @@ function AdminDashboardModal({
                               groom={demoGroom()}
                               city={demoCity()}
                               wedDate={previewWedDate()}
-                              kicker={cfgIdentity?.kicker || 'Together with their families'}
-                              tagline={cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}
+                              kicker={idDraft?.kicker || 'Together with their families'}
+                              tagline={idDraft?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}
                               events={evDraft}
                               story={storyDraft}
                               details={withGiftDefaults(detDraft)}
@@ -11864,7 +12300,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
                     <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', weddingDetails?.occasion === 'birthday' || demoBirthday() ? 'Archive mode after the celebration' : 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
                         const archiveLocked = k === 'archive' && feedPrivate;
                         return (
                         <div key={k} className="flex items-start justify-between gap-3">
@@ -12497,7 +12933,7 @@ function RollNum({ value }: { value: string }) {
   );
 }
 
-function CountdownRow({ date, time }: { date: string; time: string }) {
+function CountdownRow({ date, time, bigAge }: { date: string; time: string; bigAge?: string }) {
   const target = new Date(`${date}T${time}:00`).getTime();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -12510,7 +12946,7 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
   const m = Math.floor((left % 3600000) / 60000);
   const sec = Math.floor((left % 60000) / 1000);
   const units: [string, string][] = [
-    [String(d), 'Days'],
+    [String(d), bigAge ? `to the big ${bigAge}` : 'Days'],
     [String(h).padStart(2, '0'), 'Hours'],
     [String(m).padStart(2, '0'), 'Mins'],
     [String(sec).padStart(2, '0'), 'Secs'],
@@ -12530,6 +12966,386 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
 // URLs already pulled into the browser cache this session; lets a remounted
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
+
+// floating balloons and falling confetti over a bright gradient, the
+// celebrant's name and the giant age numeral. 'gold' is the restrained
+// milestone look: a gold-ringed portrait on a deep, quiet backdrop. Both
+// fall back gracefully when a field is empty so the hero never renders blank.
+/* ===== BIRTHDAY CELEBRATION SECTION (from the birthday design file) =====
+   Ported from the design file's first two birthday looks: the animated
+   calendar (crossed-off days, a hand-drawn ring that draws itself around
+   the big day, a burst of sparks) and the two photo carousels — the
+   orbital ring with curved captions (gold look) and the rotating sector
+   disc with an arch portrait (party look). */
+
+function bdArcPoint(r: number, a: number) {
+  const t = (a * Math.PI) / 180;
+  return `${(r * Math.sin(t)).toFixed(1)} ${(-r * Math.cos(t)).toFixed(1)}`;
+}
+function bdArcSeg(ri: number, ro: number, a0: number, a1: number) {
+  return `M${bdArcPoint(ro, a0)}A${ro} ${ro} 0 0 1 ${bdArcPoint(ro, a1)}L${bdArcPoint(ri, a1)}A${ri} ${ri} 0 0 0 ${bdArcPoint(ri, a0)}Z`;
+}
+function bdSectorClip(ro: number, ri: number, a0: number, a1: number, h: number) {
+  const q = 180 / Math.PI;
+  const C = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(ro + r * Math.sin(t)).toFixed(1)}px ${(ro - r * Math.cos(t)).toFixed(1)}px`; };
+  const o0 = a0 + Math.atan(h / ro) * q, o1 = a1 - Math.atan(h / ro) * q;
+  const i0 = a0 + Math.atan(h / ri) * q, i1 = a1 - Math.atan(h / ri) * q;
+  const pts: string[] = [];
+  for (let k = 0; k <= 12; k++) pts.push(C(ro, o0 + ((o1 - o0) * k) / 12));
+  for (let k = 12; k >= 0; k--) pts.push(C(ri, i0 + ((i1 - i0) * k) / 12));
+  return `polygon(${pts.join(',')})`;
+}
+
+
+
+function BirthdayCalendar({ date, variant }: { date: string; variant: 'gold' | 'party' }) {
+  const gold = variant === 'gold';
+  const dt = new Date(`${date}T12:00:00`);
+  if (isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear(), m = dt.getMonth(), dn = dt.getDate();
+  const first = new Date(y, m, 1).getDay();
+  const dim = new Date(y, m + 1, 0).getDate();
+  const month = dt.toLocaleDateString('en-GB', { month: 'long' });
+  const ink = gold ? '#F1E8D2' : '#2B1247';
+  const mu = gold ? 'rgba(241,232,210,.5)' : 'rgba(43,18,71,.5)';
+  const ac = gold ? '#F5B82E' : '#B3361F';
+  const ringCol = gold ? '#F5B82E' : '#2B1247';
+  const dl = +(dn * 0.03 + 0.25).toFixed(2);
+  const cells: React.ReactNode[] = [];
+  for (let i = 0; i < first; i++) cells.push(<span key={`b${i}`} />);
+  for (let k = 1; k <= dim; k++) {
+    if (k === dn) {
+      cells.push(
+        <span key={k} className="relative inline-grid place-items-center rounded-full text-white font-black text-[13.5px]" style={{ width: 34, height: 34, background: ac, animation: 'ev-bdy-pulse 1.8s ease-in-out infinite' }}>
+          {k}
+          <svg className="absolute pointer-events-none overflow-visible" style={{ left: -8, top: -8, width: 50, height: 50 }} viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+            <path pathLength={100} d="M52 4C78 3 97 16 95 32 93 50 66 58 40 56 14 54 3 42 6 26 9 10 30 4 58 6" fill="none" stroke={ringCol} strokeWidth={3} strokeLinecap="round" strokeDasharray={100} strokeDashoffset={100} style={{ animation: `ev-ring-draw .9s ${dl}s cubic-bezier(.6,0,.3,1) forwards` }} />
+          </svg>
+          <span className="absolute pointer-events-none" aria-hidden="true">
+            {Array.from({ length: 8 }).map((_, j) => (
+              <i key={j} className="absolute rounded-full" style={{ ['--r' as any]: `${j * 45}deg`, width: 3.5, height: 3.5, left: 14, top: 14, background: ringCol, opacity: 0, animation: `ev-burst .8s ${dl + 0.7}s ease-out forwards` }} />
+            ))}
+          </span>
+        </span>
+      );
+    } else {
+      const past = k < dn;
+      cells.push(
+        <span key={k} className="relative inline-grid place-items-center font-semibold" style={{ width: 34, height: 34, color: past ? mu : ink, fontSize: 13.5 }}>
+          {k}
+          {past && <i className="absolute left-1 right-1 top-1/2 h-[1.6px] origin-left rounded-full" style={{ background: mu, animation: `ev-strike .5s ${+(((k * 0.04) % 0.9).toFixed(2))}s ease-out backwards` }} />}
+        </span>
+      );
+    }
+  }
+  return (
+    <div className={`rounded-[22px] p-5 ${gold ? 'border border-[#F5B82E]/25 bg-white/[0.04]' : 'bg-white border border-[#2B1247]/10 shadow-[0_12px_32px_rgba(43,18,71,.08)]'}`}>
+      <div className="flex items-baseline justify-between mb-2">
+        <b className="text-[0.95rem] font-black tracking-[0.2em] uppercase" style={{ color: ac }}>{month}</b>
+        <span className="text-[0.8rem] font-bold" style={{ color: mu }}>{y}</span>
+      </div>
+      <div className="grid grid-cols-7 gap-y-1 justify-items-center mb-0.5">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => <span key={i} className="text-[0.6rem] font-black tracking-widest" style={{ color: mu }}>{w}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-y-1 justify-items-center">{cells}</div>
+      <p className="mt-3 mb-0 text-center text-[0.68rem] font-black uppercase tracking-[0.24em]" style={{ color: ac }}>The day it all happens</p>
+    </div>
+  );
+}
+
+function BirthdayOrbit({ images, labels, name, age, date }: { images: string[]; labels: string[]; name: string; age?: string; date: string }) {
+  const imgs = (images.length ? images : PLACEHOLDER_IMAGES).slice(0, 8);
+  const np = Math.max(imgs.length, 1);
+  const N = 10, Ri = 165, Ro = 322;
+  const dt = new Date(`${date}T12:00:00`);
+  const segs: React.ReactNode[] = [], labs: React.ReactNode[] = [];
+  for (let i = 0; i < N; i++) {
+    const K = 360 / N, a0 = i * K + 1.2, a1 = (i + 1) * K - 1.2;
+    const raw = (labels[i % Math.max(labels.length, 1)] || '').slice(0, 16).toUpperCase();
+    const r = Ro - 14;
+    const sp = ((raw.length * 6.8 + 18) / r) * (180 / Math.PI);
+    const am = i * K + K / 2;
+    segs.push(
+      <g key={`s${i}`}>
+        <defs><pattern id={`bdpt${i}`} patternContentUnits="objectBoundingBox" width={1} height={1}><image href={imgs[i % np]} width={1} height={1} preserveAspectRatio="xMidYMid slice" /></pattern></defs>
+        <path d={bdArcSeg(Ri, Ro, a0, a1)} fill={`url(#bdpt${i})`} />
+      </g>
+    );
+    if (raw && sp * 2 < K) {
+      labs.push(
+        <g key={`l${i}`}>
+          <path id={`bdla${i}`} d={`M${bdArcPoint(r, am - sp / 2)}A${r} ${r} 0 0 1 ${bdArcPoint(r, am + sp / 2)}`} fill="none" stroke="#000" strokeWidth={15} strokeLinecap="round" />
+          <text fill="#fff" fontSize={8} fontWeight={700} letterSpacing={1.3} dy={2.8} fontFamily="'Plus Jakarta Sans',sans-serif"><textPath href={`#bdla${i}`} startOffset="50%" textAnchor="middle">{raw}</textPath></text>
+        </g>
+      );
+    }
+  }
+  const first = name.split(' ')[0];
+  return (
+    <div className="relative mx-auto" style={{ width: '100%', maxWidth: 470 }}>
+      <svg className="w-full h-auto block" style={{ animation: 'ev-orbit-spin 120s linear infinite' }} viewBox="-330 -330 660 660" role="img" aria-label={`${first}'s birthday photo ring`}>
+        {segs}{labs}
+      </svg>
+      <div className="absolute rounded-full grid place-items-center text-center" style={{ inset: '28%', background: 'radial-gradient(circle at 32% 22%, rgba(255,255,255,.12), rgba(0,0,0,0) 58%), #12071F', border: '1px solid rgba(245,184,46,.35)', boxShadow: '0 18px 50px rgba(0,0,0,.5)' }}>
+        <div className="px-4">
+          <div className="font-serif-display" style={{ color: '#F5B82E', fontSize: 'clamp(1rem,4.6vw,1.4rem)', letterSpacing: '.06em' }}>{name}</div>
+          <div className="mt-1 text-white/80 text-[0.78rem] leading-snug">
+            {age ? <>Celebrating <b className="text-[#F5B82E]">{age}</b> years<br /><em className="font-serif-display">of {first}</em></> : <><em className="font-serif-display">It's {first}'s day</em></>}
+          </div>
+          {!isNaN(dt.getTime()) && <div className="mt-1.5 text-white/55 text-[0.66rem] font-black uppercase tracking-[0.22em]">{dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Birthday design: faithful port of the design-file mockups =====
+   bd-party = the orbit ring on the dark skin (first mockup)
+   bd-gold  = the arc carousel on the light skin (second mockup).
+   Geometry and CSS values are ported 1:1 from the design file. */
+const ebdP = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(r * Math.sin(t)).toFixed(1)} ${(-r * Math.cos(t)).toFixed(1)}`; };
+const ebdSec = (ri: number, ro: number, a0: number, a1: number) => `M${ebdP(ro, a0)}A${ro} ${ro} 0 0 1 ${ebdP(ro, a1)}L${ebdP(ri, a1)}A${ri} ${ri} 0 0 0 ${ebdP(ri, a0)}Z`;
+const ebdPoly = (Ri: number, Ro: number, a0: number, a1: number, h: number) => {
+  const R = Ro, q = 180 / Math.PI, o0 = a0 + Math.atan(h / Ro) * q, o1 = a1 - Math.atan(h / Ro) * q, i0 = a0 + Math.atan(h / Ri) * q, i1 = a1 - Math.atan(h / Ri) * q;
+  const C = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(R + r * Math.sin(t)).toFixed(1)}px ${(R - r * Math.cos(t)).toFixed(1)}px`; };
+  const pts: string[] = [];
+  for (let k = 0; k <= 12; k++) pts.push(C(Ro, o0 + ((o1 - o0) * k) / 12));
+  for (let k = 12; k >= 0; k--) pts.push(C(Ri, i0 + ((i1 - i0) * k) / 12));
+  return `polygon(${pts.join(',')})`;
+};
+const EbdRing = ({ dl }: { dl: number }) => (
+  <svg className="ebd-rg" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+    <path pathLength={100} d="M52 4C78 3 97 16 95 32 93 50 66 58 40 56 14 54 3 42 6 26 9 10 30 4 58 6" style={{ animationDelay: `${dl}s` }} />
+  </svg>
+);
+const ebdNumWord = (n: number): string => {
+  const ones = ['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  let w: string;
+  if (n > 0 && n < 20) w = ones[n];
+  else if (n >= 20 && n < 100) w = tens[Math.floor(n / 10)] + (n % 10 ? '-' + ones[n % 10] : '');
+  else w = String(n);
+  return w ? w[0].toUpperCase() + w.slice(1) : String(n);
+};
+
+function EbdWeekStrip({ date }: { date: string }) {
+  const dt = new Date(`${date}T12:00`);
+  if (isNaN(dt.getTime())) return null;
+  const start = new Date(dt); start.setDate(dt.getDate() - dt.getDay());
+  const cells = [];
+  for (let i = 0; i < 7; i++) {
+    const x = new Date(start); x.setDate(start.getDate() + i);
+    const b = x.getDate() === dt.getDate() && x.getMonth() === dt.getMonth();
+    cells.push(
+      <span key={i} className={`ebd-wc${b ? ' wb' : ''}`}>
+        <small>{'SMTWTFS'[i]}</small>
+        {x.getDate()}
+        {b && <EbdRing dl={0.5} />}
+      </span>
+    );
+  }
+  return (
+    <>
+      <div className="ebd-wm">{dt.toLocaleDateString('en-GB', { month: 'long' }).toUpperCase()} {dt.getFullYear()}</div>
+      <div className="ebd-wk">{cells}</div>
+    </>
+  );
+}
+
+function EbdCalendar({ date }: { date: string }) {
+  const dt = new Date(`${date}T12:00`);
+  if (isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear(), dn = dt.getDate();
+  const first = new Date(y, dt.getMonth(), 1).getDay();
+  const dim = new Date(y, dt.getMonth() + 1, 0).getDate();
+  const dl = +(dn * 0.03 + 0.25).toFixed(2);
+  const cells: any[] = ['S','M','T','W','T','F','S'].map((w, i) => <span key={`w${i}`} className="ebd-wd">{w}</span>);
+  for (let i = 0; i < first; i++) cells.push(<span key={`e${i}`} />);
+  for (let k = 1; k <= dim; k++) {
+    if (k === dn) {
+      cells.push(
+        <span key={k} className="ebd-dy bdy">{k}
+          <EbdRing dl={dl} />
+          <span className="ebd-bu">{[0,1,2,3,4,5,6,7].map((j) => <i key={j} style={{ ['--r' as any]: `${j * 45}deg`, animationDelay: `${dl + 0.7}s` }} />)}</span>
+        </span>
+      );
+    } else {
+      cells.push(<span key={k} className={`ebd-dy${k < dn ? ' x' : ''}`} style={{ ['--k' as any]: k }}>{k}</span>);
+    }
+  }
+  return (
+    <div className="ebd-cal">
+      <div className="ebd-calh"><b>{dt.toLocaleDateString('en-GB', { month: 'long' }).toUpperCase()}</b><span>{y}</span></div>
+      <div className="ebd-calg">{cells}</div>
+    </div>
+  );
+}
+
+function EbdCountdown({ date, city }: { date: string; city: string }) {
+  const dt = new Date(`${date}T12:00`);
+  const n = isNaN(dt.getTime()) ? 0 : Math.max(0, Math.ceil((dt.getTime() - Date.now()) / 86400000));
+  const ds = isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return (
+    <div className="ebd-cd">
+      <div><b>{n}</b>days to go</div>
+      <div><b>{ds}</b>date</div>
+      <div><b className="ebd-cty">{city}</b>city</div>
+    </div>
+  );
+}
+
+function BirthdayDesign({ tpl, celebrant, age, ageHidden, date, city, images, events, openEventId, onToggle, fmtEventDate, openFooterLightbox, onRsvp }: {
+  tpl: string; celebrant?: string; age?: string | number; ageHidden?: boolean; date: string; city?: string;
+  images?: string[]; events: any[]; openEventId: string | null; onToggle: (id: string) => void;
+  fmtEventDate: (e: any) => string; openFooterLightbox: (u: string) => void; onRsvp?: () => void;
+}) {
+  const dk = tpl === 'bd-party';
+  const variant = dk ? 'orbit' : 'arc';
+  const [pz, setPz] = useState(false);
+  const first = String(celebrant || 'the celebrant').split(' ')[0];
+  const ageNum = ageHidden ? '' : String(age || '');
+  const base = (images && images.length ? images : []).slice(0, 10);
+  const safePics = base.length ? base : [''];
+  const np = safePics.length;
+  const evNames = (events || []).map((e: any) => String(e.name || '')).filter(Boolean);
+  const labels = evNames.length ? evNames : ['celebrate', 'joy', 'family', 'friends', 'music', 'cake'];
+  const tagline = ageNum ? `Fabulous & ${ebdNumWord(parseInt(ageNum, 10) || 0)}` : `It's ${first}'s day`;
+  const sub = ageNum ? 'birthday dinner & dance' : 'a day of celebration';
+  const ev0: any = (events && events[0]) || null;
+  const venue = ev0 ? [ev0.venue || city, ev0.time].filter(Boolean).join(' \u00b7 ') : String(city || '');
+  const dtOk = !isNaN(new Date(`${date}T12:00`).getTime());
+
+  const orbitHero = (
+    <div className="ebd-oh" onClick={() => setPz((v) => !v)} title="Tap to pause or resume">
+      <svg className={`ebd-osv ebd-sp${pz ? ' ebd-pz' : ''}`} style={{ animationDuration: '120s' }} viewBox="-330 -330 660 660" aria-hidden="true">
+        <defs>
+          <filter id="ebd-bw"><feColorMatrix type="saturate" values="0" /></filter>
+          {safePics.map((u, i) => (
+            <pattern key={i} id={`ebd-pt${i}`} patternContentUnits="objectBoundingBox" width={1} height={1}>
+              <image href={u} width={1} height={1} preserveAspectRatio="xMidYMid slice" />
+            </pattern>
+          ))}
+        </defs>
+        <g filter="url(#ebd-bw)">
+          {[0,1,2,3,4,5,6,7,8,9].map((i) => {
+            const K = 36, a0 = i * K + 1.2, a1 = (i + 1) * K - 1.2;
+            return <path key={i} d={ebdSec(165, 322, a0, a1)} fill={`url(#ebd-pt${i % np})`} />;
+          })}
+        </g>
+        {[0,1,2,3,4,5,6,7,8,9].map((i) => {
+          const K = 36, r = 322 - 14, am = i * K + K / 2;
+          const L = (labels[i % labels.length] || '').toUpperCase();
+          const sp = ((L.length * 6.8 + 18) / r) * (180 / Math.PI);
+          return (
+            <g key={`l${i}`}>
+              <path id={`la${i}`} d={`M${ebdP(r, am - sp / 2)}A${r} ${r} 0 0 1 ${ebdP(r, am + sp / 2)}`} fill="none" stroke="#000" strokeWidth={15} strokeLinecap="round" />
+              <text fill="#fff" fontSize={8} fontWeight={700} letterSpacing={1.3} dy={2.8} fontFamily="'Plus Jakarta Sans',sans-serif">
+                <textPath href={`#la${i}`} startOffset="50%" textAnchor="middle">{L}</textPath>
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="ebd-disc">
+        <div className="ebd-o1">{first}</div>
+        <svg className="ebd-ck2" viewBox="0 0 80 60" fill="none" stroke="#fff" strokeWidth={1.6} strokeLinecap="round" aria-hidden="true">
+          <path d="M12 54h56M16 54V36h48v18M16 44q6 5 12 0t12 0 12 0 12 0M40 36V26M40 26c-3-4 0-8 0-8s3 4 0 8zM28 36v-7M52 36v-7" />
+          <path d="M26 10l1.5 3 3 1.5-3 1.5L26 19l-1.5-3-3-1.5 3-1.5zM56 8l1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
+        </svg>
+        <div className="ebd-scr">{tagline}</div>
+        {ageNum ? (
+          <div className="ebd-o4">Celebrating <span>{ageNum}</span> years<br /><em>of {first}</em></div>
+        ) : (
+          <div className="ebd-o4">It&rsquo;s <em>{first}</em>&rsquo;s day</div>
+        )}
+        <div className="ebd-scr2">{sub}</div>
+        {dtOk && <EbdWeekStrip date={date} />}
+        <div className="ebd-o7">{venue}</div>
+        <button className="ebd-rsvp" onClick={(e) => { e.stopPropagation(); if (onRsvp) onRsvp(); }}>RSVP</button>
+      </div>
+    </div>
+  );
+
+  const arcHero = (
+    <div className="ebd-arcH" onClick={() => setPz((v) => !v)} title="Tap to pause or resume">
+      <div className="ebd-hb">HAPPY BIRTHDAY</div>
+      <i className="ebd-spk" style={{ left: 22, top: 84 }} />
+      <i className="ebd-spk" style={{ right: 24, top: 110, animationDelay: '-1s' }} />
+      <i className="ebd-spk" style={{ right: 40, top: 380, animationDelay: '-1.8s' }} />
+      <div className={`ebd-dn ebd-sp${pz ? ' ebd-pz' : ''}`}>
+        {[0,1,2,3,4,5].map((i) => {
+          const am = (i * 60 + 30) * (Math.PI / 180);
+          const cx = 190 + 142.5 * Math.sin(am), cy = 190 - 142.5 * Math.cos(am);
+          return (
+            <div key={i} className="ebd-sc" style={{ clipPath: ebdPoly(95, 190, i * 60, i * 60 + 60, 2.5) }}>
+              <i className={`ebd-sp${pz ? ' ebd-pz' : ''}`} style={{ left: cx - 100, top: cy - 100, backgroundImage: `url(${safePics[i % np]})` }} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="ebd-fig" style={{ backgroundImage: `url(${safePics[0]})` }} />
+      <div className="ebd-sn">{first}</div>
+      {dtOk && <div className="ebd-wkb"><EbdWeekStrip date={date} /></div>}
+    </div>
+  );
+
+  return (
+    <div className={`ebd ${dk ? 'ebd-skin-dk' : 'ebd-skin-lt'}`} style={{ background: 'var(--pl)', color: 'var(--tx)' }}>
+      {dk ? orbitHero : arcHero}
+      <div className="ebd-pad" style={{ paddingTop: dk ? 14 : 12 }}>
+        <EbdCountdown date={date} city={String(city || '')} />
+        {dtOk && <EbdCalendar date={date} />}
+        <div className="ebd-pt" style={{ marginBottom: 8 }}>The celebration</div>
+        <div>
+          {(events || []).map((e: any, i: number) => {
+            const st = e.status === 'done' ? ' s0' : e.status === 'next' ? ' s1' : '';
+            const lbl = e.status === 'done' ? 'Done' : e.status === 'next' ? 'Next up' : 'Upcoming';
+            const open = openEventId === e.id;
+            const imgs: string[] = e.images || [];
+            return (
+              <div key={e.id || i}>
+                <button type="button" className={`ebd-st${st}`} onClick={() => onToggle(e.id)}>
+                  <i /><b>{e.name}</b><span>{lbl}</span>
+                </button>
+                {open && (
+                  <div className="ebd-stdet">
+                    {e.desc ? <p style={{ margin: '10px 0 0' }}>{e.desc}</p> : null}
+                    <div className="ebd-dt">
+                      <span>{fmtEventDate(e)}</span>
+                      {e.venue ? <span>{e.venue}</span> : null}
+                    </div>
+                    {imgs.length > 0 && (
+                      <div className="ebd-dt" style={{ paddingTop: 8 }}>
+                        {imgs.slice(0, 4).map((u, k) => <img key={k} src={u} alt="" onClick={() => openFooterLightbox(u)} />)}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BirthdayWishBanner({ name, skin }: { name: string; skin: 'dk' | 'lt' }) {
+  const dk = skin === 'dk';
+  return (
+    <div style={{ background: dk ? '#0d0d0d' : '#F7EDEF', color: dk ? '#fff' : '#3A1020', borderRadius: 20, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 18 }}>
+      <svg width="30" height="52" viewBox="0 0 30 52" fill="none" aria-hidden="true">
+        <rect x="11" y="18" width="8" height="32" rx="2" fill={dk ? '#ffffff' : '#7A1F3A'} opacity={dk ? 0.9 : 0.85} />
+        <ellipse cx="15" cy="12" rx="3" ry="6" fill="#E5332A" style={{ animation: 'ebd-fl 1.4s ease-in-out infinite alternate' }} />
+        <ellipse cx="15" cy="14" rx="2" ry="3.4" fill="#FFD27A" style={{ animation: 'ebd-fl 1.1s ease-in-out infinite alternate-reverse' }} />
+      </svg>
+      <div>
+        <div style={{ fontFamily: '"Great Vibes",cursive', fontSize: 24, lineHeight: 1.15 }}>Make a wish for {name}</div>
+        <div style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, color: dk ? '#bdbdbd' : '#7A5560', marginTop: 4 }}>One wish, kept on the birthday wall</div>
+      </div>
+    </div>
+  );
+}
 
 function FloatingHeroSection({ isDarkMode, images, eventNames, compact = false }: { isDarkMode: boolean, images: string[], eventNames?: string[], compact?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);

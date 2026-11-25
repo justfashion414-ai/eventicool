@@ -158,6 +158,7 @@ export const query: any = (col: any, ...clauses: any[]) => DEMO ? { ...col, clau
 export const orderBy: any = (f: string, d?: string) => DEMO ? { t: 'order' } : FS.orderBy(f, d);
 export const where: any = (f: string, o: string, v: any) => DEMO ? { t: 'where' } : (FS as any).where(f, o, v);
 export const limit: any = (n: number) => DEMO ? { t: 'limit' } : FS.limit(n);
+export const startAfter: any = (...snaps: any[]) => DEMO ? { t: 'startAfter' } : (FS.startAfter as any)(...snaps);
 export const serverTimestamp: any = () => DEMO ? { __sv: 1 } : FS.serverTimestamp();
 export const increment: any = (n: number) => DEMO ? { __inc: n } : FS.increment(n);
 

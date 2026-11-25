@@ -18,10 +18,17 @@ service cloud.firestore {
     return isSuper() || (request.auth != null && request.auth.token.email != null
       && exists(/databases/$(database)/documents/apps/$(app)/admins/$(request.auth.token.email)));
   }
+  function feedBound() {
+    // Platform feed page size (platform/settings.feedPageSize): how many
+    // approved posts a guest's feed reads per page. 0 or missing = uncapped.
+    if (!exists(/databases/$(database)/documents/platform/settings)) return 0;
+    return get(/databases/$(database)/documents/platform/settings).data.get('feedPageSize', 0);
+  }
     match /platform/{doc=**} { allow read: if true; allow write: if false; }
     match /leads/{doc=**} { allow read: if true; allow write: if false; }
     match /events/{doc=**} { allow read: if false; allow write: if false; }
     match /health/{doc} { allow read: if true; allow write: if false; }
+    match /analytics_daily/{doc=**} { allow read: if isSuper(); allow write: if false; }
     match /app_config/{doc=**} { allow read: if true; allow write: if false; }
     match /posts/{doc=**} { allow read: if true; allow write: if false; }
     match /residents/{doc=**} { allow read: if true; allow write: if false; }
@@ -33,8 +40,14 @@ service cloud.firestore {
     }
     match /apps/{app} {
       match /app_config/{doc=**} { allow read: if true; allow write: if isAdminIn(app); }
+      match /meta/{doc=**} { allow read: if isAdminIn(app); allow write: if false; }
       match /posts/{postId} {
-        allow read: if true;
+        // Listing the feed is capped to the platform page size for guests;
+        // admins read the whole collection. Single-post gets stay open.
+        allow get: if true;
+        allow list: if isAdminIn(app)
+          || !(feedBound() > 0)
+          || (request.query.limit != null && request.query.limit <= feedBound());
         allow create: if request.auth != null && (
           isAdminIn(app)
           || request.resource.data.get('pending', false) == true
