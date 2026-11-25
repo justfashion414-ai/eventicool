@@ -2468,13 +2468,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       mk('bd-close', 'Closing & farewell', '18:00', 'Thank you, goodie bags and safe trips home.'),
     ];
   };
-  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : (DETAILS.occasion === 'birthday' ? birthdayLineup() : eventsData())), [cfgEvents, leadWedDate, DETAILS]);
-  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
   // ?occ=birthday (previews only): forces the birthday pack on a generic app
   // so the console can preview birthday looks without a real app. Never
   // applies to a real couple's app, which runs with DEMO off.
   const demoOcc: any = (() => { try { if (DEMO && new URLSearchParams(window.location.search).get('occ') === 'birthday') return { occasion: 'birthday', celebrant: 'Chidera', celebrantAge: '50', hostedBy: 'Friends & family' }; } catch { /* ignore */ } return null; })();
   const DETAILS: any = useMemo(() => withBirthdayDefaults(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || (demoOcc ? { ...detailsData(), ...demoOcc } : detailsData()))))), [cfgDetails]);
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : (DETAILS.occasion === 'birthday' ? birthdayLineup() : eventsData())), [cfgEvents, leadWedDate, DETAILS]);
+  const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
