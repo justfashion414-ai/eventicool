@@ -16,10 +16,11 @@ const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // back and forth keeps working.
 function applyStatic(from: Celebration | null, to: Celebration) {
   const root = document.getElementById('ev-l')
-  if (root && from !== to) {
-    const steps: Array<[Celebration | null, Celebration]> = []
-    if (from && from.slug !== to.slug && from.slug !== 'wedding') steps.push([from, bySlug.wedding])
-    if (to.slug !== 'wedding') steps.push([bySlug.wedding, to])
+  const stepsPre: Array<[Celebration | null, Celebration]> = []
+  if (from && from.slug !== to.slug && from.slug !== 'wedding') stepsPre.push([from, bySlug.wedding])
+  if (to.slug !== 'wedding') stepsPre.push([bySlug.wedding, to])
+  if (root && stepsPre.length) {
+    const steps = stepsPre
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     const nodes: Text[] = []
     let n: Node | null
