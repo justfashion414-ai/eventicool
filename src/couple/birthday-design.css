@@ -1,0 +1,97 @@
+/* Eventicor birthday design: faithful port of the design-file mockups.
+   Template 1 (orbit ring) uses the dark skin; template 2 (arc carousel)
+   uses the light skin. Class prefix ebd- keeps it clear of app styles. */
+.ebd{font-family:"Plus Jakarta Sans",system-ui,sans-serif}
+.ebd-skin-dk{--pl:#000;--sf:#151515;--sf2:#2c2c2c;--tx:#fff;--mu:#bdbdbd;--ac:#fff;--ac2:#fff;--rg:#E5332A}
+.ebd-skin-lt{--pl:#fff;--sf:#F7EDEF;--sf2:#EBD6DB;--tx:#3A1020;--mu:#7A5560;--ac:#7A1F3A;--ac2:#7A1F3A;--rg:#D8262F}
+
+.ebd-pt{font:700 10px "Plus Jakarta Sans";letter-spacing:.14em;text-transform:uppercase;color:var(--ac)}
+
+/* countdown row */
+.ebd-cd{display:flex;gap:6px;margin:12px 0}
+.ebd-cd>div{flex:1;background:var(--sf);border-radius:14px;padding:9px 4px;text-align:center;font-size:10px;color:var(--mu)}
+.ebd-cd b{display:block;font:800 18px Fraunces,serif;color:var(--ac)}
+.ebd-cd b.ebd-cty{font-size:14px;padding:3px 0}
+
+/* stage rows */
+.ebd-st{display:flex;width:100%;align-items:center;gap:10px;padding:12px;border-radius:14px;background:var(--sf);margin-bottom:7px;text-align:left;min-height:48px;border:0;cursor:pointer;color:var(--tx);font:inherit}
+.ebd-st i{width:12px;height:12px;border-radius:50%;flex:none;border:2px solid var(--mu)}
+.ebd-st.s0 i{background:var(--ac);border-color:var(--ac)}
+.ebd-st.s1{background:var(--sf2)}
+.ebd-st.s1 i{background:var(--ac2);border-color:var(--ac2)}
+.ebd-st b{flex:1;font-size:13px}
+.ebd-st span{font-size:11px;font-weight:700;color:var(--mu)}
+.ebd-stdet{background:var(--sf);border-radius:14px;margin:-3px 0 7px;padding:0 12px 12px;font-size:12.5px;color:var(--mu)}
+.ebd-stdet .ebd-dt{display:flex;gap:6px;flex-wrap:wrap;padding-top:10px}
+.ebd-stdet .ebd-dt span{background:var(--sf2);border-radius:99px;padding:4px 10px;font-size:10.5px;font-weight:700}
+.ebd-stdet .ebd-dt img{width:64px;height:64px;object-fit:cover;border-radius:10px}
+
+/* calendar */
+.ebd-cal{background:var(--sf);border-radius:18px;padding:14px;margin:8px 0 14px}
+.ebd-calh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.ebd-calh b{font:800 20px Fraunces,serif;letter-spacing:.06em}
+.ebd-calh span{color:var(--mu);font-size:12px}
+.ebd-calg{display:grid;grid-template-columns:repeat(7,1fr);row-gap:4px;text-align:center;font-size:12px}
+.ebd-wd{font-size:10px;font-weight:700;color:var(--ac);padding-bottom:4px}
+.ebd-dy{position:relative;height:30px;line-height:30px}
+.ebd-dy.x{color:var(--mu)}
+.ebd-dy.x::after{content:"";position:absolute;left:20%;right:20%;top:50%;height:2px;background:var(--mu);transform:rotate(-35deg);animation:ebd-cr .25s calc(var(--k)*.03s) backwards}
+.ebd-dy.bdy{font-weight:800;font-size:14px;color:#fff;isolation:isolate}
+.ebd-skin-lt .ebd-dy.bdy{color:var(--tx)}
+.ebd-dy.bdy::before{content:"";position:absolute;inset:2px;border-radius:50%;background:var(--ac2);opacity:.35;z-index:-1;animation:ebd-pl 2s ease-in-out infinite}
+.ebd-rg{position:absolute;left:-10px;top:-4px;width:calc(100% + 20px);height:calc(100% + 8px);overflow:visible}
+.ebd-rg path{fill:none;stroke:var(--rg,var(--ac));stroke-width:4;stroke-linecap:round;stroke-dasharray:100;animation:ebd-dw .9s ease-out backwards}
+.ebd-bu{position:absolute;inset:0;pointer-events:none}
+.ebd-bu i{position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:var(--ac);animation:ebd-bu 1.2s ease-out both}
+@keyframes ebd-dw{from{stroke-dashoffset:100}}
+@keyframes ebd-cr{from{transform:rotate(-35deg) scaleX(0)}}
+@keyframes ebd-bu{from{opacity:1;transform:rotate(var(--r)) translateY(-6px)}to{opacity:0;transform:rotate(var(--r)) translateY(-28px)}}
+@keyframes ebd-pl{50%{transform:scale(1.3);opacity:.12}}
+
+/* weekday strip */
+.ebd-wm{font:700 6.5px "Plus Jakarta Sans";letter-spacing:.2em;color:#8e8e8e}
+.ebd-wk{display:flex;margin:2px 0}
+.ebd-wc{position:relative;width:20px;font:700 9px/1.5 Fraunces,serif;color:#cfcfcf}
+.ebd-wc small{display:block;font:600 7px "Plus Jakarta Sans";color:#8e8e8e}
+.ebd-wc.wb{color:#fff}
+.ebd-wc .ebd-rg{left:-3px;top:6px;width:calc(100% + 6px);height:calc(100% - 5px)}
+
+/* orbit ring hero (dark skin) */
+.ebd-oh{position:relative;height:540px;overflow:hidden;cursor:pointer;background:#000}
+.ebd-osv{position:absolute;left:-330px;top:-60px;width:660px;height:660px}
+.ebd-disc{position:absolute;left:0;top:105px;width:165px;height:330px;border-radius:0 165px 165px 0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#fff;gap:2px;padding:4px 8px}
+.ebd-o1{font:600 11px Fraunces,serif;letter-spacing:.28em;text-transform:uppercase}
+.ebd-disc svg.ebd-ck2{width:44px;height:30px}
+.ebd-scr{font:400 19px/1 "Great Vibes",cursive}
+.ebd-o4{font:600 9px/1.25 Fraunces,serif;letter-spacing:.1em;text-transform:uppercase}
+.ebd-o4 em{font-weight:600;font-style:italic;letter-spacing:.14em}
+.ebd-scr2{font:400 13px/1 "Great Vibes",cursive;color:#e6e6e6}
+.ebd-o7{font:600 6.5px "Plus Jakarta Sans";letter-spacing:.06em;color:#ddd;text-align:center}
+.ebd-rsvp{background:#8a8a8a;color:#fff;font:700 8px "Plus Jakarta Sans";letter-spacing:.14em;padding:4px 14px;border-radius:3px;min-height:22px;border:0;cursor:pointer}
+
+/* arc carousel hero (light skin) */
+.ebd-arcH{position:relative;height:510px;overflow:hidden;cursor:pointer}
+.ebd-hb{display:flex;align-items:center;justify-content:center;gap:10px;position:absolute;top:22px;left:0;right:0;text-align:center;font:600 16px "Plus Jakarta Sans";letter-spacing:.32em;color:var(--ac);padding-left:.32em}
+.ebd-hb::before,.ebd-hb::after{content:"";width:22px;height:1px;background:var(--ac);opacity:.5}
+.ebd-spk{position:absolute;width:12px;height:12px;background:var(--ac);clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%);opacity:.6;animation:ebd-tw 2.6s ease-in-out infinite}
+.ebd-dn{position:absolute;left:50%;margin-left:-190px;top:60px;width:380px;height:380px}
+.ebd-sc{position:absolute;inset:0}
+.ebd-sc i{position:absolute;width:200px;height:200px;background-size:cover;background-position:center}
+.ebd-dn i.ebd-sp{animation-direction:reverse}
+.ebd-fig{position:absolute;left:70px;width:180px;top:150px;bottom:70px;border-radius:90px 90px 0 0;box-shadow:0 10px 24px rgba(58,16,32,.4);background-size:cover;background-position:center 12%;z-index:2}
+.ebd-sn{position:absolute;left:0;right:0;bottom:84px;text-align:center;z-index:3;font:400 38px/1 "Great Vibes",cursive;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.75);pointer-events:none}
+.ebd-wkb{position:absolute;left:0;right:0;top:454px;text-align:center;z-index:3}
+.ebd-wkb .ebd-wk{justify-content:center}
+.ebd-wkb .ebd-wm{color:var(--mu);font-size:8px}
+.ebd-wkb .ebd-wc{width:44px;font-size:17px;color:var(--tx)}
+.ebd-wkb .ebd-wc small{font-size:8px;color:var(--mu)}
+.ebd-wkb .ebd-wc.wb{color:var(--tx);font-weight:800}
+.ebd-wkb .ebd-wc .ebd-rg{left:3px;top:13px;width:calc(100% - 6px);height:26px}
+
+.ebd-sp{animation:ebd-spin 60s linear infinite}
+.ebd-pz{animation-play-state:paused!important}
+.ebd-pad{padding:0 16px}
+@keyframes ebd-spin{to{transform:rotate(360deg)}}
+@keyframes ebd-tw{50%{opacity:.1;transform:scale(.6)}}
+
+@keyframes ebd-fl{0%,100%{transform:scale(1) rotate(-3deg)}50%{transform:scale(1.2,.88) rotate(3deg)}}
