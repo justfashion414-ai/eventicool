@@ -1,5 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import LandingMarketing from './landing/LandingMarketing'
+import { bySlug, typeFromPath, typeFromQuery, getSavedCelebration } from './landing/celebrations'
 import Login from './components/Login'
 import GuestEntry from './components/GuestEntry'
 import MailTest from './components/MailTest'
@@ -154,5 +155,17 @@ export default function App() {
     )
   }
 
+  // Celebration routing: a type path or ?type= lands straight on that type;
+  // the main URL shows the saved choice, or the picker for a first visit.
+  const slugPath = typeFromPath(window.location.pathname)
+  const slugQuery = typeFromQuery(window.location.search)
+  if (slugPath || slugQuery) {
+    return <LandingMarketing type={(slugPath || slugQuery) as string} />
+  }
+  if (route === '/') {
+    const saved = getSavedCelebration()
+    if (saved) return <LandingMarketing type={saved} />
+    return <LandingMarketing type="wedding" picker />
+  }
   return <LandingMarketing />
 }
