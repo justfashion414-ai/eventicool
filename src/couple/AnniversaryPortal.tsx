@@ -4286,7 +4286,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     <label className={`block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50 ${isDarkMode ? 'text-white' : 'text-[#14262D]'}`}>Display Name</label>
                     <input 
                       type="text"
-                      placeholder="e.g. Tolu (the bride's cousin)"
+                      placeholder={DETAILS.occasion === 'birthday' ? "e.g. Tolu (the celebrant's cousin)" : "e.g. Tolu (the bride's cousin)"}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className={`w-full p-4 rounded-xl border-none outline-none font-bold transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
@@ -4370,18 +4370,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px]">
                   <strong className="block text-[1rem]">{demoHeader()}{DEMO ? '' : ' 2026'}</strong>
-                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
+                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Birthday Memories Portal. Made with love.' : 'Wedding Memories Portal. Made with love.'}</small>
                 </div>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
                   <div>
                     <strong className="block text-[1rem]">Report a problem</strong>
-                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tell the couple if something looks wrong</small>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Tell the celebrant if something looks wrong' : 'Tell the couple if something looks wrong'}</small>
                   </div>
                   <button onClick={() => { setReportText(''); setReportOpen(true); }} className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
                 </div>
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
                   <span className={`text-xs font-bold tracking-wide select-none ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                    Happy Wedding, {demoHeader()}
+                    {DETAILS.occasion === 'birthday' ? 'Happy Birthday,' : 'Happy Wedding,'} {demoHeader()}
                   </span>
                 </div>
               </div>
@@ -5177,7 +5177,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setReportOpen(false)}>
           <div className={`w-full max-w-[360px] rounded-[24px] p-6 text-left ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
             <h3 className="font-black font-display text-lg mb-1">Report a problem</h3>
-            <p className="text-sm opacity-60 mb-4">Tell the couple what went wrong. It reaches them with your name{avatar ? ' and photo' : ''}.</p>
+            <p className="text-sm opacity-60 mb-4">{DETAILS.occasion === 'birthday' ? 'Tell the celebrant what went wrong.' : 'Tell the couple what went wrong.'} It reaches them with your name{avatar ? ' and photo' : ''}.</p>
             {displayName.trim() ? (
               <>
                 <textarea
