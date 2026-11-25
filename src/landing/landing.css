@@ -374,7 +374,7 @@ body.ev-picker-open{overflow:hidden}
 #ev-l .hero-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 #ev-l .hero-bg .hs-stage{position:absolute;inset:0;transition:opacity 1.2s ease}
 #ev-l .hero .w{position:relative;z-index:1}
-#ev-l.ev-heroimg .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(23,22,46,.74),rgba(23,22,46,.6) 55%,rgba(23,22,46,.8));backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+#ev-l.ev-heroimg .hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(23,22,46,.8),rgba(23,22,46,.66) 55%,rgba(23,22,46,.84));backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
 #ev-l.ev-heroimg .hero h1,#ev-l.ev-heroimg .hero h1 em{color:#fff}
 #ev-l.ev-heroimg .hero .sub{color:rgba(255,255,255,.86)}
 #ev-l.ev-heroimg .hero .trust{color:rgba(255,255,255,.9)}
