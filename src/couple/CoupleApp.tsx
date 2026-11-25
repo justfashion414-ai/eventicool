@@ -6,7 +6,7 @@ import { enableRealAuth } from './lib/authShim';
 import BootLoader from '../components/BootLoader';
 
 // Six Eventicor accents, mapped onto the couple app's palette.
-const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = {
+const ACCENTS: Record<string, { accent: string; hero: string; soft: string; grad?: string }> = {
   midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
   blush:    { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
   emerald:  { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
@@ -15,8 +15,12 @@ const ACCENTS: Record<string, { accent: string; hero: string; soft: string }> = 
   sage:     { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
   party:    { accent: '#e5399e', hero: '#8f1650', soft: '#fde5f1' },
   sunbeam:  { accent: '#ea580c', hero: '#7c2d12', soft: '#ffedd5' },
+  jubilee:  { accent: '#F5B82E', hero: '#241035', soft: '#FFF6E5', grad: 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)' },
+  orchid:   { accent: '#A855F7', hero: '#2A1240', soft: '#F3E8FF', grad: 'linear-gradient(150deg,#2A1240 0%,#6D28D9 70%,#EC4899 125%)' },
+  peacock:  { accent: '#22D3EE', hero: '#062E2B', soft: '#E0F7F4', grad: 'linear-gradient(150deg,#062E2B 0%,#0E7490 70%,#22D3EE 125%)' },
+  ember:    { accent: '#FB7185', hero: '#3B0A1E', soft: '#FFE4E6', grad: 'linear-gradient(150deg,#3B0A1E 0%,#BE123C 62%,#FB923C 130%)' },
 };
-const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal', 'bd-party': 'party', 'bd-gold': 'sunbeam' };
+const TPL_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal', 'bd-party': 'party', 'bd-gold': 'jubilee' };
 
 // Sample apps are marketing leads an admin shares by hand. Their link carries
 // its own 3-day expiry (?exp=unix seconds) plus the lead id (?lead=), so a

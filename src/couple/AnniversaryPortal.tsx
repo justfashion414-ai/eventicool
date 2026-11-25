@@ -929,7 +929,7 @@ const ACCENT_CHOICES: [string, string, string][] = [
   ['party', 'Party', '#e5399e'],
   ['sunbeam', 'Sunbeam', '#ea580c'],
 ];
-const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }> = {
+const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string; grad?: string }> = {
   midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
   blush: { accent: '#d6285f', hero: '#8f1c42', soft: '#fbe1e8' },
   emerald: { accent: '#0c4a36', hero: '#07301f', soft: '#e4efe7' },
@@ -938,6 +938,10 @@ const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }
   sage: { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
   party: { accent: '#e5399e', hero: '#8f1650', soft: '#fde5f1' },
   sunbeam: { accent: '#ea580c', hero: '#7c2d12', soft: '#ffedd5' },
+  jubilee: { accent: '#F5B82E', hero: '#241035', soft: '#FFF6E5', grad: 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)' },
+  orchid: { accent: '#A855F7', hero: '#2A1240', soft: '#F3E8FF', grad: 'linear-gradient(150deg,#2A1240 0%,#6D28D9 70%,#EC4899 125%)' },
+  peacock: { accent: '#22D3EE', hero: '#062E2B', soft: '#E0F7F4', grad: 'linear-gradient(150deg,#062E2B 0%,#0E7490 70%,#22D3EE 125%)' },
+  ember: { accent: '#FB7185', hero: '#3B0A1E', soft: '#FFE4E6', grad: 'linear-gradient(150deg,#3B0A1E 0%,#BE123C 62%,#FB923C 130%)' },
 };
 const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
@@ -3566,20 +3570,89 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
               <rect x="2.2%" y="2.2%" width="95.6%" height="95.6%" rx="28" pathLength="100" fill="none" stroke="#C8932A" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="9 91" style={{ animation: 'ev-edge-run 4.2s linear infinite', willChange: 'stroke-dashoffset' }} />
             </svg>
-            {/* SPLASH: DARA & FEMI */}
+            {/* SPLASH: wedding keeps its banner; birthday gets its own gold-hour splash */}
+            {demoBirthday() ? (
+            <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
+              <style>{BD_ANIM_CSS}</style>
+              {/* ACCENT GRADIENT WASH + GLOW */}
+              <div aria-hidden="true" className="absolute inset-[-12%] z-0 pointer-events-none"
+                style={{ background: (ACCENT_VARS[accentKey] && ACCENT_VARS[accentKey].grad) || 'linear-gradient(155deg,#241035 0%,#3A1D5C 48%,#B3361F 130%)', opacity: 0.55, filter: 'blur(2px)' }} />
+              <div aria-hidden="true" className="absolute z-0 pointer-events-none rounded-full"
+                style={{ width: '130vw', height: '130vw', left: '-15vw', top: '62%', background: 'radial-gradient(circle, rgba(245,184,46,.20) 0%, rgba(245,184,46,0) 62%)' }} />
+              {/* GIANT AGE NUMERAL WATERMARK */}
+              {!DETAILS.ageHidden && DETAILS.celebrantAge ? (
+                <div aria-hidden="true" className="absolute left-1/2 -translate-x-1/2 font-black leading-none select-none pointer-events-none z-0"
+                  style={{ top: '2%', fontSize: 'clamp(12rem,58vw,19rem)', color: 'transparent', WebkitTextStroke: '2px rgba(255,255,255,0.13)' }}>
+                  {DETAILS.celebrantAge}
+                </div>
+              ) : null}
+              {/* DRIFTING BALLOONS */}
+              <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <span key={i} className="absolute rounded-[50%_50%_48%_48%/58%_58%_42%_42%]"
+                    style={{
+                      left: `${[7, 25, 66, 83, 47][i]}%`, bottom: -70,
+                      width: [40, 30, 36, 26, 22][i], height: [48, 38, 44, 32, 27][i],
+                      background: ['var(--ann-accent)', 'rgba(255,255,255,.5)', 'var(--ann-accent)', 'rgba(255,255,255,.35)', 'rgba(245,184,46,.8)'][i],
+                      opacity: 0.55,
+                      animation: `ev-balloons ${[10, 13, 11, 14, 12][i]}s ease-in-out ${-i * 2.2}s infinite alternate`,
+                    }} />
+                ))}
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <i key={`s${i}`} className="absolute rounded-full" style={{ left: `${(i * 41 + 6) % 94}%`, top: `${(i * 23 + 8) % 88}%`, width: 3, height: 3, background: '#FFE9A8', opacity: 0, animation: `ev-twinkle ${2 + (i % 4)}s ease-in-out ${-i * 0.55}s infinite` }} />
+                ))}
+              </div>
+              <motion.div
+                initial={{ scale: 0.94, opacity: 0, y: 14 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ duration: 0.75, ease: "circOut" }}
+                className="relative z-10"
+              >
+                <p className="text-[0.78rem] font-black uppercase tracking-[0.3em] text-white/70 m-0 mb-5">{cfgIdentity?.kicker || 'Family, friends & well-wishers'}</p>
+                <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0 drop-shadow-[0_6px_24px_rgba(0,0,0,0.45)]">
+                  {demoBride()}
+                </h1>
+                {!DETAILS.ageHidden && DETAILS.celebrantAge ? (
+                  <span className="inline-flex items-center mt-5 px-4 py-1.5 rounded-full text-[0.72rem] font-black uppercase tracking-[0.26em] text-[#241035]"
+                    style={{ background: 'linear-gradient(120deg,#FFE9A8,#F5B82E)' }}>
+                    The big {DETAILS.celebrantAge}
+                  </span>
+                ) : null}
+                <p className="font-serif-display italic text-[#FFE9A8] text-[clamp(1.15rem,5.4vw,1.55rem)] mt-5 mb-0 leading-snug">One day. Every wish. All of you.</p>
+                <p className="text-white/70 text-[0.85rem] mt-4 mb-0">
+                  {(() => { try { return new Date(`${WEDDING_DATE}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return WEDDING_DATE; } })()}
+                  {DETAILS.churchVenue ? ` · ${String(DETAILS.churchVenue).split('|')[0].trim()}` : ''}
+                </p>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.9, duration: 0.6 }}
+                className="mt-9 relative z-10"
+              >
+                <span className="relative overflow-hidden inline-flex items-center px-8 py-3.5 rounded-full text-white text-[0.75rem] font-black uppercase tracking-[0.28em]"
+                  style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.4)', backdropFilter: 'blur(4px)' }}>
+                  <i aria-hidden="true" className="absolute inset-y-0 left-0 w-1/3 pointer-events-none"
+                    style={{ background: 'linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.5) 50%, rgba(255,255,255,0) 100%)', animation: 'ev-shimmer 2.6s ease-in-out infinite' }} />
+                  <span className="relative">Tap to enter</span>
+                </span>
+                <p className="text-white/55 text-[0.72rem] mt-4 mb-0 font-black uppercase tracking-[0.2em]">Birthday memories, kept for life</p>
+              </motion.div>
+            </div>
+            ) : (
             <div className="relative z-10 flex flex-col items-center max-w-full px-6 text-center pointer-events-none">
               <motion.div
                 initial={{ scale: 0.94, opacity: 0, y: 14 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 transition={{ duration: 0.75, ease: "circOut" }}
               >
-                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">{cfgIdentity?.kicker || (demoBirthday() ? 'Family, friends & well-wishers' : 'Together with their families')}</p>
+                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">{cfgIdentity?.kicker || 'Together with their families'}</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
                   {demoBride()}
-                  {demoBirthday() ? null : <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>}
-                  {demoBirthday() ? null : demoGroom()}
+                  <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
+                  {demoGroom()}
                 </h1>
-                <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">{demoBirthday() ? 'Birthday memories, kept for life.' : 'Wedding memories, kept for life.'}</p>
+                <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
               </motion.div>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -3590,6 +3663,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <span className="inline-flex items-center px-8 py-3.5 rounded-full bg-white/15 border border-white/35 text-white text-[0.75rem] font-black uppercase tracking-[0.28em]">Tap to enter</span>
               </motion.div>
             </div>
+            )}
             {/* EVENTICOR BRANDING, BOTTOM OF THE ENTRY BANNER */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -3753,7 +3827,27 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               </section>
               )}
 
-              {/* THE JOURNEY — expandable dropdowns, one open at a time */}
+              {/* THE CELEBRATION (birthday, from the design file) / THE JOURNEY */}
+              {DETAILS.occasion === 'birthday' && (
+                <>
+                  <BirthdayCelebration
+                    events={EVENTS_VIS}
+                    variant={heroTemplate === 'bd-gold' ? 'gold' : 'party'}
+                    celebrant={String(DETAILS.celebrant || '')}
+                    age={DETAILS.celebrantAge ? String(DETAILS.celebrantAge) : undefined}
+                    ageHidden={!!DETAILS.ageHidden}
+                    date={WEDDING_DATE}
+                    images={heroImages.length > 0 ? heroImages : (DEMO ? DEMO_PHOTOS : PLACEHOLDER_IMAGES)}
+                    labels={EVENTS_VIS.map((e: any) => e.name)}
+                    openEventId={openEventId}
+                    onToggle={(id) => setOpenEventId(openEventId === id ? null : id)}
+                    fmtEventDate={fmtEventDate}
+                    openFooterLightbox={openFooterLightbox}
+                  />
+                  <BirthdayWishBanner name={String(DETAILS.celebrant || '')} gold={heroTemplate === 'bd-gold'} />
+                </>
+              )}
+              {DETAILS.occasion !== 'birthday' && (
               <section id="journey" className="mt-8">
                 <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? "The day's line-up" : 'The journey'}</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
@@ -3818,6 +3912,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   })}
                 </div>
               </section>
+              )}
 
                             {/* WEDDING DAY DETAILS */}
               {!HIDDEN_SECTIONS.includes('details') && (
@@ -12902,6 +12997,329 @@ const heroPreloadedUrls = new Set<string>();
 // celebrant's name and the giant age numeral. 'gold' is the restrained
 // milestone look: a gold-ringed portrait on a deep, quiet backdrop. Both
 // fall back gracefully when a field is empty so the hero never renders blank.
+/* ===== BIRTHDAY CELEBRATION SECTION (from the birthday design file) =====
+   Ported from the design file's first two birthday looks: the animated
+   calendar (crossed-off days, a hand-drawn ring that draws itself around
+   the big day, a burst of sparks) and the two photo carousels — the
+   orbital ring with curved captions (gold look) and the rotating sector
+   disc with an arch portrait (party look). */
+
+function bdArcPoint(r: number, a: number) {
+  const t = (a * Math.PI) / 180;
+  return `${(r * Math.sin(t)).toFixed(1)} ${(-r * Math.cos(t)).toFixed(1)}`;
+}
+function bdArcSeg(ri: number, ro: number, a0: number, a1: number) {
+  return `M${bdArcPoint(ro, a0)}A${ro} ${ro} 0 0 1 ${bdArcPoint(ro, a1)}L${bdArcPoint(ri, a1)}A${ri} ${ri} 0 0 0 ${bdArcPoint(ri, a0)}Z`;
+}
+function bdSectorClip(ro: number, ri: number, a0: number, a1: number, h: number) {
+  const q = 180 / Math.PI;
+  const C = (r: number, a: number) => { const t = (a * Math.PI) / 180; return `${(ro + r * Math.sin(t)).toFixed(1)}px ${(ro - r * Math.cos(t)).toFixed(1)}px`; };
+  const o0 = a0 + Math.atan(h / ro) * q, o1 = a1 - Math.atan(h / ro) * q;
+  const i0 = a0 + Math.atan(h / ri) * q, i1 = a1 - Math.atan(h / ri) * q;
+  const pts: string[] = [];
+  for (let k = 0; k <= 12; k++) pts.push(C(ro, o0 + ((o1 - o0) * k) / 12));
+  for (let k = 12; k >= 0; k--) pts.push(C(ri, i0 + ((i1 - i0) * k) / 12));
+  return `polygon(${pts.join(',')})`;
+}
+
+const BD_ANIM_CSS = `
+@keyframes ev-ring-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes ev-bdy-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes ev-burst { 0% { transform: rotate(var(--r)) translateY(0); opacity: 1; } 100% { transform: rotate(var(--r)) translateY(-14px); opacity: 0; } }
+@keyframes ev-strike { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ev-orbit-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes ev-candle-flicker { 0%,100% { transform: scale(1) skewX(0deg); opacity: 1; } 30% { transform: scale(1.12,.9) skewX(2.5deg); opacity: .92; } 60% { transform: scale(.9,1.14) skewX(-2.5deg); opacity: 1; } }
+@keyframes ev-balloons { 0% { transform: translateY(8vh) rotate(-3deg); } 100% { transform: translateY(-46vh) rotate(4deg); } }
+@keyframes ev-shimmer { 0% { transform: translateX(-140%); } 60%,100% { transform: translateX(340%); } }
+@keyframes ev-twinkle { 0%,100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.25); } }
+`;
+
+function BirthdayCalendar({ date, variant }: { date: string; variant: 'gold' | 'party' }) {
+  const gold = variant === 'gold';
+  const dt = new Date(`${date}T12:00:00`);
+  if (isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear(), m = dt.getMonth(), dn = dt.getDate();
+  const first = new Date(y, m, 1).getDay();
+  const dim = new Date(y, m + 1, 0).getDate();
+  const month = dt.toLocaleDateString('en-GB', { month: 'long' });
+  const ink = gold ? '#F1E8D2' : '#2B1247';
+  const mu = gold ? 'rgba(241,232,210,.5)' : 'rgba(43,18,71,.5)';
+  const ac = gold ? '#F5B82E' : '#B3361F';
+  const ringCol = gold ? '#F5B82E' : '#2B1247';
+  const dl = +(dn * 0.03 + 0.25).toFixed(2);
+  const cells: React.ReactNode[] = [];
+  for (let i = 0; i < first; i++) cells.push(<span key={`b${i}`} />);
+  for (let k = 1; k <= dim; k++) {
+    if (k === dn) {
+      cells.push(
+        <span key={k} className="relative inline-grid place-items-center rounded-full text-white font-black text-[13.5px]" style={{ width: 34, height: 34, background: ac, animation: 'ev-bdy-pulse 1.8s ease-in-out infinite' }}>
+          {k}
+          <svg className="absolute pointer-events-none overflow-visible" style={{ left: -8, top: -8, width: 50, height: 50 }} viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+            <path pathLength={100} d="M52 4C78 3 97 16 95 32 93 50 66 58 40 56 14 54 3 42 6 26 9 10 30 4 58 6" fill="none" stroke={ringCol} strokeWidth={3} strokeLinecap="round" strokeDasharray={100} strokeDashoffset={100} style={{ animation: `ev-ring-draw .9s ${dl}s cubic-bezier(.6,0,.3,1) forwards` }} />
+          </svg>
+          <span className="absolute pointer-events-none" aria-hidden="true">
+            {Array.from({ length: 8 }).map((_, j) => (
+              <i key={j} className="absolute rounded-full" style={{ ['--r' as any]: `${j * 45}deg`, width: 3.5, height: 3.5, left: 14, top: 14, background: ringCol, opacity: 0, animation: `ev-burst .8s ${dl + 0.7}s ease-out forwards` }} />
+            ))}
+          </span>
+        </span>
+      );
+    } else {
+      const past = k < dn;
+      cells.push(
+        <span key={k} className="relative inline-grid place-items-center font-semibold" style={{ width: 34, height: 34, color: past ? mu : ink, fontSize: 13.5 }}>
+          {k}
+          {past && <i className="absolute left-1 right-1 top-1/2 h-[1.6px] origin-left rounded-full" style={{ background: mu, animation: `ev-strike .5s ${+(((k * 0.04) % 0.9).toFixed(2))}s ease-out backwards` }} />}
+        </span>
+      );
+    }
+  }
+  return (
+    <div className={`rounded-[22px] p-5 ${gold ? 'border border-[#F5B82E]/25 bg-white/[0.04]' : 'bg-white border border-[#2B1247]/10 shadow-[0_12px_32px_rgba(43,18,71,.08)]'}`}>
+      <div className="flex items-baseline justify-between mb-2">
+        <b className="text-[0.95rem] font-black tracking-[0.2em] uppercase" style={{ color: ac }}>{month}</b>
+        <span className="text-[0.8rem] font-bold" style={{ color: mu }}>{y}</span>
+      </div>
+      <div className="grid grid-cols-7 gap-y-1 justify-items-center mb-0.5">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => <span key={i} className="text-[0.6rem] font-black tracking-widest" style={{ color: mu }}>{w}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-y-1 justify-items-center">{cells}</div>
+      <p className="mt-3 mb-0 text-center text-[0.68rem] font-black uppercase tracking-[0.24em]" style={{ color: ac }}>The day it all happens</p>
+    </div>
+  );
+}
+
+function BirthdayOrbit({ images, labels, name, age, date }: { images: string[]; labels: string[]; name: string; age?: string; date: string }) {
+  const imgs = (images.length ? images : PLACEHOLDER_IMAGES).slice(0, 8);
+  const np = Math.max(imgs.length, 1);
+  const N = 10, Ri = 165, Ro = 322;
+  const dt = new Date(`${date}T12:00:00`);
+  const segs: React.ReactNode[] = [], labs: React.ReactNode[] = [];
+  for (let i = 0; i < N; i++) {
+    const K = 360 / N, a0 = i * K + 1.2, a1 = (i + 1) * K - 1.2;
+    const raw = (labels[i % Math.max(labels.length, 1)] || '').slice(0, 16).toUpperCase();
+    const r = Ro - 14;
+    const sp = ((raw.length * 6.8 + 18) / r) * (180 / Math.PI);
+    const am = i * K + K / 2;
+    segs.push(
+      <g key={`s${i}`}>
+        <defs><pattern id={`bdpt${i}`} patternContentUnits="objectBoundingBox" width={1} height={1}><image href={imgs[i % np]} width={1} height={1} preserveAspectRatio="xMidYMid slice" /></pattern></defs>
+        <path d={bdArcSeg(Ri, Ro, a0, a1)} fill={`url(#bdpt${i})`} />
+      </g>
+    );
+    if (raw && sp * 2 < K) {
+      labs.push(
+        <g key={`l${i}`}>
+          <path id={`bdla${i}`} d={`M${bdArcPoint(r, am - sp / 2)}A${r} ${r} 0 0 1 ${bdArcPoint(r, am + sp / 2)}`} fill="none" stroke="#000" strokeWidth={15} strokeLinecap="round" />
+          <text fill="#fff" fontSize={8} fontWeight={700} letterSpacing={1.3} dy={2.8} fontFamily="'Plus Jakarta Sans',sans-serif"><textPath href={`#bdla${i}`} startOffset="50%" textAnchor="middle">{raw}</textPath></text>
+        </g>
+      );
+    }
+  }
+  const first = name.split(' ')[0];
+  return (
+    <div className="relative mx-auto" style={{ width: '100%', maxWidth: 470 }}>
+      <svg className="w-full h-auto block" style={{ animation: 'ev-orbit-spin 120s linear infinite' }} viewBox="-330 -330 660 660" role="img" aria-label={`${first}'s birthday photo ring`}>
+        {segs}{labs}
+      </svg>
+      <div className="absolute rounded-full grid place-items-center text-center" style={{ inset: '28%', background: 'radial-gradient(circle at 32% 22%, rgba(255,255,255,.12), rgba(0,0,0,0) 58%), #12071F', border: '1px solid rgba(245,184,46,.35)', boxShadow: '0 18px 50px rgba(0,0,0,.5)' }}>
+        <div className="px-4">
+          <div className="font-serif-display" style={{ color: '#F5B82E', fontSize: 'clamp(1rem,4.6vw,1.4rem)', letterSpacing: '.06em' }}>{name}</div>
+          <div className="mt-1 text-white/80 text-[0.78rem] leading-snug">
+            {age ? <>Celebrating <b className="text-[#F5B82E]">{age}</b> years<br /><em className="font-serif-display">of {first}</em></> : <><em className="font-serif-display">It's {first}'s day</em></>}
+          </div>
+          {!isNaN(dt.getTime()) && <div className="mt-1.5 text-white/55 text-[0.66rem] font-black uppercase tracking-[0.22em]">{dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BirthdayArcDisc({ images, name }: { images: string[]; name: string }) {
+  const imgs = (images.length ? images : PLACEHOLDER_IMAGES).slice(0, 6);
+  const np = Math.max(imgs.length, 1);
+  return (
+    <div className="relative mx-auto" style={{ width: '100%', maxWidth: 380, aspectRatio: '1 / 1' }}>
+      <div className="absolute inset-0" style={{ animation: 'ev-orbit-spin 30s linear infinite' }}>
+        {Array.from({ length: 6 }).map((_, i) => {
+          const am = ((i * 60 + 30) * Math.PI) / 180;
+          const cx = 190 + 142.5 * Math.sin(am), cy = 190 - 142.5 * Math.cos(am);
+          return (
+            <div key={i} className="absolute inset-0" style={{ clipPath: bdSectorClip(190, 95, i * 60, i * 60 + 60, 2.5) }}>
+              <img src={imgs[i % np]} alt="" loading="lazy" className="absolute rounded-[16px] object-cover" style={{ width: 200, height: 200, left: `${((cx - 100) / 380) * 100}%`, top: `${((cy - 100) / 380) * 100}%` }} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-t-full overflow-hidden border-4 border-white shadow-[0_14px_40px_rgba(43,18,71,.28)]" style={{ width: '38%', aspectRatio: '3 / 3.6' }}>
+        <img src={imgs[0]} alt={name} className="w-full h-full object-cover" />
+      </div>
+    </div>
+  );
+}
+
+function BirthdayCelebration(props: {
+  events: any[]; variant: 'gold' | 'party'; celebrant: string; age?: string; ageHidden?: boolean;
+  date: string; images: string[]; labels: string[];
+  openEventId: string | null; onToggle: (id: string) => void; fmtEventDate: (e: any) => string; openFooterLightbox: (u: string) => void;
+}) {
+  const { events, variant, celebrant, age, ageHidden, date, images, labels, openEventId, onToggle, fmtEventDate, openFooterLightbox } = props;
+  const gold = variant === 'gold';
+  const first = (celebrant || 'the celebrant').split(' ')[0];
+  const chipStyle = (st: string) => {
+    if (st === 'done') return gold ? { background: '#F5B82E', color: '#241035', border: '1px solid #F5B82E' } : { background: '#B3361F', color: '#FFF6E5', border: '1px solid #B3361F' };
+    if (st === 'next') return gold ? { background: 'transparent', color: '#F5B82E', border: '1px solid #F5B82E' } : { background: 'rgba(245,184,46,.18)', color: '#8a5a00', border: '1px solid rgba(245,184,46,.55)' };
+    return gold ? { background: 'rgba(255,255,255,.06)', color: 'rgba(241,232,210,.65)', border: '1px solid rgba(241,232,210,.25)' } : { background: 'rgba(43,18,71,.06)', color: 'rgba(43,18,71,.6)', border: '1px solid rgba(43,18,71,.15)' };
+  };
+  const fmtTime = (t?: string) => {
+    if (!t) return '';
+    const [hh, mm] = t.split(':');
+    const h = Number(hh);
+    if (isNaN(h)) return t;
+    const ap = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${mm} ${ap}`;
+  };
+  return (
+    <section id="journey" className="mt-8">
+      <style>{BD_ANIM_CSS}</style>
+      <div
+        className={`relative overflow-hidden rounded-[26px] p-5 ${gold ? 'text-[#F1E8D2]' : 'text-[#2B1247]'}`}
+        style={gold
+          ? { background: 'linear-gradient(168deg,#2B1247 0%,#1A0B2E 55%,#12071F 100%)', border: '1px solid rgba(245,184,46,.18)' }
+          : { background: '#FFF6E5', border: '1px solid rgba(43,18,71,.12)', boxShadow: '0 18px 44px rgba(43,18,71,.10)' }}
+      >
+        {gold && (
+          <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+            {Array.from({ length: 14 }).map((_, i) => (
+              <i key={i} className="absolute rounded-full" style={{ left: `${(i * 37) % 96}%`, top: `${(i * 53) % 90}%`, width: 3, height: 3, background: '#F5B82E', opacity: 0, animation: `ev-twinkle ${2 + (i % 4)}s ease-in-out ${-i * 0.7}s infinite` }} />
+            ))}
+          </div>
+        )}
+        <header className="relative mb-4">
+          <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-0 leading-[1.25]">The celebration</h2>
+          <p className={`text-[0.9rem] m-[4px_0_0] ${gold ? 'text-[#F1E8D2]/70' : 'text-[#2B1247]/65'}`}>One big day, every moment of it. Tap an event to open it.</p>
+        </header>
+        <div className="relative">
+          <BirthdayCalendar date={date} variant={variant} />
+        </div>
+        <div className="relative mt-6">
+          {gold ? <BirthdayOrbit images={images} labels={labels} name={celebrant || 'the celebrant'} age={ageHidden ? undefined : age} date={date} /> : <BirthdayArcDisc images={images} name={celebrant || 'the celebrant'} />}
+          {!gold && (
+            <div className="text-center mt-3">
+              <div className="font-serif-display italic text-[1.6rem] leading-tight text-[#2B1247]">{first}</div>
+              {age && !ageHidden && <div className="text-[0.7rem] font-black uppercase tracking-[0.26em] text-[#B3361F] mt-0.5">Turning {age}</div>}
+            </div>
+          )}
+        </div>
+        <div className="relative mt-6 space-y-2.5">
+          {events.map((e: any) => {
+            const st = e.status || 'up';
+            const open = openEventId === e.id;
+            const stepImgs: string[] = ((e as any).images || []);
+            const daysTo = Math.ceil((new Date(`${e.date}T${e.time || '12:00'}:00`).getTime() - Date.now()) / 86400000);
+            return (
+              <div
+                key={e.id}
+                className={`relative rounded-[16px] overflow-hidden transition-colors cursor-pointer`}
+                style={{
+                  background: gold ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.72)',
+                  border: `1px solid ${st === 'next' ? (gold ? 'rgba(245,184,46,.6)' : 'rgba(245,184,46,.65)') : (gold ? 'rgba(245,184,46,.2)' : 'rgba(43,18,71,.12)')}`,
+                  boxShadow: st === 'next' ? (gold ? '0 0 0 1px rgba(245,184,46,.12)' : '0 0 0 3px rgba(245,184,46,.15)') : 'none',
+                }}
+                onClick={() => onToggle(e.id)}
+                role="button"
+                aria-expanded={open}
+              >
+                <div className="p-[13px_15px] flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <b className="text-[1rem] font-serif-display leading-tight">{e.name}</b>
+                      <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider" style={chipStyle(st)}>
+                        {st === 'done' ? 'Done' : st === 'next' ? 'Next up' : 'Upcoming'}
+                      </span>
+                    </div>
+                    <small className={`block text-[0.78rem] mt-0.5 ${gold ? 'text-[#F1E8D2]/60' : 'text-[#2B1247]/60'}`}>
+                      {fmtTime(e.time)}{e.time ? ' · ' : ''}{fmtEventDate(e)}
+                    </small>
+                  </div>
+                  <svg className={`w-4 h-4 flex-shrink-0 mt-1 opacity-60 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 9l6 6 6-6" /></svg>
+                </div>
+                {open && (
+                  <div className={`px-[15px] pb-[15px] pt-3 border-t space-y-2.5`} style={{ borderColor: gold ? 'rgba(245,184,46,.15)' : 'rgba(43,18,71,.08)' }}>
+                    <p className={`text-[0.9rem] m-0 leading-snug ${gold ? 'text-[#F1E8D2]/75' : 'text-[#2B1247]/70'}`}>{e.desc}</p>
+                    <div className="flex gap-2 flex-wrap">
+                      <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${gold ? 'bg-white/5 text-[#F1E8D2]/70 border border-[#F5B82E]/25' : 'bg-[#FFF6E5] text-[#2B1247]/70 border border-[#2B1247]/12'}`}>{fmtEventDate(e)}</span>
+                      <span className={`px-3 py-1.5 rounded-full text-[0.72rem] font-bold ${gold ? 'bg-white/5 text-[#F1E8D2]/70 border border-[#F5B82E]/25' : 'bg-[#FFF6E5] text-[#2B1247]/70 border border-[#2B1247]/12'}`}>{e.venue ? e.venue : 'Venue to be announced'}</span>
+                    </div>
+                    {st === 'next' && daysTo >= 0 && (
+                      <div className="rounded-[10px] px-3 py-2 text-[0.78rem] font-black uppercase tracking-wider" style={{ background: gold ? 'rgba(245,184,46,.14)' : 'rgba(245,184,46,.2)', color: gold ? '#F5B82E' : '#8a5a00', border: `1px solid ${gold ? 'rgba(245,184,46,.3)' : 'rgba(245,184,46,.4)'}` }}>
+                        {daysTo === 0 ? 'Happening today' : `In ${daysTo} day${daysTo === 1 ? '' : 's'}`}
+                      </div>
+                    )}
+                    {stepImgs.length > 0 && (
+                      <div className="flex gap-2 flex-wrap pt-0.5">
+                        {stepImgs.map((u, ii) => (
+                          <div key={ii} className="relative w-[92px] h-[92px] rounded-[12px] overflow-hidden">
+                            <img src={u} alt={`${e.name} photo ${ii + 1}`} loading="lazy" onClick={(ev) => { ev.stopPropagation(); openFooterLightbox(u); }} className="w-full h-full object-cover cursor-zoom-in" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ===== BIRTHDAY MAKE-A-WISH BANNER (under the events section) ===== */
+function BirthdayWishBanner({ name, gold }: { name: string; gold: boolean }) {
+  const [lit, setLit] = React.useState<number[]>([]);
+  const first = (name || 'the celebrant').split(' ')[0];
+  return (
+    <section className="mt-8">
+      <style>{BD_ANIM_CSS}</style>
+      <div className="relative overflow-hidden rounded-[26px] px-5 py-7 text-center text-white"
+        style={{ background: 'linear-gradient(150deg,#2B1247 0%,#4A1D5C 55%,#B3361F 135%)' }}>
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <i key={i} className="absolute rounded-full" style={{ left: `${(i * 41) % 94}%`, top: `${(i * 29) % 80}%`, width: 2.5, height: 2.5, background: '#FFE9A8', opacity: 0, animation: `ev-twinkle ${2.5 + (i % 3)}s ease-in-out ${-i * 0.6}s infinite` }} />
+          ))}
+        </div>
+        <div className="relative">
+          <div className="font-serif-display italic text-[1.7rem] leading-tight text-[#FFE9A8]">Make a wish for {first}</div>
+          <p className="text-[0.8rem] text-white/75 mt-1.5 mb-0">
+            {lit.length ? `${lit.length} ${lit.length === 1 ? 'candle' : 'candles'} burning for ${first}.` : 'Every guest lights one before the big day. Tap a candle to light it.'}
+          </p>
+          <div className="flex justify-center items-end gap-3 mt-5">
+            {Array.from({ length: 7 }).map((_, i) => {
+              const on = lit.includes(i);
+              return (
+                <button key={i} type="button" onClick={() => { if (!on) setLit((l) => [...l, i]); }} className="relative border-0 bg-transparent p-0 cursor-pointer active:scale-90 transition-transform" aria-label={on ? 'Candle lit' : 'Light this candle'}>
+                  <span className="relative block" style={{ width: 10, height: 26, borderRadius: 3, background: 'linear-gradient(#FFF6E5,#EAD9C0)', boxShadow: 'inset 0 -4px 6px rgba(43,18,71,.18)' }}>
+                    <i className="absolute left-1/2 -translate-x-1/2 bg-[#5b4636]" style={{ top: -4, width: 1.5, height: 4 }} />
+                    {on ? (
+                      <i className="absolute rounded-full" style={{ left: '50%', top: -15, width: 8, height: 12, marginLeft: -4, background: 'radial-gradient(circle at 50% 72%, #FFF3C4 0%, #F5B82E 55%, rgba(245,184,46,0) 78%)', animation: `ev-candle-flicker .9s ease-in-out ${-i * 0.13}s infinite` }} />
+                    ) : (
+                      <i className="absolute rounded-full bg-white/25" style={{ left: '50%', top: -8, width: 3, height: 3, marginLeft: -1.5 }} />
+                    )}
+                  </span>
+                  <span className="block mx-auto mt-1.5 rounded-[2px]" style={{ width: 16, height: 5, background: 'rgba(255,255,255,.28)' }} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function BirthdayHero({ variant, isDarkMode, images, names, celebrant, age, ageHidden, date, city, hashtag, eventNames, compact = false }: { variant: 'party' | 'gold', isDarkMode?: boolean, images?: string[], names?: string, celebrant?: string, age?: string, ageHidden?: boolean, date?: string, city?: string, hashtag?: string, eventNames?: string[], compact?: boolean }) {
   const who = (celebrant || names || 'Guest of honour').trim();
   const bigAge = !ageHidden && age ? age : '';

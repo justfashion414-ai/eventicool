@@ -86,11 +86,11 @@ const NAV = [
   { id: 'sites', label: 'Premium apps' },
   { id: 'stat', label: 'Analytics' },
   { id: 'ord', label: 'Orders' },
-  { id: 'cat', label: 'Plans and templates' },
+  { id: 'cat', label: 'Templates' },
   { id: 'storage', label: 'Storage' },
   { id: 'settings', label: 'Settings' },
   { id: 'inv', label: 'Inbox invite' },
-  { id: 'pay', label: 'Payment details' },
+  { id: 'pay', label: 'Payment and plans' },
   { id: 'team', label: 'Team and audit' },
 ] as const
 type SecId = (typeof NAV)[number]['id']
@@ -132,7 +132,7 @@ interface LeadDoc { id: string; title?: string; bride?: string; groom?: string; 
 interface MusicDoc { id: string; name?: string; url?: string; at?: number; createdAt?: any }
 interface AuditRow { id: string; actor?: string; action: string; at?: number; createdAt?: { seconds?: number } }
 interface TplMeta { name?: string; d?: string; acc?: string }
-interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta> }
+interface Cat { prices: Record<string, number>; channels: Record<string, boolean[]>; templates: Record<string, boolean>; tplmeta: Record<string, TplMeta>; eventTypes?: Record<string, boolean> }
 
 const DEFAULT_CAT: Cat = {
   prices: { essential: 30000, complete: 50000, legacy: 100000 },
@@ -145,6 +145,17 @@ function fmtDate(ev?: { seconds?: number }) {
   if (!ev?.seconds) return '—'
   return new Date(ev.seconds * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+// Birthday palettes, deliberately unlike the wedding's: richer, gradient-led,
+// uncommon pairings drawn from the birthday design file and beyond.
+const BD_PALS: { k: string; n: string; a: string; b: string }[] = [
+  { k: 'party', n: 'Candy', a: '#e5399e', b: '#8f1650' },
+  { k: 'sunbeam', n: 'Sunbeam', a: '#ea580c', b: '#7c2d12' },
+  { k: 'jubilee', n: 'Jubilee', a: '#F5B82E', b: '#B3361F' },
+  { k: 'orchid', n: 'Orchid', a: '#A855F7', b: '#EC4899' },
+  { k: 'peacock', n: 'Peacock', a: '#22D3EE', b: '#0E7490' },
+  { k: 'ember', n: 'Ember', a: '#FB7185', b: '#BE123C' },
+]
 
 const ICONS: Record<SecId, string> = {
   storage: '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
@@ -233,7 +244,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [events, setEvents] = useState<EvDoc[] | null>(null)
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
-  const [tplCat, setTplCat] = useState<string>('wedding')
+  const [openType, setOpenType] = useState<string | null>('wedding')
   const [toast, setToast] = useState('')
   // Storage tab: live Cloudinary usage, per-app breakdown, retention settings.
   const [stor, setStor] = useState<any | null>(null)
@@ -1239,206 +1250,201 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   function catalogSection() {
     if (!cat) {
-      return <>{head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
+      return <>{head('Templates', 'Turn event types and their looks on or off. Preview opens the real app.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
     }
+    const TYPES: { k: string; label: string; locked?: boolean }[] = [
+      { k: 'wedding', label: 'Wedding', locked: true },
+      { k: 'birthday', label: 'Birthday' },
+      { k: 'coronation', label: 'Coronation' },
+      { k: 'naming', label: 'Naming ceremony' },
+      { k: 'anniversary', label: 'Anniversary' },
+      { k: 'christmas', label: 'Christmas' },
+    ]
+    const subHead = (t: string, note?: string) => (
+      <div style={{ margin: '14px 0 8px' }}>
+        <b style={{ fontSize: 13.5, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--mut)' }}>{t}</b>
+        {note && <p style={{ color: 'var(--mut)', fontSize: 12.5, margin: '3px 0 0' }}>{note}</p>}
+      </div>
+    )
+    const footerRows = (note: string, tpl: string) => (
+      <>
+        {subHead('Footer styles', note)}
+        {EV_FOOTER_STYLES.map((s) => (
+          <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+              <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+            </div>
+            <div className="row">
+              <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => window.open(`${location.origin}/app?tpl=${tpl}${tpl === 'bd-party' ? '&occ=birthday' : ''}&fs=${s.id}`, '_blank')}>Preview</button>
+            </div>
+          </div>
+        ))}
+      </>
+    )
+    const inviteRows = (note: string, names: string[], date: string, venue: string) => (
+      <>
+        {subHead('Invite styles', note)}
+        {IV_IV_STYLES.map((s) => (
+          <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
+              <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
+            </div>
+            <div className="row">
+              <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
+                const q = new URLSearchParams({ name1: names[0], name2: names[1], date, venue, address: '12 Palm Avenue, Lekki, Lagos' })
+                window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
+              }}>Preview</button>
+            </div>
+          </div>
+        ))}
+      </>
+    )
     return (
       <>
-        {head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
+        {head('Templates', 'Turn an event type on or off, then tap it to see its templates, footers and invites below. Preview opens the real app. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
         <div className="card">
-          <h3>Event templates</h3>
-          <small>Click an event type to see its templates below it. Preview opens the real app.</small>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            {(['wedding', 'birthday', 'coronation', 'naming', 'anniversary', 'christmas'] as const).map((k) => {
-              const labels: Record<string, string> = { wedding: 'Wedding', birthday: 'Birthday', coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' }
-              return (
-                <button key={k} className={`chip ${tplCat === k ? 'on' : ''}`} onClick={() => setTplCat(k)}>{labels[k]}</button>
-              )
-            })}
-          </div>
-          {tplCat === 'wedding' && (
-            <div style={{ marginTop: 10 }}>
-              {(['classic', 'halo', 'hero', 'book'] as const).map((k) => {
-                const meta = cat.tplmeta[k] || {}
-                return (
-                  <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 220 }}>
-                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
-                      <small style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</small>
-                    </div>
-                    <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          {tplCat === 'birthday' && (
-            <div style={{ marginTop: 10 }}>
-              {(['bd-party', 'bd-gold'] as const).map((k) => {
-                const meta = cat.tplmeta[k] || {}
-                return (
-                  <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 220 }}>
-                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
-                      <small style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</small>
-                    </div>
-                    <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}&occ=birthday${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          {(tplCat === 'coronation' || tplCat === 'naming' || tplCat === 'anniversary' || tplCat === 'christmas') && (
-            <div className="rw" style={{ marginTop: 10 }}>
-              <div style={{ flex: 1 }}>
-                <b style={{ fontSize: 15 }}>{({ coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' } as Record<string, string>)[tplCat]}</b>
-                <small style={{ color: 'var(--mut)', fontSize: 13 }}>Its template is next on the build list; nothing to preview yet</small>
-              </div>
-              <span className="pl">Soon</span>
-            </div>
-          )}
-        </div>
-        <div className="card">
-          <h3>What couples can create</h3>
-          <small>Toggle which occasion apps couples can create. Wedding stays on: every app is built on it.</small>
-          <div className="row">
-            {(['wedding', 'birthday', 'coronation', 'naming', 'anniversary', 'christmas'] as const).map((k) => {
-              const on = (cat.eventTypes || { wedding: true } as Record<string, boolean>)[k]
-              const labels: Record<string, string> = { wedding: 'Wedding', birthday: 'Birthday', coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' }
-              return (
-                <button
-                  key={k}
-                  className={`chip ${on ? 'on' : ''}`}
-                  disabled={k === 'wedding'}
-                  onClick={() => setCat({ ...cat, eventTypes: { wedding: true, ...(cat.eventTypes || {}), [k]: !on } })}
-                >
-                  {labels[k]}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        <div className="card">
-          <h3>Plans</h3>
-          {Object.keys(PL).map((k) => (
-            <div className="rw" key={k}>
-              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].gb} GB of photos and videos</small></div>
-              <div className="row">
-                <input
-                  value={cat.prices[k] ?? PL[k].price}
-                  style={{ width: 110 }}
-                  aria-label={`${PL[k].name} price`}
-                  onChange={(e) => setCat({ ...cat, prices: { ...cat.prices, [k]: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 } })}
-                />
-                <span className="row">
-                  {CHANNELS.map((n, i) => (
-                    <button
-                      key={n}
-                      className={`chip ${(cat.channels[k] || DEFAULT_CAT.channels[k])[i] ? 'on' : ''}`}
-                      onClick={() => {
-                        const cur = [...(cat.channels[k] || DEFAULT_CAT.channels[k])]
-                        cur[i] = !cur[i]
-                        setCat({ ...cat, channels: { ...cat.channels, [k]: cur } })
-                      }}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <h3>Wedding templates</h3>
-          {Object.keys(TP).map((k) => {
-            const meta = cat.tplmeta[k] || {}
-            const acc = meta.acc || DEF_ACC[k]
-            const pal = ACC6[acc] || TP[k]
+          {TYPES.map(({ k, label, locked }, ti) => {
+            const on = k === 'wedding' ? true : !!(cat.eventTypes || {})[k]
+            const open = openType === k
             return (
-              <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
-                <div className="row" style={{ flex: 1, minWidth: 250 }}>
-                  <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
-                  {editTpl === k ? (
-                    <>
-                      <input
-                        value={meta.name ?? ''}
-                        placeholder={TP[k].name}
-                        aria-label={`${TP[k].name} display name`}
-                        style={{ width: 110 }}
-                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, name: e.target.value } } })}
-                      />
-                      <input
-                        value={meta.d ?? ''}
-                        placeholder={TP[k].tagline}
-                        aria-label={`${TP[k].name} tagline`}
-                        style={{ flex: 1, minWidth: 150 }}
-                        onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, d: e.target.value } } })}
-                      />
-                      <button className="btn g s" aria-label={`Done editing ${TP[k].name}`} onClick={() => setEditTpl(null)}>Done</button>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ flex: 1, minWidth: 150 }}>
-                        <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
-                        <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</div>
-                      </div>
-                      <button className="btn g s" aria-label={`Edit ${TP[k].name} name`} onClick={() => setEditTpl(k)}>Edit</button>
-                    </>
-                  )}
-                </div>
-                <div className="row">
-                  {Object.keys(ACC6).map((ak) => (
-                    <button
-                      key={ak}
-                      title={`${ak[0].toUpperCase() + ak.slice(1)} accent`}
-                      aria-label={`Use the ${ak} accent for ${TP[k].name}`}
-                      onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [k]: { ...meta, acc: ak } } })}
-                      style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
+              <div key={k} style={ti ? { borderTop: '1px solid #ecebf3', marginTop: 14, paddingTop: 14 } : undefined}>
+                <div className="rw" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    className="border-0 bg-transparent p-0 cursor-pointer text-left"
+                    style={{ flex: 1, minWidth: 180 }}
+                    aria-expanded={open}
+                    onClick={() => setOpenType(open ? null : k)}
+                  >
+                    <b style={{ fontSize: 15.5 }}>{label}</b>
+                    <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5 }}>
+                      {locked ? 'Always on: every app is built on it' : on ? 'Couples can create this' : 'Hidden from couples'}
+                    </small>
+                  </button>
+                  <div className="row">
+                    <button className="btn g s" aria-label={`${open ? 'Hide' : 'Show'} ${label}`} onClick={() => setOpenType(open ? null : k)}>{open ? 'Hide' : 'Show'}</button>
+                    <span
+                      className={`sw ${on ? 'on' : ''}`}
+                      role="switch"
+                      aria-checked={on}
+                      aria-label={`Toggle ${label} apps`}
+                      style={locked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                      onClick={() => { if (locked) return; setCat({ ...cat, eventTypes: { wedding: true, ...(cat.eventTypes || {}), [k]: !on } }) }}
                     />
-                  ))}
-                  <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', k) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
-                  <button className={`sw ${cat.templates[k] ? 'on' : ''}`} aria-label={`Toggle ${TP[k].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [k]: !cat.templates[k] } })} />
+                  </div>
                 </div>
+                {open && (
+                  <div style={{ marginTop: 6 }}>
+                    {k === 'wedding' && (
+                      <>
+                        {subHead('Event templates', 'Toggle each look on or off, rename it, and pick its accent. Preview opens the real app.')}
+                        {(['classic', 'halo', 'hero', 'book'] as const).map((tk) => {
+                          const meta = cat.tplmeta[tk] || {}
+                          const acc = meta.acc || DEF_ACC[tk]
+                          const pal = ACC6[acc] || TP[tk]
+                          return (
+                            <div className="rw" key={tk} style={{ flexWrap: 'wrap' }}>
+                              <div className="row" style={{ flex: 1, minWidth: 250 }}>
+                                <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.bg},${pal.ac})` }} />
+                                {editTpl === tk ? (
+                                  <>
+                                    <input
+                                      value={meta.name ?? ''}
+                                      placeholder={TP[tk].name}
+                                      aria-label={`${TP[tk].name} display name`}
+                                      style={{ width: 110 }}
+                                      onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, name: e.target.value } } })}
+                                    />
+                                    <input
+                                      value={meta.d ?? ''}
+                                      placeholder={TP[tk].tagline}
+                                      aria-label={`${TP[tk].name} tagline`}
+                                      style={{ flex: 1, minWidth: 150 }}
+                                      onChange={(e) => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, d: e.target.value } } })}
+                                    />
+                                    <button className="btn g s" aria-label={`Done editing ${TP[tk].name}`} onClick={() => setEditTpl(null)}>Done</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div style={{ flex: 1, minWidth: 150 }}>
+                                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[tk].name}</b>
+                                      <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[tk].tagline}</div>
+                                    </div>
+                                    <button className="btn g s" aria-label={`Edit ${TP[tk].name} name`} onClick={() => setEditTpl(tk)}>Edit</button>
+                                  </>
+                                )}
+                              </div>
+                              <div className="row">
+                                {Object.keys(ACC6).map((ak) => (
+                                  <button
+                                    key={ak}
+                                    title={`${ak[0].toUpperCase() + ak.slice(1)} accent`}
+                                    aria-label={`Use the ${ak} accent for ${TP[tk].name}`}
+                                    onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, acc: ak } } })}
+                                    style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === ak ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${ACC6[ak].bg} 58%,${ACC6[ak].ac} 58%)` }}
+                                  />
+                                ))}
+                                <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', tk) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${tk}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
+                                <button className={`sw ${cat.templates[tk] ? 'on' : ''}`} aria-label={`Toggle ${TP[tk].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [tk]: !cat.templates[tk] } })} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {footerRows('The big photo wall at the bottom of every wedding app. Preview opens a sample app showing that footer style.', 'halo')}
+                        {inviteRows('The invitation cards couples send their guests from the app\'s Inbox invite section. Preview opens the full card, opening animation included.', ['Amara', 'Daniel'], '2027-06-12 14:00', 'The Grand Pavilion')}
+                      </>
+                    )}
+                    {k === 'birthday' && (
+                      <>
+                        {subHead('Event templates', 'Toggle each look on or off, then pick its palette. Preview opens the real birthday app.')}
+                        {(['bd-party', 'bd-gold'] as const).map((tk) => {
+                          const meta = cat.tplmeta[tk] || {}
+                          const acc = meta.acc || (tk === 'bd-gold' ? 'jubilee' : 'party')
+                          const pal = BD_PALS.find((b) => b.k === acc) || BD_PALS[2]
+                          return (
+                            <div className="rw" key={tk} style={{ flexWrap: 'wrap' }}>
+                              <div className="row" style={{ flex: 1, minWidth: 250 }}>
+                                <i style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, background: `linear-gradient(135deg,${pal.a},${pal.b})` }} />
+                                <div style={{ flex: 1, minWidth: 150 }}>
+                                  <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[tk].name}</b>
+                                  <div style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[tk].tagline}</div>
+                                </div>
+                              </div>
+                              <div className="row">
+                                {BD_PALS.map((b) => (
+                                  <button
+                                    key={b.k}
+                                    title={`${b.n} palette`}
+                                    aria-label={`Use the ${b.n} palette for ${TP[tk].name}`}
+                                    onClick={() => setCat({ ...cat, tplmeta: { ...cat.tplmeta, [tk]: { ...meta, acc: b.k } } })}
+                                    style={{ width: 20, height: 20, borderRadius: 999, padding: 0, flexShrink: 0, cursor: 'pointer', border: acc === b.k ? '2px solid #2f3fb8' : '1px solid #d9d9e3', background: `linear-gradient(135deg,${b.a},${b.b})` }}
+                                  />
+                                ))}
+                                <button className="btn g" onClick={() => { try { localStorage.setItem('ev-last-tpl', tk) } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${tk}&occ=birthday${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank') }}>Preview</button>
+                                <button className={`sw ${cat.templates[tk] ? 'on' : ''}`} aria-label={`Toggle ${TP[tk].name}`} onClick={() => setCat({ ...cat, templates: { ...cat.templates, [tk]: !cat.templates[tk] } })} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {footerRows('Same looks as the wedding footers for now; birthday\'s own footers swap in here when they land.', 'bd-party')}
+                        {inviteRows('Same looks as the wedding invites for now; birthday\'s own invites swap in here when they land.', ['Chidera', ''], '2027-03-25 12:00', 'The Grand Marquee')}
+                      </>
+                    )}
+                    {k !== 'wedding' && k !== 'birthday' && (
+                      <div className="rw">
+                        <div>
+                          <b style={{ fontSize: 15 }}>Templates for {label.toLowerCase()}</b>
+                          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 13 }}>Next on the build list; nothing to preview yet</small>
+                        </div>
+                        <span className="pl">Soon</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
-          <div className="rw">
-            <div><b>Birthdays and anniversaries</b><small>Shown as “soon” on the landing page</small></div>
-            <span className="pl">Soon</span>
-          </div>
-        </div>
-        <div className="card">
-          <h3>Giant footer styles</h3>
-          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The big photo wall at the bottom of every app. Preview opens a sample app showing that footer style.</p>
-          {EV_FOOTER_STYLES.map((s) => (
-            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
-                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
-              </div>
-              <div className="row">
-                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => { let t = 'halo'; try { t = localStorage.getItem('ev-last-tpl') || 'halo' } catch { /* ignore */ } window.open(`${location.origin}/app?tpl=${t}&fs=${s.id}`, '_blank') }}>Preview</button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <h3>Inbox invite styles</h3>
-          <p style={{ color: 'var(--mut)', fontSize: 13, margin: '0 0 10px' }}>The invitation cards couples send their guests from the app's Inbox invite section. Preview opens the full card, opening animation included.</p>
-          {IV_IV_STYLES.map((s) => (
-            <div className="rw" key={s.id} style={{ flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <b style={{ fontSize: 15, display: 'block' }}>{s.n}</b>
-                <div style={{ color: 'var(--mut)', fontSize: 13 }}>{s.d}</div>
-              </div>
-              <div className="row">
-                <button className="btn g" aria-label={`Preview ${s.n}`} onClick={() => {
-                  const q = new URLSearchParams({ name1: 'Amara', name2: 'Daniel', date: '2027-06-12 14:00', venue: 'The Grand Pavilion', address: '12 Palm Avenue, Lekki, Lagos' });
-                  window.open(`${location.origin}/iv/iv-${s.id}.html?${q.toString()}`, '_blank')
-                }}>Preview</button>
-              </div>
-            </div>
-          ))}
         </div>
       </>
     )
@@ -1633,6 +1639,47 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           </div>
           <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: '12px 0 0' }}>Customers pay by bank transfer to this account. When a receipt is uploaded it appears on that customer's row in Customers; Confirm payment there activates their app for a year.</p>
           {paySaved && <p style={{ color: '#1f8a5b', fontSize: 13.5, margin: '10px 0 0' }}>{paySaved}</p>}
+        </div>
+        <div className="card">
+          <h3>Plans</h3>
+          {!cat ? (
+            <p style={{ color: 'var(--mut)', fontSize: 13.5, margin: 0 }}>Loading plans…</p>
+          ) : (
+          <>
+          {Object.keys(PL).map((k) => (
+            <div className="rw" key={k}>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].gb} GB of photos and videos</small></div>
+              <div className="row">
+                <input
+                  value={cat.prices[k] ?? PL[k].price}
+                  style={{ width: 110 }}
+                  aria-label={`${PL[k].name} price`}
+                  onChange={(e) => setCat({ ...cat, prices: { ...cat.prices, [k]: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 } })}
+                />
+                <span className="row">
+                  {CHANNELS.map((n, i) => (
+                    <button
+                      key={n}
+                      className={`chip ${(cat.channels[k] || DEFAULT_CAT.channels[k])[i] ? 'on' : ''}`}
+                      onClick={() => {
+                        const cur = [...(cat.channels[k] || DEFAULT_CAT.channels[k])]
+                        cur[i] = !cur[i]
+                        setCat({ ...cat, channels: { ...cat.channels, [k]: cur } })
+                      }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            </div>
+          ))}
+          <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5, marginTop: 8 }}>Prices and payment channels save with the button below.</small>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn g" disabled={busy} onClick={saveCatalog}>Save plans</button>
+          </div>
+          </>
+          )}
         </div>
       </>
     )
