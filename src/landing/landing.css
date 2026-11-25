@@ -361,13 +361,13 @@ body.ev-picker-open{overflow:hidden}
 .evc-blurb{display:block;color:#5a5878;font:400 13.5px/1.45 'Plus Jakarta Sans',sans-serif;margin-top:6px}
 .evc-go{display:inline-block;margin-top:14px;font:700 12.5px 'Plus Jakarta Sans',sans-serif;color:#2E55D6;letter-spacing:.2px}
 .evc-foot{max-width:1080px;margin:auto auto 0;width:100%;padding:30px 24px 26px;text-align:center;color:#8a87a3;font:400 13px 'Plus Jakarta Sans',sans-serif}
-.ev-side{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:80;display:flex;flex-direction:row;align-items:center;gap:8px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid #e3e0f0;border-radius:999px;padding:5px 5px 5px 14px;box-shadow:0 8px 30px rgba(21,31,99,.14)}
-.ev-side-word{display:flex;flex-direction:row;align-items:center;gap:1px;font:700 11px/1 'Plus Jakarta Sans',sans-serif;color:#151F63;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.ev-side{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:80;display:flex;flex-direction:column;align-items:center;gap:8px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid #e3e0f0;border-radius:999px;padding:12px 6px;box-shadow:0 8px 30px rgba(21,31,99,.14)}
+.ev-side-word{display:flex;flex-direction:column;align-items:center;gap:3px;font:700 10.5px/1 'Plus Jakarta Sans',sans-serif;color:#151F63;text-transform:uppercase;letter-spacing:.4px}
 .ev-side-open{width:34px;height:34px;border-radius:50%;border:none;background:linear-gradient(135deg,#2E55D6,#151F63);color:#fff;cursor:pointer;display:grid;place-items:center;box-shadow:0 2px 8px rgba(21,31,99,.25)}
 .ev-side-open:hover{transform:scale(1.06)}
 #ev-l{overflow-x:clip}
 @media (max-width:700px){
  .ev-side{top:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:none;box-shadow:0 8px 22px rgba(21,31,99,.18)}
- #ev-l .totop{right:14px;bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+ #ev-l .totop{right:14px;bottom:calc(180px + env(safe-area-inset-bottom,0px))}
  .evc-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 }
