@@ -325,14 +325,26 @@ export default function CoupleApp() {
     if (!leadId && !siteId) return;
     let alive = true;
     const bail = window.setTimeout(() => { if (alive) setLead((l) => (l === undefined ? null : l)); }, 4000);
-    (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
+    const applyLead = (l: LeadData | null) => {
       if (!alive) return;
-      window.clearTimeout(bail);
       if (l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt) setLeadExpired(true);
       setLeadOverride(l ? { bride: l.bride || 'Bride', groom: l.groom || 'Groom', city: l.city, heroImages: l.heroImages, weddingDate: l.weddingDate, weddingTime: l.weddingTime } : null);
       setLead(l || null);
       if (l) trackAppEvent(siteId || leadId, 'open');
       try { setCoupleInfo((l as any)?.plan, (l as any)?.platform) } catch { /* defaults stay */ }
+    };
+    (leadId ? loadLead(leadId) : loadSite(siteId)).then((l) => {
+      if (!alive) return;
+      window.clearTimeout(bail);
+      const staleExpired = !!(l && l.expiresAt && Date.now() > l.expiresAt && !(l as any).activatedAt);
+      if (!staleExpired) { applyLead(l); return; }
+      // A cached or preloaded lead copy can be older than the live lead doc
+      // (user report Nov 25 2026: active trial apps briefly flashed the
+      // expired screen). The live doc decides before any expired screen shows.
+      fetch(`/api/couple?site=${encodeURIComponent(leadId || siteId)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: any) => { applyLead(j && (j.bride || j.groom) ? (j as LeadData) : l); })
+        .catch(() => { applyLead(l); });
     });
     return () => { alive = false; window.clearTimeout(bail); };
   }, [leadId, siteId]);

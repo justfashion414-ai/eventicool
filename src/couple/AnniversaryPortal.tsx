@@ -2698,18 +2698,12 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
   // Saves the couple's names and the intro words around them (Events & photos
   // card): the names ride the boot overlay, the words go to app_config.
-  const saveCoupleIdentity = async () => {
-    const bride = (idDraft.bride || '').trim();
-    const groom = (idDraft.groom || '').trim();
-    if (!bride || !groom) { showToast('Both names are needed.', 'error'); return; }
-    const payload = {
-      bride,
-      groom,
-      kicker: (idDraft.kicker || '').trim() || 'Together with their families',
-      tagline: (idDraft.tagline || '').trim() || 'are getting married. Share every moment with us, from the first introduction to the last dance.',
-    };
-    // A rename that would change the app's address asks first, so the couple
-    // knows what a changed link means before it happens.
+  // The couple's identity (names plus the words above and below them) saves
+  // through the page's single Save bar (user direction Nov 25 2026): no
+  // separate button on the identity card. A rename that would change the
+  // app's address asks first, so the couple knows what a changed link means
+  // before it happens.
+  const startIdentitySave = async (payload: { bride: string; groom: string; kicker: string; tagline: string }): Promise<'ok' | 'ask' | false> => {
     if (isAdmin) {
       try {
         const src = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'get', collection: 'events', id: APP_ID }) }).then((r) => r.json()).catch(() => null);
@@ -2724,13 +2718,14 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             const chk: any = await fetch('/api/proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'check-slug', slug: newSlug }) }).then((r) => r.json()).catch(() => null);
             if (chk && !chk.taken) {
               setRenameAsk({ payload, curSlug, newSlug });
-              return;
+              return 'ask';
             }
           }
         }
       } catch { /* the address check is best effort; the save itself still runs */ }
     }
-    await commitCoupleIdentity(payload);
+    const wok = await commitCoupleIdentity(payload);
+    return wok === false ? false : 'ok';
   };
 
   // Applies the names everywhere: the open app and tab, the app_config doc,
@@ -2739,7 +2734,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const commitCoupleIdentity = async (payload: { bride: string; groom: string; kicker: string; tagline: string }, newSlug?: string) => {
     const fromNames = { bride: String((cfgIdentity as any)?.bride || '').trim(), groom: String((cfgIdentity as any)?.groom || '').trim() };
     applyIdentity(payload);
-    await updateWeddingSection({ coupleIdentity: payload });
+    const wok = await updateWeddingSection({ coupleIdentity: payload });
+    if (wok === false) return false;
     // Propagate the names to every surface that reads them from the app's own
     // document: the share card, invite pages, the install manifest and the
     // reminder emails. The rename op verifies this dashboard's admin
@@ -4385,7 +4381,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         onSaveWedding={updateWedding}
         idDraft={idDraft}
         setIdDraft={setIdDraft}
-        saveCoupleIdentity={saveCoupleIdentity}
+        onSaveIdentity={startIdentitySave}
+        idBase={cfgIdentity}
         vendors={vendors}
         partners={partners}
         blockedUids={blockedUids}
@@ -9306,7 +9303,8 @@ function AdminDashboardModal({
   onAdminDemoPost,
   idDraft,
   setIdDraft,
-  saveCoupleIdentity,
+  onSaveIdentity,
+  idBase,
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
   const [revokeArmed, setRevokeArmed] = useState(false);
@@ -10058,6 +10056,21 @@ function AdminDashboardModal({
   // Editing from the admin grid always writes the full draft list, so removing
   // a placeholder or adding a photo takes the hero over from the placeholders.
   const heroShown: string[] = heroImgDraft.length ? heroImgDraft : PLACEHOLDER_IMAGES;
+  // The identity card no longer carries its own save button (user direction
+  // Nov 25 2026): its fields ride the same single Save bar. The baseline is
+  // the saved identity; empty saved fields never read as dirty (their draft
+  // shows the shared fallback wording).
+  const ID_KICKER = 'Together with their families';
+  const ID_TAGLINE = 'are getting married. Share every moment with us, from the first introduction to the last dance.';
+  const idNorm = (v: any, def: string) => (String(v || '').trim() || def);
+  const identityChanged = () => {
+    if (!idBase) return false;
+    const baseB = (idBase.bride || '').trim(), baseG = (idBase.groom || '').trim();
+    return (baseB ? (idDraft.bride || '').trim() !== baseB : false)
+      || (baseG ? (idDraft.groom || '').trim() !== baseG : false)
+      || idNorm(idDraft.kicker, ID_KICKER) !== idNorm(idBase.kicker, ID_KICKER)
+      || idNorm(idDraft.tagline, ID_TAGLINE) !== idNorm(idBase.tagline, ID_TAGLINE);
+  };
   const pageDirty = storyDraft !== draftBaseRef.current.story
     || JSON.stringify(detDraft) !== draftBaseRef.current.det
     || JSON.stringify(evDraft) !== draftBaseRef.current.ev
@@ -10067,7 +10080,8 @@ function AdminDashboardModal({
     || footerStyleDraft !== draftBaseRef.current.footerStyle
     || (footerThanksDraft || '') !== draftBaseRef.current.footerThanks
     || JSON.stringify(giftDraft || {}) !== draftBaseRef.current.gift
-    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer;
+    || JSON.stringify(footerDraft || {}) !== draftBaseRef.current.footer
+    || identityChanged();
 
   // One Save for the whole page: story, wedding day details, the journey, hero
   // photos and labels, hero style and the giant footer style commit together.
@@ -10079,6 +10093,16 @@ function AdminDashboardModal({
   const saveEverything = async () => {
     setWeddingBusy(true);
     try {
+      // The couple's names save first through the same bar (user direction
+      // Nov 25 2026). A rename ask pauses the save until the couple confirms;
+      // a refused save leaves everything dirty for its own toast.
+      if (identityChanged()) {
+        const bride = (idDraft.bride || '').trim();
+        const groom = (idDraft.groom || '').trim();
+        if (!bride || !groom) { showToast('Both names are needed.', 'error'); return; }
+        const res = await onSaveIdentity({ bride, groom, kicker: idNorm(idDraft.kicker, ID_KICKER), tagline: idNorm(idDraft.tagline, ID_TAGLINE) });
+        if (res === 'ask' || res === false) return;
+      }
       const mergedDet = {
         ...(detDraft || {}),
         giftInfo: {
@@ -11085,9 +11109,8 @@ function AdminDashboardModal({
                     </div>
                     <div className="mt-3">
                       <span className="block text-[0.65rem] font-black uppercase tracking-widest opacity-50 mb-1.5">Words under the names</span>
-                      <textarea value={idDraft.tagline} rows={2} maxLength={160} onChange={(e) => setIdDraft({ ...idDraft, tagline: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
+                      <textarea value={idDraft.tagline} rows={4} maxLength={160} onChange={(e) => setIdDraft({ ...idDraft, tagline: e.target.value })} className={`w-full p-4 rounded-xl border-none outline-none text-sm leading-relaxed resize-y ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`} />
                     </div>
-                    <button type="button" onClick={saveCoupleIdentity} className="mt-4 w-full py-3 rounded-full bg-[var(--ann-accent)] text-white text-[0.7rem] font-black uppercase tracking-widest" style={{ touchAction: 'manipulation' }}>Save</button>
                   </div>
 
                   {adminPermissions?.canUploadImages && (
