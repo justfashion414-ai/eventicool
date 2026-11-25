@@ -56,7 +56,7 @@ import { trackAppEvent } from './lib/track';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { getCouplePlan, getCouplePlatform } from './lib/platformInfo';
 import PaymentFlow from './PaymentFlow';
-import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, setLeadOverride, demoWeddingTime } from './lib/demoMode';
+import { DEMO, DEMO_COUPLE, DEMO_WEDDING_DATE, DEMO_WEDDING_TIME, DEMO_STORY, DEMO_DETAILS, DEMO_ACCESS_CODE, nameCode, DEMO_POSTS, DEMO_PHOTOS, demoEvents, demoHeader, demoText, demoBride, demoGroom, demoCity, demoHeroImages, demoFooterImages, demoFeedImages, leadOverride, setLeadOverride, demoWeddingTime, demoBirthday } from './lib/demoMode';
 
 // The installation page (animated phone + steps), opened over the app when
 // the header Install button is tapped. guideOnly strips the WhatsApp and web
@@ -251,7 +251,7 @@ const fmtEventDate = (e: { date: string; time?: string }) =>
 
 // The story text is computed at call time: a bound couple's names replace
 // the placeholder ones before anything is shown or seeded into their config.
-const demoStory = () => demoText(DEMO_STORY);
+const demoStory = () => demoBirthday() ? 'Chidera has spent fifty years gathering the people she loves, and today they all gather back for her. This page keeps every photo, message and memory of the party in one place, for life.' : demoText(DEMO_STORY);
 
 // Details are generic until the couple edits them. Under a bound couple the
 // venue lines point at THEIR city (no invented hall names) and the hashtag
@@ -310,7 +310,7 @@ const birthdayHashtag = (d: any): string | null => {
 const withDerivedHashtag = (d: any): any => {
   if (!d || typeof d !== 'object') return d;
   if (d.occasion === 'birthday') {
-    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
+    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag)) || String(d.hashtag).toLowerCase() === derivedHashtag().toLowerCase()) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
     return d;
   }
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
@@ -1248,7 +1248,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // A pending rename that would change the app's address: held here until the
   // couple confirms they understand the old address stops matching.
   const [renameAsk, setRenameAsk] = useState<{ payload: { bride: string; groom: string; kicker: string; tagline: string }; curSlug: string; newSlug: string } | null>(null);
-  const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: 'Together with their families', tagline: 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
+  const [idDraft, setIdDraft] = useState(() => ({ bride: demoBride(), groom: demoGroom(), kicker: demoBirthday() ? 'Family, friends & well-wishers' : 'Together with their families', tagline: demoBirthday() ? 'is celebrating the day. Share every moment with us, from the arrival to the last dance.' : 'are getting married. Share every moment with us, from the first introduction to the last dance.' }));
   // A fresh saved identity syncs the editing draft; the signature guard keeps
   // unrelated config writes from wiping what is being typed.
   useEffect(() => {
@@ -3080,7 +3080,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       const txt = p.text || p.caption || '';
       return `<section class="card"><header><b>${esc(p.authorName || 'A guest')}</b><span>${esc(evName)}</span></header>${img}<p>${esc(txt)}</p></section>`;
     }).join('');
-    win.document.write(`<!doctype html><html><head><title>${esc(demoHeader())} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(demoHeader())}</h1><p class="sub">Wedding memories &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
+    win.document.write(`<!doctype html><html><head><title>${esc(demoHeader())} memory book</title><style>body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:32px;color:#14262D}h1{font-size:34px;margin:0}p.sub{color:#5A6970;font-family:Arial,sans-serif;margin:6px 0 28px}.card{border:1px solid #DAD8E3;border-radius:14px;padding:16px;margin-bottom:18px;page-break-inside:avoid}.card header{display:flex;justify-content:space-between;font-family:Arial,sans-serif;margin-bottom:8px}.card header span{color:var(--ann-accent);font-size:12px;text-transform:uppercase;letter-spacing:1px}.card img{width:100%;border-radius:10px;margin-bottom:8px}.card p{margin:0;line-height:1.5}</style></head><body><h1>${esc(demoHeader())}</h1><p class="sub">${DETAILS.occasion === 'birthday' ? 'Birthday memories' : 'Wedding memories'} &middot; ${esc(DETAILS.hashtag)}</p>${cards}</body></html>`);
     win.document.close();
   };
 
@@ -3573,13 +3573,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 transition={{ duration: 0.75, ease: "circOut" }}
               >
-                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">{cfgIdentity?.kicker || 'Together with their families'}</p>
+                <p className="text-[0.95rem] font-medium tracking-wide text-[#BCD4D8] m-0 mb-4">{cfgIdentity?.kicker || (demoBirthday() ? 'Family, friends & well-wishers' : 'Together with their families')}</p>
                 <h1 className="font-serif-display text-white text-[clamp(3.4rem,17vw,5.6rem)] leading-[0.95] m-0">
                   {demoBride()}
-                  <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>
-                  {demoGroom()}
+                  {demoBirthday() ? null : <span className="block italic text-[clamp(1.5rem,7.5vw,2.1rem)] text-[#C8932A] my-3">and</span>}
+                  {demoBirthday() ? null : demoGroom()}
                 </h1>
-                <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">Wedding memories, kept for life.</p>
+                <p className="text-[#BCD4D8] text-[1rem] mt-6 mb-0">{demoBirthday() ? 'Birthday memories, kept for life.' : 'Wedding memories, kept for life.'}</p>
               </motion.div>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -3703,7 +3703,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     {demoGroom()}
                   </h2>
                 )}
-                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}</p>
+                <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || (DETAILS.occasion === 'birthday' ? 'is celebrating the day. Share every moment with us, from the arrival to the last dance.' : 'are getting married. Share every moment with us, from the first introduction to the last dance.')}</p>
 
                 {DETAILS.occasion === 'birthday' && DETAILS.hostedBy && <p className="m-0 text-center text-[0.85rem] opacity-80 mt-2">Hosted by {DETAILS.hostedBy}</p>}
 
@@ -3822,18 +3822,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                             {/* WEDDING DAY DETAILS */}
               {!HIDDEN_SECTIONS.includes('details') && (
               <section className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Wedding day</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? 'The big day' : 'Wedding day'}</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{WED_FULL}</p>
                 <div className={`p-[16px_18px] rounded-[20px] border space-y-3.5 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                   <div>
-                    <strong className="block text-[0.93rem]">Church wedding · {DETAILS.churchTime}</strong>
+                    <strong className="block text-[0.93rem]">{DETAILS.occasion === 'birthday' ? 'The party' : 'Church wedding'} · {DETAILS.churchTime}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.churchVenue}</p>
                   </div>
+                  {DETAILS.occasion !== 'birthday' && (<>
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <div>
                     <strong className="block text-[0.93rem]">Reception · {DETAILS.receptionTime}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.receptionVenue}</p>
                   </div>
+                  </>)}
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <DressMockup outfit={(DETAILS || {}).dressOutfit} isDarkMode={isDarkMode} />
                   <div>
@@ -3848,7 +3850,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* CTA */}
               <section className="mt-8 mb-2">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">Say something to the couple</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_12px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? `Say something to ${DETAILS.celebrant || 'the celebrant'}` : 'Say something to the couple'}</h2>
                 <button
                   onClick={() => setActiveTab('feed')}
                   className="w-full border-0 rounded-[16px] py-3.5 font-bold bg-[var(--ann-accent)] text-white text-[0.95rem] hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -3862,7 +3864,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <section className="mt-8">
                   <div className={`relative overflow-hidden rounded-[24px] border p-6 ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <div className="absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--ann-accent)]/15 blur-2xl pointer-events-none" />
-                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">Gift the couple</span>
+                    <span className="block text-[0.65rem] font-black uppercase tracking-widest text-[var(--ann-accent)] mb-1.5">{DETAILS.occasion === 'birthday' ? 'Gift the celebrant' : 'Gift the couple'}</span>
                     <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] leading-[1.25]">Say it with a gift</h2>
                     <p className={`text-[0.9rem] mt-1.5 mb-4 ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.giftInfo.note || 'Your presence means everything. If you would also love to gift us, it is deeply appreciated.'}</p>
                     <div className="space-y-2.5">
@@ -3902,7 +3904,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>The people and brands behind this celebration.</p>
                 <div className="flex flex-col gap-3">
                   {(partners || []).map((p: any) => (
-                      <PartnerHomeCard key={p.id || p.name} p={p} isDarkMode={isDarkMode} />
+                      <PartnerHomeCard key={p.id || p.name} p={DETAILS.occasion === 'birthday' && (p.id === 'demo-lens' || p.id === 'demo-kiln') ? { ...p, description: p.description.replace('the wedding day', 'the party day').replace('the wedding film', 'the party film') } : p} isDarkMode={isDarkMode} />
                     ))}
                 </div>
               </section>
@@ -3931,10 +3933,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                 <div className="flex flex-col items-center gap-3">
                   <div className="flex flex-col items-center">
                     <h4 className="text-[1.1rem] font-serif-display italic text-[var(--ann-accent)] mb-1">{demoHeader()}</h4>
-                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || `Happy Wedding · ${WED_LONG}`}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{(DETAILS as any)?.footer?.message || (DETAILS.occasion === 'birthday' ? `Happy Birthday · ${WED_LONG}` : `Happy Wedding · ${WED_LONG}`)}</p>
                   </div>
                   <div className="pt-2 opacity-40">
-                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || 'Wedding memories, kept for life'}</p>
+                    <p className="text-[0.65rem] font-bold uppercase tracking-widest">{(DETAILS as any)?.footer?.caption || (DETAILS.occasion === 'birthday' ? 'Birthday memories, kept for life' : 'Wedding memories, kept for life')}</p>
                   </div>
                 </div>
               </footer>
@@ -4284,7 +4286,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                     <label className={`block text-[0.7rem] uppercase tracking-widest font-black mb-2 opacity-50 ${isDarkMode ? 'text-white' : 'text-[#14262D]'}`}>Display Name</label>
                     <input 
                       type="text"
-                      placeholder="e.g. Tolu (the bride's cousin)"
+                      placeholder={DETAILS.occasion === 'birthday' ? "e.g. Tolu (the celebrant's cousin)" : "e.g. Tolu (the bride's cousin)"}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       className={`w-full p-4 rounded-xl border-none outline-none font-bold transition-colors ${isDarkMode ? 'bg-[#0B171C] text-white placeholder-[#5A6970]' : 'bg-[#EEEDF3] text-[#14262D] placeholder-[#93A4AB]'}`}
@@ -4368,18 +4370,18 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <div className={`p-[4px_0] rounded-[20px] border ${isDarkMode ? 'bg-[#13232A] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                 <div className="p-[14px_18px]">
                   <strong className="block text-[1rem]">{demoHeader()}{DEMO ? '' : ' 2026'}</strong>
-                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Wedding Memories Portal. Made with love.</small>
+                  <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Birthday Memories Portal. Made with love.' : 'Wedding Memories Portal. Made with love.'}</small>
                 </div>
                 <div className="p-[14px_18px] flex items-center justify-between gap-4 border-t border-[#DAD8E3] dark:border-[#22363E]">
                   <div>
                     <strong className="block text-[1rem]">Report a problem</strong>
-                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tell the couple if something looks wrong</small>
+                    <small className={`block text-[0.85rem] leading-[1.35] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>{DETAILS.occasion === 'birthday' ? 'Tell the celebrant if something looks wrong' : 'Tell the couple if something looks wrong'}</small>
                   </div>
                   <button onClick={() => { setReportText(''); setReportOpen(true); }} className="inline-flex items-center justify-center gap-2 border-0 rounded-full p-[10px_18px] font-bold bg-[var(--ann-soft)] dark:bg-[#173039] text-[var(--ann-accent)] dark:text-[#4FC3CF] text-sm">Report</button>
                 </div>
                 <div className="p-[14px_18px] border-t border-[#DAD8E3] dark:border-[#22363E] text-center">
                   <span className={`text-xs font-bold tracking-wide select-none ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>
-                    Happy Wedding, {demoHeader()}
+                    {DETAILS.occasion === 'birthday' ? 'Happy Birthday,' : 'Happy Wedding,'} {demoHeader()}
                   </span>
                 </div>
               </div>
@@ -5175,7 +5177,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         <div className="fixed inset-0 z-[9998] bg-black/60 flex items-center justify-center p-5" onClick={() => setReportOpen(false)}>
           <div className={`w-full max-w-[360px] rounded-[24px] p-6 text-left ${isDarkMode ? 'bg-[#0B171C] border border-[#22363E]' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
             <h3 className="font-black font-display text-lg mb-1">Report a problem</h3>
-            <p className="text-sm opacity-60 mb-4">Tell the couple what went wrong. It reaches them with your name{avatar ? ' and photo' : ''}.</p>
+            <p className="text-sm opacity-60 mb-4">{DETAILS.occasion === 'birthday' ? 'Tell the celebrant what went wrong.' : 'Tell the couple what went wrong.'} It reaches them with your name{avatar ? ' and photo' : ''}.</p>
             {displayName.trim() ? (
               <>
                 <textarea
@@ -6816,11 +6818,13 @@ function GiantFooterWall({ images = [], isDarkMode, onTap, thanks, paused }: { i
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
           <span className="text-[clamp(0.85rem,3.1vw,1.3rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
@@ -6841,11 +6845,13 @@ function GiantFooterMarquee({ images = [], onTap, thanks, paused }: { images?: s
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
           <span className="flex-1 border-t border-dashed border-white/60" />
           <span className="text-[clamp(0.8rem,2.9vw,1.15rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
@@ -6879,7 +6885,7 @@ function GiantFooterNames({ bride, groom, wed, thanks, compact = false }: { brid
   return (
     <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
       <small>{(thanks || '').trim() || EVFW_THANKS}</small>
-      <h2>{bride} <i>&amp;</i> {groom}</h2>
+      <h2>{groom ? (<>{bride} <i>&amp;</i> {groom}</>) : bride}</h2>
       <p>{wed}</p>
     </div>
   );
@@ -8343,12 +8349,12 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       {/* Wedding day */}
       {!mockHidden.includes('details') && (
       <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Wedding day</h2>
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'The big day' : 'Wedding day'}</h2>
         <p className="text-[0.8rem] m-[0_4px_10px] text-[#5A6970]">{wedFull}</p>
         <div className="p-[14px_16px] rounded-[16px] border bg-white border-[#DAD8E3] space-y-3">
           {details && details.churchTime && (
             <div>
-              <strong className="block text-[0.85rem]">Church wedding · {details.churchTime}</strong>
+              <strong className="block text-[0.85rem]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'The party' : 'Church wedding'} · {details.churchTime}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">{details.churchVenue}</p>
             </div>
           )}
@@ -8371,7 +8377,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
       
       {/* Feed CTA */}
       <section className="px-5 pt-7">
-        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">Say something to the couple</h2>
+        <h2 className="text-[1.15rem] font-black font-display tracking-[-0.01em] m-[0_4px_10px] leading-[1.25]">{(details?.occasion === 'birthday' || tpl === 'bd-party' || tpl === 'bd-gold') ? 'Say something to the celebrant' : 'Say something to the couple'}</h2>
         <div className="rounded-full bg-[var(--ann-accent)] text-white text-center text-[0.72rem] font-black uppercase tracking-widest py-3">Open the feed</div>
       </section>
       {/* Gifts & support: mirrors the real home section */}
@@ -12224,7 +12230,7 @@ function AdminDashboardModal({
                   <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
                     <h3 className="font-black font-display text-lg mb-4">Behaviour</h3>
                     <div className="space-y-4">
-                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
+                      {([['approve', 'Approve guest posts first', 'New guest posts stay hidden until you approve them. Vendors skip this.', approveGuestPosts], ['push', 'Push notifications', 'Get a notification on this device when someone posts or comments.', pushEnabled], ['archive', weddingDetails?.occasion === 'birthday' || demoBirthday() ? 'Archive mode after the celebration' : 'Archive mode after the wedding', 'Keeps every memory viewable for life but stops new posts and comments.', archiveMode], ['private', 'Public feed', 'Toggle off keeps the feed private: the feed page shows a banner and guests enter your guest access code to see posts and reels. Revoking the code locks the feed again live.', !feedPrivate]] as [string, string, string, boolean][]).map(([k, label, sub, on]) => {
                         const archiveLocked = k === 'archive' && feedPrivate;
                         return (
                         <div key={k} className="flex items-start justify-between gap-3">
