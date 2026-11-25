@@ -1242,6 +1242,26 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       <>
         {head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
         <div className="card">
+          <h3>Event types</h3>
+          <small>Toggle which occasion apps couples can create. Wedding is always on.</small>
+          <div className="row">
+            {(['wedding', 'birthday', 'coronation', 'naming', 'anniversary', 'christmas'] as const).map((k) => {
+              const on = (cat.eventTypes || { wedding: true } as Record<string, boolean>)[k]
+              const labels: Record<string, string> = { wedding: 'Wedding', birthday: 'Birthday', coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' }
+              return (
+                <button
+                  key={k}
+                  className={`chip ${on ? 'on' : ''}`}
+                  disabled={k === 'wedding'}
+                  onClick={() => setCat({ ...cat, eventTypes: { wedding: true, ...(cat.eventTypes || {}), [k]: !on } })}
+                >
+                  {labels[k]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="card">
           <h3>Plans</h3>
           {Object.keys(PL).map((k) => (
             <div className="rw" key={k}>
