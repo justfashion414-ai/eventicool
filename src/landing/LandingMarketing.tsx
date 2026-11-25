@@ -4,7 +4,7 @@ import landingHtml from './landing.html?raw'
 import { runLandingScript } from './landingScript'
 import CelebrationPicker from './CelebrationPicker'
 import { pushRoute } from '../nav'
-import { bySlug, setSavedCelebration, type Celebration } from './celebrations'
+import { bySlug, getSavedCelebration, setSavedCelebration, type Celebration } from './celebrations'
 
 // The prototype ships its own vanilla-JS layer; run it once per page load.
 let ran = false
@@ -85,6 +85,10 @@ export default function LandingMarketing({ type, picker }: { type: string; picke
   }, [])
 
   useEffect(() => {
+    // A direct visit to /<type> is itself a choice: remember it so the
+    // picker doesn't come back on the next visit, without overwriting a
+    // pick the user made explicitly.
+    try { if (!getSavedCelebration() && bySlug[type]) setSavedCelebration(type) } catch { /* ignore */ }
     const prev = bySlug[current] || null
     applyStatic(prev, cel)
     const w = window as unknown as { __evCelebrate?: (o: { b: string; g: string; oc: string }) => void }
