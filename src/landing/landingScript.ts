@@ -402,3 +402,31 @@ function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r
     var lv=function(){try{var sec=Math.max(0,Math.min(7200,Math.round((Date.now()-lt0)/1000)));var bl=new Blob([JSON.stringify({kind:'land_leave',s:sec})],{type:'application/json'});if(navigator.sendBeacon)navigator.sendBeacon('/api/track',bl)}catch(e){}};
     addEventListener('pagehide',lv);
   }catch(e){}
+
+// Hero image carousel: crossfades the active celebration's photos behind the hero text.
+var HB={k:'',i:0,t:0 as unknown as ReturnType<typeof setTimeout>}
+function heroset(list:string[]):void{
+  var el=document.getElementById('heroBg')
+  if(!el||!list||!list.length)return
+  var key=list.join('|')
+  if(HB.k===key)return
+  HB.k=key;HB.i=0
+  var h=''
+  for(var i=0;i<list.length;i++)h+='<i style="background-image:url('+list[i]+')"></i>'
+  el.innerHTML=h
+  var s=el.querySelectorAll('i')
+  if(s[0])(s[0] as HTMLElement).className='on'
+  clearTimeout(HB.t)
+  if(list.length>1)HB.t=setTimeout(function tick(){
+    var box=document.getElementById('heroBg')
+    if(!box)return
+    var q=box.querySelectorAll('i')
+    if(q.length<2)return
+    var n=(HB.i+1)%q.length
+    ;(q[HB.i] as HTMLElement).className=''
+    ;(q[n] as HTMLElement).className='on'
+    HB.i=n
+    HB.t=setTimeout(tick,5200)
+  },5200)
+}
+try{(window as unknown as {__evHero?:(l:string[])=>void}).__evHero=heroset}catch(_e){}

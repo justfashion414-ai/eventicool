@@ -5,6 +5,7 @@ export type Celebration = {
   short: string // vertical widget word
   blurb: string
   tint: string
+  hero: string[]
   b: string
   g: string
   labels: [string, string]
@@ -21,6 +22,7 @@ export type Celebration = {
 export const CELEBRATIONS: Celebration[] = [
   {
     slug: 'wedding', label: 'Wedding', short: 'Wedding', tint: '#2E55D6',
+    hero: ['/demo/photo1.jpg', '/demo/photo3.jpg', '/demo/photo5.jpg'],
     blurb: 'Every stage, from the introduction to the thanksgiving.',
     b: 'Amara', g: 'Daniel', labels: ['Bride', 'Groom'],
     sub: 'Together with their families', giftSub: 'Honeymoon, home and a fresh start', giftNote: 'God bless your union', invite: 'request the honour of your presence',
@@ -29,6 +31,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'birthday', label: 'Birthday', short: 'Birthday', tint: '#FF6B4A',
+    hero: ['/demo/birthday1.jpg', '/demo/birthday2.jpg', '/demo/birthday3.jpg'],
     blurb: 'From the pre-party to the big-N toast.',
     b: 'Chidera', g: 'Friends', labels: ['Celebrant', 'Co-host'],
     sub: 'A birthday to remember', giftSub: 'A new year, new blessings', giftNote: 'More candles, more life!', invite: 'come and turn up with us',
@@ -37,6 +40,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'naming-ceremony', label: 'Naming ceremony', short: 'Naming', tint: '#0C8A5F',
+    hero: ['/hero/naming1.jpg', '/hero/naming2.jpg'],
     blurb: 'Introduce your little one to the whole village.',
     b: 'Adaeze', g: 'Chidi', labels: ['Mother', 'Father'],
     sub: 'Welcome to the world, little one', giftSub: "Toward the little one's future", giftNote: 'God bless this new life!', invite: 'join us as we name our little one',
@@ -45,6 +49,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'coronation', label: 'Coronation', short: 'Coronation', tint: '#B8860B',
+    hero: ['/hero/coronation1.jpg', '/hero/coronation2.jpg'],
     blurb: 'Royal pomp for a chief or king in the making.',
     b: 'Oba Adeyemi', g: 'Royal House', labels: ['Celebrant', 'Court'],
     sub: 'A royal celebration', giftSub: 'Toward the big day', giftNote: 'A long and peaceful reign!', invite: 'grace this royal occasion',
@@ -53,6 +58,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'burial', label: 'Burial & memorial', short: 'Burial', tint: '#5A6478',
+    hero: ['/hero/burial1.jpg', '/hero/burial2.jpg'],
     blurb: 'Honor a life well lived, together.',
     b: 'Pa Emeka', g: 'Family', labels: ['Honouree', 'Family'],
     sub: 'A life well lived', giftSub: 'Standing with the family', giftNote: 'Rest well, we honour you', invite: 'stand with the family',
@@ -61,6 +67,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'anniversary', label: 'Anniversary', short: 'Anniversary', tint: '#D6285F',
+    hero: ['/hero/anniversary1.jpg', '/hero/anniversary2.jpg'],
     blurb: 'Renew the day it all began.',
     b: 'Chidi', g: 'Ngozi', labels: ['Husband', 'Wife'],
     sub: 'Still counting the years together', giftSub: 'A second honeymoon', giftNote: 'Many more decades together', invite: 'celebrate our love story with us',
@@ -69,6 +76,7 @@ export const CELEBRATIONS: Celebration[] = [
   },
   {
     slug: 'christmas', label: 'Christmas', short: 'Christmas', tint: '#0C4A36',
+    hero: ['/hero/christmas1.jpg', '/hero/christmas2.jpg'],
     blurb: 'Gather the family and share the season.',
     b: 'The Okafors', g: 'Family', labels: ['Family', 'Hosts'],
     sub: 'One family, one season', giftSub: 'For the season ahead', giftNote: 'A season of joy for your family!', invite: 'celebrate the season with us',
