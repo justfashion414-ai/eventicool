@@ -11160,7 +11160,7 @@ function AdminDashboardModal({
                           </div>
                         ))}
                         {heroShown.length < 20 && (
-                          <label className="aspect-square rounded-lg border-2 border-dashed border-[var(--ann-accent)]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[var(--ann-accent)]/5 transition-colors">
+                          <label className="aspect-square rounded-lg border-2 border-dashed border-[#7C8B93]/30 flex flex-col items-center justify-center cursor-pointer hover:bg-[#7C8B93]/5 transition-colors">
                             <input
                               type="file"
                               multiple
@@ -11207,10 +11207,10 @@ function AdminDashboardModal({
                               }}
                             />
                             {isBulkUploading ? (
-                              <RefreshCw className="w-5 h-5 text-[var(--ann-accent)] animate-spin" />
+                              <RefreshCw className="w-5 h-5 text-[#7C8B93] animate-spin" />
                             ) : (
                               <>
-                                <Plus className="w-5 h-5 text-[var(--ann-accent)]" />
+                                <Plus className="w-5 h-5 text-[#7C8B93]" />
                                 <span className="text-[10px] font-bold mt-1 uppercase">Add ({20 - heroShown.length})</span>
                               </>
                             )}
