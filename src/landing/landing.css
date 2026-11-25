@@ -367,8 +367,9 @@ body.ev-picker-open{overflow:hidden}
 .ev-side-open:hover{transform:scale(1.06)}
 #ev-l{overflow-x:clip}
 @media (max-width:700px){
- .ev-side{right:10px;top:auto;bottom:16px;transform:none;flex-direction:row;background:transparent;border:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;padding:0}
- .ev-side-word{display:none}
- .ev-side-open{width:36px;height:36px;box-shadow:0 8px 22px rgba(21,31,99,.28)}
+ .ev-side{right:10px;top:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:none;flex-direction:row;align-items:center;gap:8px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid #e3e0f0;border-radius:999px;padding:5px 5px 5px 14px;box-shadow:0 8px 22px rgba(21,31,99,.18)}
+ .ev-side-word{display:flex;flex-direction:row;gap:1px;font-size:10px}
+ .ev-side-open{width:36px;height:36px;box-shadow:0 2px 8px rgba(21,31,99,.25)}
+ #ev-l .totop{right:14px;bottom:calc(78px + env(safe-area-inset-bottom,0px))}
  .evc-grid{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 }
