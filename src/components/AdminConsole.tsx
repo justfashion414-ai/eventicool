@@ -43,6 +43,8 @@ const TP: Record<string, { name: string; tagline: string; bg: string; fg: string
   halo: { name: 'Halo Arc', tagline: 'A crown of photos above your names', bg: '#fbe1e8', fg: '#4a1530', ac: '#d6285f' },
   hero: { name: 'Hero Deck', tagline: 'A sliding cover of your best moments', bg: '#0c4a36', fg: '#f2f8ee', ac: '#f4b393' },
   book: { name: 'Open Book', tagline: 'A hardback book of your photos that turns its own pages', bg: '#2236b4', fg: '#ffffff', ac: '#f6d36b' },
+  'bd-party': { name: 'Birthday balloons', tagline: 'Balloons and confetti with the celebrant and a giant age', bg: '#e5399e', fg: '#ffffff', ac: '#ffd166' },
+  'bd-gold': { name: 'Birthday gold', tagline: 'A gold-ringed portrait on a deep backdrop for milestone ages', bg: '#191007', fg: '#F5E7C8', ac: '#E7C86A' },
 }
 const ACC6: Record<string, { bg: string; ac: string }> = {
   midnight: { bg: '#14122b', ac: '#d8b06a' },
@@ -61,7 +63,7 @@ const tsMs = (v: any): number => {
   return sec ? sec * 1000 : 0
 }
 
-const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' }
+const DEF_ACC: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal', 'bd-party': 'party', 'bd-gold': 'sunbeam' }
 const EV_FOOTER_STYLES = [
   { id: 'wall', n: 'Style 1 · Photo wall', d: 'Grey photo grid with a light scan sweeping the rows' },
   { id: 'marquee', n: 'Style 2 · Marquee', d: 'Dark wall with rounded photo rows drifting past' },
@@ -231,6 +233,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [events, setEvents] = useState<EvDoc[] | null>(null)
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
+  const [tplCat, setTplCat] = useState<string>('wedding')
   const [toast, setToast] = useState('')
   // Storage tab: live Cloudinary usage, per-app breakdown, retention settings.
   const [stor, setStor] = useState<any | null>(null)
@@ -1242,8 +1245,61 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
       <>
         {head('Plans and templates', 'Change what you sell. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
         <div className="card">
-          <h3>Event types</h3>
-          <small>Toggle which occasion apps couples can create. Wedding is always on.</small>
+          <h3>Event templates</h3>
+          <small>Click an event type to see its templates below it. Preview opens the real app.</small>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            {(['wedding', 'birthday', 'coronation', 'naming', 'anniversary', 'christmas'] as const).map((k) => {
+              const labels: Record<string, string> = { wedding: 'Wedding', birthday: 'Birthday', coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' }
+              return (
+                <button key={k} className={`chip ${tplCat === k ? 'on' : ''}`} onClick={() => setTplCat(k)}>{labels[k]}</button>
+              )
+            })}
+          </div>
+          {tplCat === 'wedding' && (
+            <div style={{ marginTop: 10 }}>
+              {(['classic', 'halo', 'hero', 'book'] as const).map((k) => {
+                const meta = cat.tplmeta[k] || {}
+                return (
+                  <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
+                      <small style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</small>
+                    </div>
+                    <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {tplCat === 'birthday' && (
+            <div style={{ marginTop: 10 }}>
+              {(['bd-party', 'bd-gold'] as const).map((k) => {
+                const meta = cat.tplmeta[k] || {}
+                return (
+                  <div className="rw" key={k} style={{ flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <b style={{ fontSize: 15, display: 'block' }}>{meta.name || TP[k].name}</b>
+                      <small style={{ color: 'var(--mut)', fontSize: 13 }}>{meta.d || TP[k].tagline}</small>
+                    </div>
+                    <button className="btn g" onClick={() => window.open(`${location.origin}/app?tpl=${k}&occ=birthday${meta.acc ? `&acc=${meta.acc}` : ''}`, '_blank')}>Preview</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {(tplCat === 'coronation' || tplCat === 'naming' || tplCat === 'anniversary' || tplCat === 'christmas') && (
+            <div className="rw" style={{ marginTop: 10 }}>
+              <div style={{ flex: 1 }}>
+                <b style={{ fontSize: 15 }}>{({ coronation: 'Coronation', naming: 'Naming ceremony', anniversary: 'Anniversary', christmas: 'Christmas' } as Record<string, string>)[tplCat]}</b>
+                <small style={{ color: 'var(--mut)', fontSize: 13 }}>Its template is next on the build list; nothing to preview yet</small>
+              </div>
+              <span className="pl">Soon</span>
+            </div>
+          )}
+        </div>
+        <div className="card">
+          <h3>What couples can create</h3>
+          <small>Toggle which occasion apps couples can create. Wedding stays on: every app is built on it.</small>
           <div className="row">
             {(['wedding', 'birthday', 'coronation', 'naming', 'anniversary', 'christmas'] as const).map((k) => {
               const on = (cat.eventTypes || { wedding: true } as Record<string, boolean>)[k]
