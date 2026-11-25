@@ -310,7 +310,7 @@ const birthdayHashtag = (d: any): string | null => {
 const withDerivedHashtag = (d: any): any => {
   if (!d || typeof d !== 'object') return d;
   if (d.occasion === 'birthday') {
-    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
+    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag)) || String(d.hashtag).toLowerCase() === derivedHashtag().toLowerCase()) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
     return d;
   }
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
@@ -6818,11 +6818,13 @@ function GiantFooterWall({ images = [], isDarkMode, onTap, thanks, paused }: { i
       <div className="relative z-10 flex flex-col items-center text-center px-4 pointer-events-none">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-[var(--ann-accent)]">{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0">{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.4rem,5vw,3rem)] font-serif-display italic leading-none my-1 text-[var(--ann-accent)]">&amp;</div>
         <h2 className="text-[clamp(3.5rem,16.5vw,10rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-[var(--ann-accent)] m-0 flex items-center">
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-6 flex items-center gap-3 justify-center w-full max-w-[420px]">
           <span className="flex-1 border-t border-dashed border-[var(--ann-accent)] opacity-50" />
           <span className="text-[clamp(0.85rem,3.1vw,1.3rem)] font-display font-black tracking-[0.5em] uppercase text-[var(--ann-accent)] opacity-90">{WED_DOT_SPACED}</span>
@@ -6843,11 +6845,13 @@ function GiantFooterMarquee({ images = [], onTap, thanks, paused }: { images?: s
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none px-4">
         <div className="mb-2 text-[clamp(0.55rem,2vw,0.78rem)] font-display font-black uppercase tracking-[0.28em] text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{(thanks || '').trim() || EVFW_THANKS}</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>{demoBride()}</h2>
+        {demoGroom() && (<>
         <div className="text-[clamp(1.1rem,4vw,2rem)] font-serif-display italic leading-none my-1 text-white" style={{ textShadow: '0 2px 20px rgba(7,7,22,0.75)' }}>&amp;</div>
         <h2 className="text-[clamp(2.8rem,12.5vw,6.2rem)] font-serif-display font-medium tracking-[0.02em] leading-[0.95] uppercase text-white m-0 flex items-center" style={{ textShadow: '0 2px 28px rgba(7,7,22,0.75)' }}>
           <span>{demoGroom()}</span>
           <span className="w-[0.13em] h-[0.13em] rounded-full bg-[#C8932A] ml-[0.09em] inline-block" />
         </h2>
+        </>)}
         <div className="mt-4 flex items-center gap-3 justify-center w-full max-w-[380px]">
           <span className="flex-1 border-t border-dashed border-white/60" />
           <span className="text-[clamp(0.8rem,2.9vw,1.15rem)] font-display font-black tracking-[0.5em] uppercase text-white" style={{ textShadow: '0 2px 16px rgba(7,7,22,0.8)' }}>{WED_DOT_SPACED}</span>
@@ -6881,7 +6885,7 @@ function GiantFooterNames({ bride, groom, wed, thanks, compact = false }: { brid
   return (
     <div className={`ev-fw-gn ${compact ? 'ev-fw-gn-sm' : ''}`}>
       <small>{(thanks || '').trim() || EVFW_THANKS}</small>
-      <h2>{bride} <i>&amp;</i> {groom}</h2>
+      <h2>{groom ? (<>{bride} <i>&amp;</i> {groom}</>) : bride}</h2>
       <p>{wed}</p>
     </div>
   );
