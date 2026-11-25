@@ -1339,7 +1339,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                     {k === 'wedding' && (
                       <>
                         {subHead('Event templates', 'Toggle each look on or off, rename it, and pick its accent. Preview opens the real app.')}
-                        {Object.keys(TP).map((tk) => {
+                        {(['classic', 'halo', 'hero', 'book'] as const).map((tk) => {
                           const meta = cat.tplmeta[tk] || {}
                           const acc = meta.acc || DEF_ACC[tk]
                           const pal = ACC6[acc] || TP[tk]
