@@ -926,6 +926,8 @@ const ACCENT_CHOICES: [string, string, string][] = [
   ['royal', 'Royal', '#2236b4'],
   ['sunset', 'Sunset', '#e07a4f'],
   ['sage', 'Sage', '#2e5c45'],
+  ['party', 'Party', '#e5399e'],
+  ['sunbeam', 'Sunbeam', '#ea580c'],
 ];
 const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }> = {
   midnight: { accent: '#14122b', hero: '#0a0917', soft: '#e9e6f2' },
@@ -934,6 +936,8 @@ const ACCENT_VARS: Record<string, { accent: string; hero: string; soft: string }
   royal: { accent: '#2236b4', hero: '#151f63', soft: '#e6eaf9' },
   sunset: { accent: '#e07a4f', hero: '#2b1a12', soft: '#fdeedd' },
   sage: { accent: '#2e5c45', hero: '#1f2b25', soft: '#eef5ef' },
+  party: { accent: '#e5399e', hero: '#8f1650', soft: '#fde5f1' },
+  sunbeam: { accent: '#ea580c', hero: '#7c2d12', soft: '#ffedd5' },
 };
 const TPL_DEFAULT_ACCENT: Record<string, string> = { classic: 'midnight', halo: 'blush', hero: 'emerald', book: 'royal' };
 
@@ -1017,12 +1021,13 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero style: which of the four hero designs the app shows. The link's
   // template decides the starting look; a choice saved in the dashboard always
   // wins and persists like the footer style does.
-  const [heroTpl, setHeroTpl] = useState<'classic' | 'halo' | 'hero' | 'book'>(() => {
+  const HERO_IDS = ['classic', 'halo', 'hero', 'book', 'bd-party', 'bd-gold'];
+  const [heroTpl, setHeroTpl] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(lsKey('hero-tpl'));
-      if (saved === 'classic' || saved === 'halo' || saved === 'hero' || saved === 'book') return saved;
+      if (saved && HERO_IDS.includes(saved)) return saved;
     } catch { /* ignore */ }
-    return (template || 'classic') as 'classic' | 'halo' | 'hero' | 'book';
+    return (template as string) || 'classic';
   });
   const [avatarZoom, setAvatarZoom] = useState<string | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
@@ -2105,7 +2110,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
           setFooterThanks(data.footerThanks);
           try { localStorage.setItem(lsKey('footer-thanks'), data.footerThanks); } catch {}
         }
-        if (data.heroTemplate === 'classic' || data.heroTemplate === 'halo' || data.heroTemplate === 'hero' || data.heroTemplate === 'book') {
+        if (HERO_IDS.includes(data.heroTemplate)) {
           setHeroTpl(data.heroTemplate);
           try { localStorage.setItem(lsKey('hero-tpl'), data.heroTemplate); } catch {}
         }
@@ -2450,7 +2455,20 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // render used to reset the details form while the couple was still typing,
   // so edits in Events & details snapped back before they could save.
   const leadWedDate = leadOverride()?.weddingDate as string | undefined;
-  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents, leadWedDate]);
+  // Birthday apps tell one day, not a journey: until the couple builds their
+  // own running order, the app defaults to a one-day line-up.
+  const birthdayLineup = (): WeddingEvent[] => {
+    const mk = (id: string, name: string, time: string, desc: string): WeddingEvent => ({ id, name, type: 'Birthday line-up', date: WEDDING_DATE, time, desc, status: 'up', images: [] });
+    return [
+      mk('bd-arrive', 'Arrival & red carpet', '12:00', 'Guests arrive, welcome drinks and red carpet photos.'),
+      mk('bd-games', 'Games & dancing', '13:00', 'Party games, competitions and the dance floor opens.'),
+      mk('bd-cake', 'Cake cutting', '15:00', 'The birthday cake comes out and we sing for the celebrant.'),
+      mk('bd-toast', 'Toast & tributes', '15:30', 'Family and friends raise a glass and share tributes.'),
+      mk('bd-photos', 'Photo booth', '16:30', 'Props, backdrops and portraits with the celebrant.'),
+      mk('bd-close', 'Closing & farewell', '18:00', 'Thank you, goodie bags and safe trips home.'),
+    ];
+  };
+  const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : (DETAILS.occasion === 'birthday' ? birthdayLineup() : eventsData())), [cfgEvents, leadWedDate, DETAILS]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
   const DETAILS: any = useMemo(() => withBirthdayDefaults(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || detailsData())))), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
@@ -2720,6 +2738,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const [bdDraft, setBdDraft] = useState<{ celebrant: string; celebrantAge: string; ageHidden: boolean; hostedBy: string }>({ celebrant: '', celebrantAge: '', ageHidden: false, hostedBy: '' });
   useEffect(() => { setBdDraft({ celebrant: String(cfgDetails?.celebrant || ''), celebrantAge: String(cfgDetails?.celebrantAge || ''), ageHidden: !!cfgDetails?.ageHidden, hostedBy: String(cfgDetails?.hostedBy || '') }); }, [cfgDetails]);
   const saveOccasion = (o: 'wedding' | 'birthday') => {
+    // The birthday look lives on brighter accents: when the app still wears
+    // its template's default colour, a switch to Birthday re-dresses it in
+    // the Party palette. A deliberately chosen colour is left alone.
+    if (o === 'birthday' && accentKey === (TPL_DEFAULT_ACCENT[heroTemplate] || 'midnight')) updateAccent('party', true);
     updateWeddingSection({ weddingDetails: { ...(cfgDetails || {}), occasion: o } });
   };
   const saveBirthday = () => {
@@ -2850,7 +2872,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   // Hero style (dashboard setting): which of the four hero designs the app
   // shows. The four templates differ only by their hero, so this switches the
   // look without touching anything else.
-  const updateHeroTemplate = async (t: 'classic' | 'halo' | 'hero' | 'book', quiet = false) => {
+  const updateHeroTemplate = async (t: string, quiet = false) => {
     setHeroTpl(t);
     try { localStorage.setItem(lsKey('hero-tpl'), t); } catch {}
     if (DEMO) { if (!quiet) showToast('Hero style saved for this preview.'); return; }
@@ -3635,6 +3657,8 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
             {heroTemplate === 'halo' && <HaloHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'hero' && <DeckHero images={heroImages} names={demoHeader()} eventNames={EVENTS_VIS.map((e) => e.name)} />}
             {heroTemplate === 'book' && <BookHero images={heroImages} bride={demoBride()} groom={demoGroom()} dotDate={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'bd-party' && <BirthdayHero variant="party" isDarkMode={isDarkMode} images={heroImages} names={demoHeader()} celebrant={DETAILS.celebrant} age={DETAILS.celebrantAge} ageHidden={DETAILS.ageHidden} date={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
+            {heroTemplate === 'bd-gold' && <BirthdayHero variant="gold" isDarkMode={isDarkMode} images={heroImages} names={demoHeader()} celebrant={DETAILS.celebrant} age={DETAILS.celebrantAge} ageHidden={DETAILS.ageHidden} date={heroDotDate} city={demoCity()} hashtag={demoText(DETAILS.hashtag)} eventNames={EVENTS_VIS.map((e) => e.name)} />}
         </div>
 
 
@@ -3727,7 +3751,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
 
               {/* THE JOURNEY — expandable dropdowns, one open at a time */}
               <section id="journey" className="mt-8">
-                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">The journey</h2>
+                <h2 className="text-[1.25rem] font-black font-display tracking-[-0.01em] m-[30px_4px_4px] leading-[1.25]">{DETAILS.occasion === 'birthday' ? "The day's line-up" : 'The journey'}</h2>
                 <p className={`text-[0.9rem] m-[0_4px_14px] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Tap an event to open it.</p>
                 <div className="ml-[10px] pl-[20px] border-l-[3px] border-[#DAD8E3] dark:border-[#22363E] space-y-3">
                   {EVENTS_VIS.map((e, ji) => {
@@ -8471,6 +8495,7 @@ const IV_STYLES = [
   { id: 'envelope', n: 'Gold envelope', d: 'Burgundy & gold-foil envelope opens in 3D', iv: true },
   { id: 'ribbon', n: 'Ribbon & scissors', d: 'A satin bow is snipped open with scissors', iv: true },
   { id: 'doors', n: 'Palace doors', d: 'Gilded palace doors swing open in 3D', iv: true },
+  { id: 'confetti', n: 'Confetti burst', d: 'Balloons and a confetti burst reveal the party details', iv: true },
 ];
 
 // Collapsible invite-form section. Defined at module level on purpose: a local
@@ -8980,7 +9005,7 @@ function InviteCardSection({ isDarkMode, weddingDetails, story, wedDate, showToa
           <label className="block text-[0.7rem] uppercase tracking-widest font-black opacity-50">Card style</label>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {IV_STYLES.map((s) => (
+          {IV_STYLES.filter((s) => s.id !== 'confetti' || weddingDetails?.occasion === 'birthday').map((s) => (
             <div key={s.id} className={`relative rounded-2xl border p-4 cursor-pointer transition-all ${tpl === s.id ? 'border-[var(--ann-accent)] ring-2 ring-[var(--ann-accent)]/30' : isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} onClick={() => setTpl(s.id)}>
               {tpl === s.id && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[var(--ann-accent)] text-white flex items-center justify-center"><Check className="w-3 h-3" /></span>}
               <b className="text-sm font-black block pr-6">{s.n}</b>
@@ -11292,13 +11317,13 @@ function AdminDashboardModal({
                     <h3 className="font-black font-display text-lg mb-1">Hero style</h3>
                     <p className="text-sm opacity-60 mb-3">The design of the photo hero at the top of Home. Tap one and the preview switches to it; it goes live when you save.</p>
                     <div className="flex gap-2 flex-wrap">
-                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book']] as [string, string][]).map(([tk, label]) => (
+                      {([['classic', 'Classic'], ['halo', 'Halo Arc'], ['hero', 'Hero Deck'], ['book', 'Open Book'], ...(weddingDetails?.occasion === 'birthday' ? ([['bd-party', 'Birthday balloons'], ['bd-gold', 'Birthday gold']] as [string, string][]) : [])] as [string, string][]).map(([tk, label]) => (
                         <button key={tk} type="button" onClick={() => setHeroTplDraft(tk as any)} className={`px-4 py-2.5 rounded-full text-[0.7rem] font-black uppercase tracking-widest border transition-colors ${heroTplDraft === tk ? 'bg-[#7C8B93] text-white border-[#7C8B93]' : (isDarkMode ? 'border-[#22363E] text-[#93A4AB]' : 'border-[#DAD8E3] text-[#5A6970]')}`}>
                           {label}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[0.7rem] opacity-50 mt-2">Classic · Halo Arc · Hero Deck · Open Book</p>
+                    <p className="text-[0.7rem] opacity-50 mt-2">{weddingDetails?.occasion === 'birthday' ? 'Classic · Halo Arc · Hero Deck · Open Book · Birthday balloons · Birthday gold' : 'Classic · Halo Arc · Hero Deck · Open Book'}</p>
                   </section>
 
                   <section>
@@ -12861,6 +12886,63 @@ function CountdownRow({ date, time, bigAge }: { date: string; time: string; bigA
 // URLs already pulled into the browser cache this session; lets a remounted
 // hero show its cards immediately instead of waiting on a fresh preload.
 const heroPreloadedUrls = new Set<string>();
+
+// BirthdayHero: the two birthday hero looks. 'party' is the playful one:
+// floating balloons and falling confetti over a bright gradient, the
+// celebrant's name and the giant age numeral. 'gold' is the restrained
+// milestone look: a gold-ringed portrait on a deep, quiet backdrop. Both
+// fall back gracefully when a field is empty so the hero never renders blank.
+function BirthdayHero({ variant, isDarkMode, images, names, celebrant, age, ageHidden, date, city, hashtag, eventNames, compact = false }: { variant: 'party' | 'gold', isDarkMode?: boolean, images?: string[], names?: string, celebrant?: string, age?: string, ageHidden?: boolean, date?: string, city?: string, hashtag?: string, eventNames?: string[], compact?: boolean }) {
+  const who = (celebrant || names || 'Guest of honour').trim();
+  const bigAge = !ageHidden && age ? age : '';
+  const kicker = bigAge ? `${who} turns ${bigAge}` : `It's ${who}'s day`;
+  const line = [date, city].filter(Boolean).join(' \u00b7 ');
+  const lineup = (eventNames || []).slice(0, 5).join(' \u00b7 ');
+  const picks = (images || []).slice(0, 3);
+  if (variant === 'gold') {
+    return (
+      <div className="relative w-full overflow-hidden" style={{ minHeight: compact ? '420px' : '78vh', background: 'radial-gradient(120% 100% at 50% 0%, #3d2c12 0%, #191007 55%, #0c0805 100%)' }}>
+        <div className="absolute inset-0 opacity-[0.13]" style={{ background: 'radial-gradient(circle at 18% 22%, #E7C86A 0, transparent 3px), radial-gradient(circle at 82% 14%, #E7C86A 0, transparent 2.5px), radial-gradient(circle at 64% 78%, #E7C86A 0, transparent 2px), radial-gradient(circle at 30% 84%, #E7C86A 0, transparent 2.5px)', backgroundSize: '220px 220px' }} />
+        <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-14">
+          <p className="m-0 text-[0.72rem] font-black uppercase tracking-[0.3em] text-[#E7C86A]/80">{kicker}</p>
+          {picks[0] && <div className="mt-6 w-44 h-44 sm:w-56 sm:h-56 rounded-full p-[3px]" style={{ border: '3px solid #C9A227', boxShadow: '0 0 0 7px rgba(201,162,39,0.18), 0 30px 60px rgba(0,0,0,0.5)' }}><img src={picks[0]} alt={who} className="w-full h-full object-cover rounded-full" /></div>}
+          <h2 className="text-center font-serif-display m-0 mt-7 text-[#F5E7C8] text-[clamp(2.6rem,12vw,3.6rem)] leading-[1]">{who}</h2>
+          {bigAge && <div className="text-center font-serif-display text-[clamp(3rem,15vw,4.6rem)] leading-[0.95] mt-1" style={{ color: '#E7C86A' }}>{bigAge}</div>}
+          {line && <p className="m-0 mt-4 text-[0.9rem] tracking-wide text-[#E7C86A]/70">{line}</p>}
+          {hashtag && <span className="mt-4 px-4 py-1.5 rounded-full text-[0.8rem] font-bold text-[#E7C86A]" style={{ border: '1px solid rgba(231,200,106,0.45)' }}>{hashtag}</span>}
+          {lineup && <p className="m-0 mt-5 text-[0.78rem] text-[#F5E7C8]/55 max-w-[32ch] mx-auto leading-relaxed">{lineup}</p>}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="relative w-full overflow-hidden" style={{ minHeight: compact ? '420px' : '78vh', background: 'radial-gradient(130% 110% at 50% 0%, #ff9ec2 0%, #e5399e 40%, #7a1440 100%)' }}>
+      {['#ffd166', '#7dd3fc', '#c084fc', '#fb7185', '#a3e635', '#f9a8d4'].map((c, i) => (
+        <span key={i} aria-hidden className="absolute rounded-full" style={{ width: 34 + (i % 3) * 16, height: 42 + (i % 3) * 20, left: `${6 + i * 15}%`, top: `${12 + (i % 4) * 18}%`, background: c, opacity: 0.85, animation: `bdFloat ${7 + (i % 3) * 2}s ease-in-out ${i * 0.7}s infinite` }} />
+      ))}
+      {Array.from({ length: 18 }).map((_, i) => (
+        <span key={`c${i}`} aria-hidden className="absolute w-2 h-2 rounded-[2px]" style={{ left: `${(i * 53) % 100}%`, top: '-10px', background: ['#ffd166', '#7dd3fc', '#c084fc', '#fb7185', '#a3e635', '#f9a8d4'][i % 6], animation: `bdFall ${5 + (i % 4)}s linear ${(i % 6) * 0.8}s infinite` }} />
+      ))}
+      <style>{`@keyframes bdFloat{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-18px) rotate(4deg)}}@keyframes bdFall{0%{transform:translateY(0) rotate(0)}100%{transform:translateY(92vh) rotate(340deg)}}`}</style>
+      <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-14">
+        <span className="px-3 py-1 rounded-full bg-white/25 backdrop-blur text-white text-[0.68rem] font-black uppercase tracking-[0.28em]">Birthday</span>
+        <p className="m-0 mt-4 text-white text-[1rem] font-semibold">{kicker}</p>
+        <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.8rem)] leading-[1] mt-2 mb-0">{who}</h2>
+        {bigAge && <div className="font-black text-white/95 text-[clamp(5rem,26vw,8rem)] leading-[0.85] mt-1 drop-shadow-[0_6px_24px_rgba(0,0,0,0.25)]">{bigAge}</div>}
+        {line && <p className="m-0 mt-3 text-white/90 text-[0.9rem] tracking-wide">{line}</p>}
+        {hashtag && <span className="mt-4 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur text-white text-[0.8rem] font-bold">{hashtag}</span>}
+        {picks.length > 0 && (
+          <div className="mt-7 flex items-center gap-2">
+            {picks.map((src, i) => (
+              <img key={i} src={src} alt={`${who} ${i + 1}`} className={`w-20 h-24 sm:w-24 sm:h-28 object-cover rounded-xl shadow-lg bg-white/30 ${i === 1 ? 'rotate-2' : '-rotate-2'}`} />
+            ))}
+          </div>
+        )}
+        {lineup && <p className="m-0 mt-5 text-white/80 text-[0.78rem] max-w-[32ch] mx-auto leading-relaxed">{lineup}</p>}
+      </div>
+    </div>
+  );
+}
 
 function FloatingHeroSection({ isDarkMode, images, eventNames, compact = false }: { isDarkMode: boolean, images: string[], eventNames?: string[], compact?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
