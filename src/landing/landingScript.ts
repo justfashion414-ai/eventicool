@@ -390,7 +390,7 @@ function secscroll(){var w=document.getElementById('secwrap');if(!w)return;var r
   if(tt){var ttu=function(){tt.classList.toggle('on',(scrollY||0)>600)};addEventListener('scroll',ttu,{passive:true});ttu();tt.addEventListener('click',function(){scrollTo({top:0,behavior:'smooth'})});}
   // Celebration hook: the React landing layer swaps the demo data for the
   // active event type without re-running the whole script.
-  (window as unknown as {__evCelebrate?:unknown}).__evCelebrate=function(o){if(!o)return P.oc;if(o.b)P.b=o.b;if(o.g)P.g=o.g;if(o.oc)P.oc=o.oc;if(o.gn&&G&&G.l)G.l[0][2]=o.gn;try{var eb=document.getElementById('b'),eg=document.getElementById('g'),mb=document.getElementById('mb'),mg=document.getElementById('mg');if(eb)eb.value=P.b;if(eg)eg.value=P.g;if(mb)mb.value=P.b;if(mg)mg.value=P.g}catch(e){};draw();lkdraw();galbuild();try{if(typeof apdraw==='function')apdraw()}catch(e){};try{if(typeof lcdraw==='function')lcdraw()}catch(e){};return P.oc};
+  (window as unknown as {__evCelebrate?:unknown}).__evCelebrate=function(o){if(!o)return P.oc;if(o.b)P.b=o.b;if(o.g)P.g=o.g;if(o.oc)P.oc=(o.oc==='naming-ceremony'?'naming':o.oc);if(o.gn&&G&&G.l)G.l[0][2]=o.gn;try{var eb=document.getElementById('b'),eg=document.getElementById('g'),mb=document.getElementById('mb'),mg=document.getElementById('mg');if(eb)eb.value=P.b;if(eg)eg.value=P.g;if(mb)mb.value=P.b;if(mg)mg.value=P.g}catch(e){};draw();lkdraw();galbuild();try{if(typeof apdraw==='function')apdraw()}catch(e){};try{if(typeof lcdraw==='function')lcdraw()}catch(e){};return P.oc};
 }
   // Landing traffic: a visit ping on load, time on page sent on leave, and a
   // signup ping when a visitor creates their app. The counts land in the
