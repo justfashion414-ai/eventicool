@@ -297,10 +297,30 @@ const derivedHashtag = (): string => {
 };
 // A saved hashtag that is still the demo placeholder (or empty) falls back to
 // the couple's own derived one; anything they typed themselves stays.
+// Birthday apps derive their own hashtag: the celebrant and the age they
+// turn (#TundeAt50), or #TundeBirthday when the age is hidden. A hashtag the
+// couple typed themselves still wins.
+const birthdayHashtag = (d: any): string | null => {
+  const cap = (v: string) => (v || '').replace(/[^a-zA-Z]/g, '').replace(/^./, (c) => c.toUpperCase());
+  const c = cap(d.celebrant || '');
+  if (!c) return null;
+  const age = String(parseInt(String(d.celebrantAge || ''), 10) || '');
+  return d.ageHidden || !age ? `#${c}Birthday` : `#${c}At${age}`;
+};
 const withDerivedHashtag = (d: any): any => {
   if (!d || typeof d !== 'object') return d;
+  if (d.occasion === 'birthday') {
+    if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: birthdayHashtag(d) || derivedHashtag() };
+    return d;
+  }
   if (!d.hashtag || /^#AmaraAndDaniel$/i.test(String(d.hashtag))) return { ...d, hashtag: derivedHashtag() };
   return d;
+};
+// The birthday fields exist on every app's details; they only matter once the
+// occasion is a birthday.
+const withBirthdayDefaults = (d: any): any => {
+  if (!d || typeof d !== 'object') return d;
+  return { celebrant: '', celebrantAge: '', ageHidden: false, hostedBy: '', ...d, occasion: d.occasion === 'birthday' ? 'birthday' : 'wedding' };
 };
 
 // A rename carries the names through the words already saved: the story text
@@ -2432,7 +2452,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
   const leadWedDate = leadOverride()?.weddingDate as string | undefined;
   const EVENTS: WeddingEvent[] = useMemo(() => (cfgEvents && cfgEvents.length ? cfgEvents : eventsData()), [cfgEvents, leadWedDate]);
   const STORY: string = cfgStory && cfgStory.trim() ? cfgStory : demoStory();
-  const DETAILS: any = useMemo(() => withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || detailsData()))), [cfgDetails]);
+  const DETAILS: any = useMemo(() => withBirthdayDefaults(withDerivedHashtag(withDerivedAccountName(withGiftDefaults(cfgDetails || detailsData())))), [cfgDetails]);
   const EVENTS_VIS: WeddingEvent[] = EVENTS.filter((e: any) => !e.hidden);
   const HIDDEN_SECTIONS: string[] = (DETAILS && DETAILS.hiddenSections) || [];
 
@@ -2694,6 +2714,16 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
       showToast('Could not save. Please try again.', 'error');
       return false;
     }
+  };
+
+  // Birthday pack: the occasion and celebrant details, saved with the details.
+  const [bdDraft, setBdDraft] = useState<{ celebrant: string; celebrantAge: string; ageHidden: boolean; hostedBy: string }>({ celebrant: '', celebrantAge: '', ageHidden: false, hostedBy: '' });
+  useEffect(() => { setBdDraft({ celebrant: String(cfgDetails?.celebrant || ''), celebrantAge: String(cfgDetails?.celebrantAge || ''), ageHidden: !!cfgDetails?.ageHidden, hostedBy: String(cfgDetails?.hostedBy || '') }); }, [cfgDetails]);
+  const saveOccasion = (o: 'wedding' | 'birthday') => {
+    updateWeddingSection({ weddingDetails: { ...(cfgDetails || {}), occasion: o } });
+  };
+  const saveBirthday = () => {
+    updateWeddingSection({ weddingDetails: { ...(cfgDetails || {}), occasion: 'birthday', ...bdDraft, celebrantAge: String(parseInt(bdDraft.celebrantAge || '', 10) || '') } });
   };
 
   // Saves the couple's names and the intro words around them (Events & photos
@@ -3632,13 +3662,22 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
               <div className="rounded-[28px] p-[26px_22px_26px] text-[#F2F7F8] relative overflow-hidden shadow-xl" style={{
                 background: 'linear-gradient(135deg, var(--ann-hero) 0%, #3A2F63 100%)'
               }}>
-                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">{cfgIdentity?.kicker || 'Together with their families'}</p>
-                <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
-                  {demoBride()}
-                  <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
-                  {demoGroom()}
-                </h2>
+                <p className="m-0 text-center text-[0.92rem] font-medium text-[#C8932A]">{DETAILS.occasion === 'birthday' && DETAILS.celebrant ? ((DETAILS.ageHidden || !DETAILS.celebrantAge) ? `It's ${DETAILS.celebrant}'s day` : `${DETAILS.celebrant} turns ${DETAILS.celebrantAge}`) : (cfgIdentity?.kicker || 'Together with their families')}</p>
+                {DETAILS.occasion === 'birthday' && DETAILS.celebrant ? (
+                  <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
+                    {DETAILS.celebrant}
+                    {!DETAILS.ageHidden && DETAILS.celebrantAge && <span className="block text-[clamp(4.5rem,24vw,7rem)] text-[#C8932A] leading-[0.9] mt-1">{DETAILS.celebrantAge}</span>}
+                  </h2>
+                ) : (
+                  <h2 className="text-center font-serif-display text-white text-[clamp(2.7rem,13vw,3.6rem)] leading-[1] mt-3 mb-0">
+                    {demoBride()}
+                    <span className="block italic text-[clamp(1.3rem,6vw,1.6rem)] text-[#C8932A] my-2">and</span>
+                    {demoGroom()}
+                  </h2>
+                )}
                 <p className="text-center text-[0.95rem] opacity-[0.85] mt-4 mb-0 max-w-[34ch] mx-auto leading-snug">{cfgIdentity?.tagline || 'are getting married. Share every moment with us, from the first introduction to the last dance.'}</p>
+
+                {DETAILS.occasion === 'birthday' && DETAILS.hostedBy && <p className="m-0 text-center text-[0.85rem] opacity-80 mt-2">Hosted by {DETAILS.hostedBy}</p>}
 
                 {phase === 'before' && (
                   <div className="mt-5 mx-auto bg-white/10 border border-white/25 rounded-[18px] py-3.5 backdrop-blur-md">
@@ -3652,7 +3691,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                         <span className="block text-[0.68rem] uppercase tracking-wider opacity-75 mt-1.5">Nigeria</span>
                       </div>
                     </div>
-                    <CountdownRow date={WEDDING_DATE} time={WEDDING_TIME} />
+                    <CountdownRow date={WEDDING_DATE} time={WEDDING_TIME} bigAge={DETAILS.occasion === 'birthday' && !DETAILS.ageHidden && DETAILS.celebrantAge ? DETAILS.celebrantAge : undefined} />
                   </div>
                 )}
 
@@ -3770,7 +3809,7 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
                   <div className={`border-t ${isDarkMode ? 'border-[#22363E]' : 'border-[#DAD8E3]'}`} />
                   <DressMockup outfit={(DETAILS || {}).dressOutfit} isDarkMode={isDarkMode} />
                   <div>
-                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
+                    <strong className="block text-[0.93rem] flex items-center gap-2 flex-wrap">{DETAILS.occasion === 'birthday' ? 'Dress code:' : 'Aso-ebi:'}{(DETAILS.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(DETAILS.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-4 h-4 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${DETAILS.asoEbi || ''}`}</strong>
                     <p className={`m-0 text-[0.9rem] ${isDarkMode ? 'text-[#93A4AB]' : 'text-[#5A6970]'}`}>Share your looks with <span className="font-bold text-[var(--ann-accent)] dark:text-[#2FB3BF]">{demoText(DETAILS.hashtag)}</span></p>
                   </div>
                 </div>
@@ -4383,6 +4422,10 @@ export default function AnniversaryPortal({ onBackToMain, previewMode, template,
         setIdDraft={setIdDraft}
         onSaveIdentity={startIdentitySave}
         idBase={cfgIdentity}
+        bdDraft={bdDraft}
+        setBdDraft={setBdDraft}
+        saveOccasion={saveOccasion}
+        saveBirthday={saveBirthday}
         vendors={vendors}
         partners={partners}
         blockedUids={blockedUids}
@@ -8290,7 +8333,7 @@ function PreviewHomeMockup({ bride, groom, city, wedDate, events, story, details
           {details && details.dressOutfit && <DressMockup outfit={details.dressOutfit} isDarkMode={false} />}
           {details && details.asoEbi && (
             <div>
-              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">Aso-ebi:{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
+              <strong className="block text-[0.85rem] flex items-center gap-2 flex-wrap">{details.occasion === 'birthday' ? 'Dress code:' : 'Aso-ebi:'}{(details.dressColors || []).filter(Boolean).length ? <span className="inline-flex gap-1.5">{(details.dressColors || []).filter(Boolean).map((c: any, i: number) => <span key={i} title={colorNameOf(c)} className="inline-block w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm" style={{ background: colorHexOf(c) }} />)}</span> : ` ${details.asoEbi || ''}`}</strong>
               <p className="m-0 text-[0.8rem] text-[#5A6970]">Share your looks with <span className="font-bold text-[var(--ann-accent)]">{(details && details.hashtag) || ''}</span></p>
             </div>
           )}
@@ -9305,6 +9348,10 @@ function AdminDashboardModal({
   setIdDraft,
   onSaveIdentity,
   idBase,
+  bdDraft,
+  setBdDraft,
+  saveOccasion,
+  saveBirthday,
 }: any) {
   const [newCode, setNewCode] = useState(activeCode ?? '');
   const [revokeArmed, setRevokeArmed] = useState(false);
@@ -11087,6 +11134,26 @@ function AdminDashboardModal({
                     <p className="text-sm opacity-60 mt-0.5">Everything about the day in one place. Edits show in the preview straight away; the Save bar at the bottom sends them to your app. The eye button on a section hides it from your app until you bring it back.</p>
                   </div>
 
+                  {/* OCCASION & CELEBRANT: what the app is for and, on a birthday, who it celebrates. */}
+                  <div className={`rounded-[20px] p-5 border ${isDarkMode ? 'bg-[#0B171C] border-[#22363E]' : 'bg-white border-[#DAD8E3]'}`}>
+                    <h3 className="font-black font-display text-lg mb-1">Occasion &amp; celebrant</h3>
+                    <p className="text-sm opacity-60 mb-4">What the app is for. Birthday adds the celebrant's name, the age they turn and who is hosting.</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {(['wedding', 'birthday'] as const).map((o) => (
+                        <button key={o} type="button" onClick={() => saveOccasion(o)} className={`px-4 py-2 rounded-full text-sm font-semibold border ${weddingDetails?.occasion === o ? 'bg-[var(--ann-accent)] text-white border-transparent' : (isDarkMode ? 'border-[#22363E] text-white/80' : 'border-[#DAD8E3]')}`}>{o === 'wedding' ? 'Wedding' : 'Birthday'}</button>
+                      ))}
+                    </div>
+                    {weddingDetails?.occasion === 'birthday' && (
+                      <div className="space-y-3">
+                        <input value={bdDraft.celebrant} onChange={(e) => setBdDraft({ ...bdDraft, celebrant: e.target.value })} placeholder="Celebrant's name, e.g. Tunde" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <input value={bdDraft.celebrantAge} onChange={(e) => setBdDraft({ ...bdDraft, celebrantAge: e.target.value.replace(/[^0-9]/g, '').slice(0, 3) })} inputMode="numeric" placeholder="The age they turn, e.g. 50" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!bdDraft.ageHidden} onChange={(e) => setBdDraft({ ...bdDraft, ageHidden: e.target.checked })} /> Hide the age everywhere</label>
+                        <input value={bdDraft.hostedBy} onChange={(e) => setBdDraft({ ...bdDraft, hostedBy: e.target.value })} placeholder="Who is hosting? e.g. The Adeyemi family" className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-transparent ${isDarkMode ? 'border-[#22363E] text-white' : 'border-[#DAD8E3]'}`} />
+                        <button type="button" onClick={saveBirthday} className="px-5 py-2.5 rounded-full text-sm font-bold bg-[var(--ann-accent)] text-white">Save occasion details</button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* THE COUPLE: the names and the words around them, editable.
                       A couple's signup names are no longer locked in; a change
                       rides the boot overlay, so every name spot follows. */}
@@ -12761,7 +12828,7 @@ function RollNum({ value }: { value: string }) {
   );
 }
 
-function CountdownRow({ date, time }: { date: string; time: string }) {
+function CountdownRow({ date, time, bigAge }: { date: string; time: string; bigAge?: string }) {
   const target = new Date(`${date}T${time}:00`).getTime();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -12774,7 +12841,7 @@ function CountdownRow({ date, time }: { date: string; time: string }) {
   const m = Math.floor((left % 3600000) / 60000);
   const sec = Math.floor((left % 60000) / 1000);
   const units: [string, string][] = [
-    [String(d), 'Days'],
+    [String(d), bigAge ? `to the big ${bigAge}` : 'Days'],
     [String(h).padStart(2, '0'), 'Hours'],
     [String(m).padStart(2, '0'), 'Mins'],
     [String(sec).padStart(2, '0'), 'Secs'],
