@@ -18,7 +18,7 @@ function applyStatic(from: Celebration | null, to: Celebration) {
   const root = document.getElementById('ev-l')
   if (root && from !== to) {
     const steps: Array<[Celebration | null, Celebration]> = []
-    if (from) steps.push([from, bySlug.wedding])
+    if (from && from.slug !== to.slug && from.slug !== 'wedding') steps.push([from, bySlug.wedding])
     if (to.slug !== 'wedding') steps.push([bySlug.wedding, to])
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     const nodes: Text[] = []
