@@ -33,10 +33,10 @@ const CONSOLE_CACHE_KEY = 'ev-console-cache-v1'
 import { proxyCall } from '../firebase'
 
 /* ---- catalog constants (real product values) ---- */
-const PL: Record<string, { name: string; price: number; gb: number }> = {
-  essential: { name: 'Essential', price: 30000, gb: 5 },
-  complete: { name: 'Complete', price: 50000, gb: 10 },
-  legacy: { name: 'Legacy', price: 100000, gb: 20 },
+const PL: Record<string, { name: string; price: number; gb: number; types: number }> = {
+  essential: { name: 'Essential', price: 30000, gb: 5, types: 1 },
+  complete: { name: 'Complete', price: 50000, gb: 10, types: 3 },
+  legacy: { name: 'Legacy', price: 100000, gb: 20, types: 5 },
 }
 const TP: Record<string, { name: string; tagline: string; bg: string; fg: string; ac: string }> = {
   classic: { name: 'Classic', tagline: 'The signature look', bg: '#14122b', fg: '#f4e9d3', ac: '#d8b06a' },
@@ -244,7 +244,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
   const [events, setEvents] = useState<EvDoc[] | null>(null)
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
   const [cat, setCat] = useState<Cat | null>(null)
-  const [openType, setOpenType] = useState<string | null>('wedding')
+  const [openType, setOpenType] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   // Storage tab: live Cloudinary usage, per-app breakdown, retention settings.
   const [stor, setStor] = useState<any | null>(null)
@@ -1251,10 +1251,10 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   function catalogSection() {
     if (!cat) {
-      return <>{head('Templates', 'Turn event types and their looks on or off. Preview opens the real app.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
+      return <>{head('Templates', 'Tap an event type to see its templates, footers and invites below. Preview opens the real app.')}<div className="card"><div className="st"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading…</div></div></>
     }
-    const TYPES: { k: string; label: string; locked?: boolean }[] = [
-      { k: 'wedding', label: 'Wedding', locked: true },
+    const TYPES: { k: string; label: string }[] = [
+      { k: 'wedding', label: 'Wedding' },
       { k: 'birthday', label: 'Birthday' },
       { k: 'coronation', label: 'Coronation' },
       { k: 'naming', label: 'Naming ceremony' },
@@ -1302,42 +1302,27 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
         ))}
       </>
     )
+    const SEL = TYPES.find((t) => t.k === openType)
     return (
       <>
-        {head('Templates', 'Turn an event type on or off, then tap it to see its templates, footers and invites below. Preview opens the real app. Changes apply to new sign-ups.', <button className="btn" onClick={saveCatalog}>Save changes</button>)}
+        {head('Templates', 'Tap an event type to see its templates, footers and invites below. Preview opens the real app. Changes apply to new sign-ups.')}
         <div className="card">
-          {TYPES.map(({ k, label, locked }, ti) => {
-            const on = k === 'wedding' ? true : !!(cat.eventTypes || {})[k]
-            const open = openType === k
-            return (
-              <div key={k} style={ti ? { borderTop: '1px solid #ecebf3', marginTop: 14, paddingTop: 14 } : undefined}>
-                <div className="rw" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                  <button
-                    className="border-0 bg-transparent p-0 cursor-pointer text-left"
-                    style={{ flex: 1, minWidth: 180 }}
-                    aria-expanded={open}
-                    onClick={() => setOpenType(open ? null : k)}
-                  >
-                    <b style={{ fontSize: 15.5 }}>{label}</b>
-                    <small style={{ display: 'block', color: 'var(--mut)', fontSize: 12.5 }}>
-                      {locked ? 'Always on: every app is built on it' : on ? 'Couples can create this' : 'Hidden from couples'}
-                    </small>
-                  </button>
-                  <div className="row">
-                    <button className="btn g s" aria-label={`${open ? 'Hide' : 'Show'} ${label}`} onClick={() => setOpenType(open ? null : k)}>{open ? 'Hide' : 'Show'}</button>
-                    <span
-                      className={`sw ${on ? 'on' : ''}`}
-                      role="switch"
-                      aria-checked={on}
-                      aria-label={`Toggle ${label} apps`}
-                      style={locked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-                      onClick={() => { if (locked) return; setCat({ ...cat, eventTypes: { wedding: true, ...(cat.eventTypes || {}), [k]: !on } }) }}
-                    />
-                  </div>
-                </div>
-                {open && (
-                  <div style={{ marginTop: 6 }}>
-                    {k === 'wedding' && (
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            {TYPES.map(({ k, label }) => (
+              <button
+                key={k}
+                className="chip"
+                aria-pressed={openType === k}
+                onClick={() => setOpenType(openType === k ? null : k)}
+                style={openType === k ? { background: 'var(--ok)', borderColor: 'var(--ok)', color: '#fff' } : undefined}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {openType && (
+            <div style={{ marginTop: 18 }}>
+                    {openType === 'wedding' && (
                       <>
                         {subHead('Event templates', 'Toggle each look on or off, rename it, and pick its accent. Preview opens the real app.')}
                         {(['classic', 'halo', 'hero', 'book'] as const).map((tk) => {
@@ -1396,7 +1381,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                         {inviteRows('The invitation cards couples send their guests from the app\'s Inbox invite section. Preview opens the full card, opening animation included.', ['Amara', 'Daniel'], '2027-06-12 14:00', 'The Grand Pavilion')}
                       </>
                     )}
-                    {k === 'birthday' && (
+                    {openType === 'birthday' && (
                       <>
                         {subHead('Event templates', 'Toggle each look on or off, then pick its palette. Preview opens the real birthday app.')}
                         {(['bd-party', 'bd-gold'] as const).map((tk) => {
@@ -1432,20 +1417,20 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
                         {inviteRows('Same looks as the wedding invites for now; birthday\'s own invites swap in here when they land.', ['Chidera', ''], '2027-03-25 12:00', 'The Grand Marquee')}
                       </>
                     )}
-                    {k !== 'wedding' && k !== 'birthday' && (
+                    {openType !== 'wedding' && openType !== 'birthday' && (
                       <div className="rw">
                         <div>
-                          <b style={{ fontSize: 15 }}>Templates for {label.toLowerCase()}</b>
+                          <b style={{ fontSize: 15 }}>Templates for {(SEL?.label || '').toLowerCase()}</b>
                           <small style={{ display: 'block', color: 'var(--mut)', fontSize: 13 }}>Next on the build list; nothing to preview yet</small>
                         </div>
                         <span className="pl">Soon</span>
                       </div>
                     )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+            </div>
+          )}
+          <div className="row" style={{ marginTop: 18 }}>
+            <button className="btn g" disabled={busy} onClick={saveCatalog}>Save changes</button>
+          </div>
         </div>
       </>
     )
@@ -1649,7 +1634,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
           <>
           {Object.keys(PL).map((k) => (
             <div className="rw" key={k}>
-              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].gb} GB of photos and videos</small></div>
+              <div style={{ flex: 1 }}><b>{PL[k].name}</b><small>{PL[k].types} event type{PL[k].types === 1 ? '' : 's'} · {PL[k].gb} GB of photos and videos</small></div>
               <div className="row">
                 <input
                   value={cat.prices[k] ?? PL[k].price}
