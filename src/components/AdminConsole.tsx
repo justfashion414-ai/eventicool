@@ -465,6 +465,9 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
     let alive = true
     if (user?.uid === 'demo') {
       setEvents(DEMO_EVENTS)
+      // The demo console has no console session, so the catalog never loads
+      // from Firestore: hand it the defaults so the Templates section works.
+      setCat(DEFAULT_CAT)
       let ids: string[] = []
       try { ids = JSON.parse(localStorage.getItem('eventicor-leads-demo') || '[]') as string[] } catch { /* fresh console */ }
       const stored = ids.map((id) => { try { return JSON.parse(localStorage.getItem(`ev-lead-${id}`) || 'null') } catch { return null } }).filter(Boolean) as LeadDoc[]
@@ -831,6 +834,7 @@ export default function AdminConsole({ user, onSignOut, initialNavOpen = false }
 
   async function saveCatalog() {
     if (!cat) return
+    if (user?.uid === 'demo') { say('Saved (demo)'); return }
     setBusy(true)
     try {
       await consoleCall('set', { collection: 'platform', id: 'catalog', data: cat })
